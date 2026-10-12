@@ -142,3 +142,42 @@ func TestCheckVersionChangeCompat_AllowsCompatibleChange(t *testing.T) {
 		t.Fatalf("expected core 0.0.9 to satisfy >=0.0.4 <0.1.0, got %v", err)
 	}
 }
+
+// A set that moves core past an installed package's bounded range AND moves that
+// package too must pass: the installed manifest's range belongs to the version
+// being replaced. This is the 0.6.3 -> 0.7.0 release that every feature blocked.
+func TestCheckVersionChangeCompat_IgnoresReplacedPackagesRequirements(t *testing.T) {
+	app := newRegistryOnlyApp(t)
+	installRegistryRow(t, app, "core", "0.6.3")
+	registryRowWithManifest(t, app, "gizmos", "1.0.0",
+		`{"peerVersions":{"@tinycld/core":">=0.6.3 <0.7.0"}}`)
+
+	err := checkVersionChangeCompat(app, []installjob.VersionChange{
+		{Slug: "core", TargetVersion: "0.7.0"},
+		{Slug: "gizmos", TargetVersion: "1.1.0"},
+	})
+	if err != nil {
+		t.Fatalf("expected gizmos's replaced range not to block the set, got %v", err)
+	}
+}
+
+// In the same set, a package the set leaves untouched still constrains it.
+func TestCheckVersionChangeCompat_UntouchedPackageStillBlocks(t *testing.T) {
+	app := newRegistryOnlyApp(t)
+	installRegistryRow(t, app, "core", "0.6.3")
+	registryRowWithManifest(t, app, "gizmos", "1.0.0",
+		`{"peerVersions":{"@tinycld/core":">=0.6.3 <0.7.0"}}`)
+	registryRowWithManifest(t, app, "widgets", "2.0.0",
+		`{"peerVersions":{"@tinycld/core":">=0.6.3 <0.7.0"}}`)
+
+	err := checkVersionChangeCompat(app, []installjob.VersionChange{
+		{Slug: "core", TargetVersion: "0.7.0"},
+		{Slug: "gizmos", TargetVersion: "1.1.0"},
+	})
+	if err == nil {
+		t.Fatal("expected widgets, left at 2.0.0, to refuse core 0.7.0")
+	}
+	if !strings.Contains(err.Error(), "widgets") || strings.Contains(err.Error(), "gizmos") {
+		t.Fatalf("error should name widgets only, got: %v", err)
+	}
+}
