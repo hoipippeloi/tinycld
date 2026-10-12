@@ -25,8 +25,9 @@ import { pathToFileURL } from 'node:url'
 //     fixes the kanban board drag depends on.
 //
 // TINYCLD_SERVER_REBUILD: the server (OTA) build pipeline sets this on its
-// `pnpm install`. Builds must keep the pins the ACTIVE build shipped with
-// (frozen at the embedded native binary's versions), and their
+// `pnpm install`. Builds must keep the pin file the Go pipeline wrote: the
+// ACTIVE build's pins (frozen at the embedded native binary's versions), or
+// the target's own on a new runtime lane (pkgbuild.AdoptTargetPins). Their
 // pnpm-workspace.yaml is Go-written and carries a storeDir: this script must
 // not touch either. Under the flag only the root biome.json is written.
 

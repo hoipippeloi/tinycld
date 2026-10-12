@@ -69,6 +69,31 @@ func copyMemberFromCurrent(ms MemberSpec, buildDir string) (string, error) {
 // SSE/install-log sink, the host MemberSource, and the active root as the
 // scaffold source.
 func assembleBuild(job *installjob.Job, m RebuildManifest, buildDir string) error {
-	return pkgbuild.AssembleBuild(installJobSink{job}, m, buildDir,
-		hostMemberSource{}, currentWorkspaceRoot(), pkgbuild.ScaffoldOptions{})
+	if err := pkgbuild.AssembleBuild(installJobSink{job}, m, buildDir,
+		hostMemberSource{}, currentWorkspaceRoot(), pkgbuild.ScaffoldOptions{}); err != nil {
+		return err
+	}
+	return adoptTargetScaffold(job, m, buildDir, resolveServerDir())
+}
+
+// adoptTargetScaffold takes from the target what the scaffold copied from the
+// active build but the target may have changed: its pnpm pin always, and its
+// framework version pins when it moves to a new native runtime lane (see
+// pkgbuild.AdoptTargetPins). activeAppDir is the running build's app dir.
+func adoptTargetScaffold(job *installjob.Job, m RebuildManifest, buildDir, activeAppDir string) error {
+	if err := pkgbuild.AdoptTargetPackageManager(buildDir); err != nil {
+		return fmt.Errorf("adopt target pnpm pin: %w", err)
+	}
+	active := pkgbuild.RuntimeVersion(activeAppDir)
+	target := pkgbuild.RuntimeVersion(filepath.Join(buildDir, baseMemberSlug))
+	// An unknown lane on either side keeps the frozen pins, the safe default.
+	if active == "" || target == "" || active == target {
+		return nil
+	}
+	jobLogf(job, "runtime lane %s -> %s: using the target's framework version pins", active, target)
+	members := make([]string, 0, len(m.Members))
+	for _, ms := range m.Members {
+		members = append(members, ms.Slug)
+	}
+	return pkgbuild.AdoptTargetPins(buildDir, members, pkgbuild.ScaffoldOptions{})
 }

@@ -58,13 +58,13 @@ type rebuildDeps struct {
 	// state untouched. Optional (nil-safe) for orchestrator tests only — the
 	// production wiring in rebuild() always sets it.
 	verifyCompat func(m RebuildManifest, buildDir string) error
-	// verifyTools checks that this install can run the build tools the target
-	// release pins (pnpm, Go). An update cannot change those tools, so a target
-	// that moves a pin is refused here, before the build, with the release to
-	// deploy instead. Optional (nil-safe) for orchestrator tests only — the
-	// production wiring in rebuild() always sets it.
-	verifyTools func(buildDir string) error
-	pipeline    func(job *installjob.Job, buildDir string) (buildOutput, error)
+	// prepareTools fetches the build tools the target release pins (pnpm, Go,
+	// Node) that this install does not have yet, then verifies them. A target
+	// whose tools cannot be fetched is refused here, before the build, with the
+	// release to deploy instead. Optional (nil-safe) for orchestrator tests
+	// only — the production wiring in rebuild() always sets it.
+	prepareTools func(buildDir string) error
+	pipeline     func(job *installjob.Job, buildDir string) (buildOutput, error)
 	// tagLog saves the build id on this job's pkg_install_log row. It runs
 	// before backupDB, so the snapshot a rollback restores carries it too:
 	// the boot reconciler finds the rolled-back build's rows by it whichever
@@ -129,10 +129,10 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 			return d.fail(job, "compat", err)
 		}
 	}
-	if d.verifyTools != nil {
-		emitProgress(job, "Checking compatibility", progAssembleEnd, "Checking build tools")
-		if err := timeStep(job, "verify build tools", func() error { return d.verifyTools(buildDir) }); err != nil {
-			jobLogf(job, "build-tools verify failed — discarding build dir %s (live state untouched)", buildDir)
+	if d.prepareTools != nil {
+		emitProgress(job, "Getting build tools", progAssembleEnd, "Fetching and checking pnpm, Go and Node")
+		if err := timeStep(job, "prepare build tools", func() error { return d.prepareTools(buildDir) }); err != nil {
+			jobLogf(job, "build tools unavailable — discarding build dir %s (live state untouched)", buildDir)
 			_ = os.RemoveAll(buildDir)
 			return d.fail(job, "tools", err)
 		}
@@ -301,7 +301,7 @@ func productionRebuildDeps(app *pocketbase.PocketBase, job *installjob.Job, m Re
 			logRecipeHashBreadcrumb(job, bd)
 			return nil
 		},
-		verifyTools: func(bd string) error { return pkgbuild.VerifyBuildTools(bd, nil) },
+		prepareTools: func(bd string) error { return prepareBuildTools(job, bd) },
 		pipeline: func(j *installjob.Job, bd string) (buildOutput, error) {
 			return runBuildPipeline(j, bd, m.BuildID)
 		},

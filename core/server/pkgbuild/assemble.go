@@ -38,7 +38,8 @@ var scaffoldExtras = []string{".npmrc", "tinycld.packages.ts", "scripts", "tests
 // (the source of truth, committed with core), written on dev machines by
 // tinycld/scripts/write-workspace-root.ts and copied verbatim from srcRoot into
 // each new build (via scaffoldExtras) so OTA pins stay frozen at the active
-// build's versions — see ServerRebuildEnv in pipeline.go.
+// build's versions — see ServerRebuildEnv in pipeline.go. A build that moves
+// to a new runtime lane takes the target's table instead (AdoptTargetPins).
 const OverridesFile = "package-versions.json"
 
 // ScaffoldOptions carries the host-specific knobs of the workspace scaffold.

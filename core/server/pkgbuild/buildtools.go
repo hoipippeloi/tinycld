@@ -1,7 +1,6 @@
 package pkgbuild
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,22 +8,17 @@ import (
 	"strings"
 )
 
-// A rebuild compiles the TARGET release with the tools of the RUNNING install:
-// the pnpm that corepack has cached and the Go toolchain on PATH. An install
-// cannot change those tools itself (a container image keeps them in a
-// read-only layer), so a target release that moves its pnpm or Go pin cannot be
-// built in place. Without this check the build failed half-way through, at the
-// first nested `pnpm run` or at `go build`, with a corepack cache-write error
-// that did not say what to do.
-//
-// VerifyBuildTools runs, in the assembled build dir, the cheapest commands
-// that resolve each tool the way the build will: `pnpm --version` in the base
-// member (whose packageManager pin the generator's nested pnpm calls obey) and
-// `go list -m` in the Go modules whose `go` line sets the workspace's
-// toolchain. Each probe passes exactly when the build's own call would get its
-// tool: a cached or downloadable pnpm, a local Go new enough or an allowed
-// toolchain download. A failure names the tools and the release to deploy.
-// run nil means RunCmdEnv.
+// VerifyBuildTools checks, in the assembled build dir, that each tool the
+// target release pins resolves the way the build will resolve it. It runs the
+// cheapest command per tool: `pnpm --version` in the base member (whose
+// packageManager pin the generator's nested pnpm calls obey), `go list -m` in
+// the Go modules whose `go` line sets the workspace's toolchain, and
+// `node --version` against the base member's engines.node range. Each probe
+// passes exactly when the build's own call would get its tool, so a host that
+// fetches tools first (a writable corepack home, GOTOOLCHAIN=auto, a
+// downloaded Node) calls this after that step as the final word. A failure
+// names each tool, the reason, and the release to deploy when the tools cannot
+// be fetched. run nil means RunCmdEnv.
 func VerifyBuildTools(buildDir string, run CmdEnvRunner) error {
 	if run == nil {
 		run = RunCmdEnv
@@ -49,6 +43,19 @@ func VerifyBuildTools(buildDir string, run CmdEnvRunner) error {
 		}
 	}
 
+	if want := RequiredNode(buildDir); want != "" {
+		out, err := run(baseDir, nil, "node", "--version")
+		if err != nil {
+			missing = append(missing, fmt.Sprintf("node %s (%s)", want, probeDetail(out, err)))
+		} else if ok, cerr := NodeSatisfies(out, want); cerr != nil || !ok {
+			detail := "found " + strings.TrimSpace(out)
+			if cerr != nil {
+				detail = cerr.Error()
+			}
+			missing = append(missing, fmt.Sprintf("node %s (%s)", want, detail))
+		}
+	}
+
 	if len(missing) == 0 {
 		return nil
 	}
@@ -57,8 +64,8 @@ func VerifyBuildTools(buildDir string, run CmdEnvRunner) error {
 		release = "tinycld v" + v
 	}
 	return fmt.Errorf(
-		"this update needs build tools that this server does not have: %s. "+
-			"An update cannot change the server's own build tools: deploy %s (a new image or binary), then try again",
+		"this update needs build tools that this server could not get: %s. "+
+			"Check that the server can reach the internet, or deploy %s (a new image or binary), then try again",
 		strings.Join(missing, "; "), release)
 }
 
@@ -74,17 +81,7 @@ func probeDetail(out string, err error) string {
 // requiredPnpm is the pnpm version the base member pins, without the
 // integrity suffix ("pnpm@12.9.1+sha512.…" → "12.9.1"), or "" if unreadable.
 func requiredPnpm(baseDir string) string {
-	data, err := os.ReadFile(filepath.Join(baseDir, "package.json"))
-	if err != nil {
-		return ""
-	}
-	var pkg struct {
-		PackageManager string `json:"packageManager"`
-	}
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return ""
-	}
-	spec := strings.TrimPrefix(pkg.PackageManager, "pnpm@")
+	spec := strings.TrimPrefix(basePackageManager(baseDir), "pnpm@")
 	version, _, _ := strings.Cut(spec, "+")
 	return version
 }
