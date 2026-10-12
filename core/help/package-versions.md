@@ -91,6 +91,15 @@ the same change set, or picking a different target version.
 The same check runs again on the server immediately before anything is applied,
 so a staged set can never slip through in a stale state.
 
+## Updates that need new build tools
+
+The server builds each update with its own copy of pnpm and Go, and an update
+cannot replace those tools. If a new version needs a pnpm or Go that your server
+does not have, the update stops at **Checking compatibility**, before anything
+changes. The message names the tools and the TinyCld release to use. To continue,
+deploy that release (a new image or binary). Then update your other packages from
+this screen.
+
 ## Versions vs. build history
 
 [Build history](help://core:build-history) reverts the **whole image** to an
