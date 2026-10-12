@@ -193,8 +193,35 @@ fix_data_dir_ownership() {
     done
 }
 
+# Corepack cache the runtime user can write. The image bakes ITS pinned pnpm
+# into /opt/corepack (root-owned, read-only to tinycld). An in-app upgrade can
+# move to a release that pins a different pnpm (as the move from 11.3.0 to
+# 12.9.1 did), and corepack must then download it — which failed with "Failed to
+# create cache directory … /opt/corepack/v1" because the build runs as tinycld. So point
+# COREPACK_HOME at a directory on the state volume, seeded from the baked cache:
+# a download lands there and survives restarts. Seeding never replaces an entry
+# already on the volume (it may be a newer download), except lastKnownGood.json,
+# which names the pnpm this image activated. The env reaches every pnpm the
+# server runs: the supervisor and the build pipeline pass their environment on.
+# If /workspace is not writable (a non-root start without host-side ownership),
+# keep the read-only baked cache, as before.
+COREPACK_STATE_HOME=/workspace/.corepack
+seed_corepack_home() {
+    if ! mkdir -p "$COREPACK_STATE_HOME" 2>/dev/null; then
+        echo "[entrypoint] cannot create $COREPACK_STATE_HOME; pnpm stays on the image's corepack cache" >&2
+        return 0
+    fi
+    cp -a --update=none /opt/corepack/. "$COREPACK_STATE_HOME/" 2>/dev/null || true
+    cp -a /opt/corepack/lastKnownGood.json "$COREPACK_STATE_HOME/" 2>/dev/null || true
+    if [ "$(id -u)" = "0" ]; then
+        chown -R "$RUN_AS:$RUN_AS" "$COREPACK_STATE_HOME"
+    fi
+    export COREPACK_HOME="$COREPACK_STATE_HOME"
+}
+
 fix_data_dir_ownership
 seed_git_safe_directory
+seed_corepack_home
 seed_baked_build
 
 # Promote the staged release to /workspace/tinycld/releases/. Runs on every

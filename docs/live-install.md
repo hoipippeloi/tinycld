@@ -652,8 +652,10 @@ The live installer shells out to real tools and needs a workspace it can write
 to. The runtime image (`app/Dockerfile`) provides:
 
 - **Tools on `PATH`:** `git` (git-spec `npm pack`), `node`/`npm`/`npx`,
-  `pnpm` (pre-activated into a shared `COREPACK_HOME=/opt/corepack` so the
-  unprivileged user finds it without a network fetch/prompt), the Go toolchain
+  `pnpm` (pre-activated into `/opt/corepack` so the first boot needs no
+  network fetch or prompt; the entrypoint copies that cache to a writable
+  `COREPACK_HOME=/workspace/.corepack`, so an upgrade to a release that pins a
+  different pnpm can download it), the Go toolchain
   (no C compiler: the build is CGo-free — omnidoc decodes HEIF in pure Go,
   retiring the goheif/libde265 dependency — and package builds run with
   `CGO_ENABLED=0`), `sqlite3` (the DB-backup `VACUUM INTO`), and `tar`/`cp`.

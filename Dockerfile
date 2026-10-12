@@ -428,9 +428,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #
 # pnpm 12 is a native binary: the npm tarball corepack prepares is only a
 # launcher that downloads the binary into $COREPACK_HOME on its FIRST run. Run
-# it once here, as root, so the binary is baked into the image. Otherwise the
-# first in-app install would try that download as the tinycld user, which
-# cannot write /opt/corepack.
+# it once here, as root, so the binary is baked into the image and the first
+# boot needs no download.
+#
+# /opt/corepack stays read-only to tinycld. At runtime the entrypoint moves
+# COREPACK_HOME to a writable copy on the state volume (seed_corepack_home), so
+# an in-app upgrade to a release that pins a DIFFERENT pnpm can download it.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 ENV COREPACK_HOME=/opt/corepack
 RUN corepack enable \
