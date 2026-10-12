@@ -145,7 +145,7 @@ linked packages = the set of installed workspace members.
 ## Command line tool
 
 `cli/` builds the user-facing `tinycld` binary — the end-user tool for scripting Drive,
-Mail, Cards, Contacts, Calendar and document/spreadsheet comments from a terminal. Each
+Mail, Boards, Contacts, Calendar and document/spreadsheet comments from a terminal. Each
 server cross-compiles its own copy containing exactly the command groups for the packages
 it has installed; users download it from Settings → About in the app.
 Authentication is an OAuth 2.1 device grant, revocable from Settings → Connected apps.
@@ -196,7 +196,7 @@ Package-author guide: [docs/automation.md](docs/automation.md) and
 ```sh
 cd ~/code/tinycld && pnpm install   # at the workspace root (postinstall runs the generator)
 cd tinycld
-pnpm run checks                     # biome + tsc + core-isolation check
+pnpm run checks                     # biome + tsc + core-isolation + fork-drift checks
 pnpm run test                       # vitest (this member)
 pnpm run test:e2e                   # playwright (this member)
 cd server && go build -o tinycld . && ./tinycld --help
