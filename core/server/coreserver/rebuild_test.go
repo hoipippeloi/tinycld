@@ -341,7 +341,7 @@ func TestRebuild_HappyPath_Sequence(t *testing.T) {
 			seq = append(seq, "verify")
 			return nil
 		},
-		verifyTools: func(dir string) error {
+		prepareTools: func(dir string) error {
 			seq = append(seq, "tools")
 			return nil
 		},
@@ -424,7 +424,7 @@ func TestRebuild_VerifyCompatFailure_DiscardsBuildBeforeBackup(t *testing.T) {
 // A build-tools verify failure (the target pins a pnpm or Go this install
 // cannot run) must abort BEFORE the build pipeline and the DB backup, discarding
 // the build dir — live state untouched, nothing to restore.
-func TestRebuild_VerifyToolsFailure_DiscardsBuildBeforeBackup(t *testing.T) {
+func TestRebuild_PrepareToolsFailure_DiscardsBuildBeforeBackup(t *testing.T) {
 	state := t.TempDir()
 	t.Setenv("TINYCLD_STATE_DIR", state)
 	var piped, backed, restored, activated bool
@@ -434,7 +434,7 @@ func TestRebuild_VerifyToolsFailure_DiscardsBuildBeforeBackup(t *testing.T) {
 			return os.MkdirAll(dir, 0o755)
 		},
 		verifyCompat: func(m RebuildManifest, dir string) error { return nil },
-		verifyTools: func(dir string) error {
+		prepareTools: func(dir string) error {
 			return fmt.Errorf("this update needs build tools that this server does not have: pnpm 12.9.1")
 		},
 		pipeline: func(j *installjob.Job, dir string) (buildOutput, error) {

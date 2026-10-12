@@ -37,10 +37,10 @@ func TestProductionRebuildDeps_WireVerifyCompat(t *testing.T) {
 
 // Same wiring guard for the build-tools check: rebuild() must run it, or a
 // target that moves its pnpm or Go pin fails half-way through the build again.
-func TestProductionRebuildDeps_WireVerifyTools(t *testing.T) {
+func TestProductionRebuildDeps_WirePrepareTools(t *testing.T) {
 	m := RebuildManifest{BuildID: "b", Members: []MemberSpec{{Slug: baseMemberSlug, FromCurrent: true}}}
 	deps := productionRebuildDeps(pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
-	if deps.verifyTools == nil {
-		t.Fatal("production deps must wire verifyTools")
+	if deps.prepareTools == nil {
+		t.Fatal("production deps must wire prepareTools")
 	}
 }

@@ -29,13 +29,19 @@ func writeToolsBuild(t *testing.T, goLine string) string {
 	return buildDir
 }
 
+// stubNodeVersion is what the stub answers to `node --version`.
+var stubNodeVersion = "v20.18.0\n"
+
 // stubPnpm answers the pnpm probe with pnpmErr and runs go for real, so the
 // Go half exercises the actual toolchain check.
 func stubPnpm(pnpmOut string, pnpmErr error, calls *[]string) CmdEnvRunner {
 	return func(dir string, env []string, name string, args ...string) (string, error) {
 		*calls = append(*calls, dir+"|"+strings.Join(env, ",")+"|"+name+" "+strings.Join(args, " "))
-		if name == "pnpm" {
+		switch name {
+		case "pnpm":
 			return pnpmOut, pnpmErr
+		case "node":
+			return stubNodeVersion, nil
 		}
 		return RunCmdEnv(dir, env, name, args...)
 	}
@@ -98,5 +104,28 @@ func TestRequiredPnpm_StripsIntegrity(t *testing.T) {
 	buildDir := writeToolsBuild(t, "1.21")
 	if got := requiredPnpm(filepath.Join(buildDir, BaseMemberSlug)); got != "12.9.1" {
 		t.Fatalf("requiredPnpm = %q, want 12.9.1", got)
+	}
+}
+
+// The node probe compares `node --version` with the target's engines.node.
+func TestVerifyBuildTools_NodeBelowEnginesRange(t *testing.T) {
+	buildDir := writeToolsBuild(t, "1.21")
+	writeFile(t, filepath.Join(buildDir, BaseMemberSlug, "package.json"),
+		`{"version":"0.7.0","packageManager":"pnpm@12.9.1+sha512.abc","engines":{"node":">=22"}}`)
+	var calls []string
+	err := VerifyBuildTools(buildDir, stubPnpm("12.9.1", nil, &calls))
+	if err == nil {
+		t.Fatal("expected node v20.18.0 to fail engines.node >=22")
+	}
+	for _, want := range []string{"node >=22", "found v20.18.0"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should contain %q, got: %v", want, err)
+		}
+	}
+
+	stubNodeVersion = "v22.12.0\n"
+	defer func() { stubNodeVersion = "v20.18.0\n" }()
+	if err := VerifyBuildTools(buildDir, stubPnpm("12.9.1", nil, &calls)); err != nil {
+		t.Fatalf("node v22.12.0 satisfies >=22, got %v", err)
 	}
 }
