@@ -341,6 +341,10 @@ func TestRebuild_HappyPath_Sequence(t *testing.T) {
 			seq = append(seq, "verify")
 			return nil
 		},
+		verifyTools: func(dir string) error {
+			seq = append(seq, "tools")
+			return nil
+		},
 		pipeline: func(j *installjob.Job, dir string) (buildOutput, error) {
 			seq = append(seq, "pipeline")
 			return buildOutput{}, nil
@@ -365,7 +369,7 @@ func TestRebuild_HappyPath_Sequence(t *testing.T) {
 	}
 	// The tag precedes the backup, so the snapshot a rollback restores
 	// already names the build it rolled back from.
-	want := "assemble,verify,pipeline,tag:build-1,backup,sync,activate,record,commit,prune,finalize,restart"
+	want := "assemble,verify,tools,pipeline,tag:build-1,backup,sync,activate,record,commit,prune,finalize,restart"
 	if got := strings.Join(seq, ","); got != want {
 		t.Fatalf("sequence = %s, want %s", got, want)
 	}
@@ -414,6 +418,51 @@ func TestRebuild_VerifyCompatFailure_DiscardsBuildBeforeBackup(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(state, "builds", "build-vc")); !os.IsNotExist(err) {
 		t.Fatalf("build dir must be discarded after a verify failure (stat err = %v)", err)
+	}
+}
+
+// A build-tools verify failure (the target pins a pnpm or Go this install
+// cannot run) must abort BEFORE the build pipeline and the DB backup, discarding
+// the build dir — live state untouched, nothing to restore.
+func TestRebuild_VerifyToolsFailure_DiscardsBuildBeforeBackup(t *testing.T) {
+	state := t.TempDir()
+	t.Setenv("TINYCLD_STATE_DIR", state)
+	var piped, backed, restored, activated bool
+	var finalized, finalErr string
+	deps := rebuildDeps{
+		assemble: func(m RebuildManifest, dir string) error {
+			return os.MkdirAll(dir, 0o755)
+		},
+		verifyCompat: func(m RebuildManifest, dir string) error { return nil },
+		verifyTools: func(dir string) error {
+			return fmt.Errorf("this update needs build tools that this server does not have: pnpm 12.9.1")
+		},
+		pipeline: func(j *installjob.Job, dir string) (buildOutput, error) {
+			piped = true
+			return buildOutput{}, nil
+		},
+		backupDB:    func() error { backed = true; return nil },
+		restoreDB:   func() error { restored = true; return nil },
+		syncMig:     func(buildDir string) (SyncResult, error) { return SyncResult{}, nil },
+		activate:    func(id string) error { activated = true; return nil },
+		prune:       func(keep int) error { return nil },
+		finalizeLog: func(status, errMsg string) { finalized, finalErr = status, errMsg },
+		restart:     func() {},
+	}
+	job := &installjob.Job{ID: "j", Done: make(chan struct{})}
+	m := RebuildManifest{BuildID: "build-vt", Members: []MemberSpec{{Slug: "tinycld", Spec: "x"}}}
+	if err := rebuildWith(job, m, deps); err == nil {
+		t.Fatal("expected the build-tools failure to fail the rebuild")
+	}
+	if piped || backed || activated || restored {
+		t.Fatalf("build-tools failure must precede pipeline/backup/activate (pipeline=%v backup=%v activate=%v restore=%v)",
+			piped, backed, activated, restored)
+	}
+	if finalized != "failed" || !strings.Contains(finalErr, "pnpm 12.9.1") {
+		t.Fatalf("finalizeLog = (%q, %q), want failed with the tools message", finalized, finalErr)
+	}
+	if _, err := os.Stat(filepath.Join(state, "builds", "build-vt")); !os.IsNotExist(err) {
+		t.Fatalf("build dir must be discarded after a build-tools failure (stat err = %v)", err)
 	}
 }
 

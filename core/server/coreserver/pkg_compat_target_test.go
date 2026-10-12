@@ -34,3 +34,13 @@ func TestProductionRebuildDeps_WireVerifyCompat(t *testing.T) {
 		t.Fatalf("production verifyCompat must refuse the violating build, got: %v", err)
 	}
 }
+
+// Same wiring guard for the build-tools check: rebuild() must run it, or a
+// target that moves its pnpm or Go pin fails half-way through the build again.
+func TestProductionRebuildDeps_WireVerifyTools(t *testing.T) {
+	m := RebuildManifest{BuildID: "b", Members: []MemberSpec{{Slug: baseMemberSlug, FromCurrent: true}}}
+	deps := productionRebuildDeps(pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
+	if deps.verifyTools == nil {
+		t.Fatal("production deps must wire verifyTools")
+	}
+}

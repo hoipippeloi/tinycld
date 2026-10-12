@@ -664,6 +664,13 @@ to. The runtime image (`app/Dockerfile`) provides:
   break pnpm's same-filesystem linkability probe.)
 - **`pnpm` runs with `CI=true`** so `pnpm install` doesn't block on an
   interactive node_modules-purge confirmation.
+- **The tools stay fixed for the life of the image.** An in-app update builds
+  with the image's pnpm and Go and cannot replace them (`/opt/corepack` is
+  read-only to the runtime user). After assemble, the rebuild runs
+  `pnpm --version` in the target's base member and `go list -m` in its Go
+  modules (`pkgbuild.VerifyBuildTools`). If either cannot get the version the
+  target pins, the update is refused before the build, and the error names the
+  release to deploy instead.
 - **A stop timeout of 45 s.** On a stop, the supervisor drains its child, which
   can take up to 30 s (`ChildDrainTimeout`) plus its shutdown hooks. Docker's
   default stop timeout is 10 s, after which it kills the container and cuts the
