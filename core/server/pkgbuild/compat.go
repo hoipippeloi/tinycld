@@ -20,10 +20,12 @@ import (
 // current version) and reports every declared range the resolved set violates.
 //
 // peerVersions can differ between versions of the same package. The host's
-// pre-flight gates resolve peerVersions from the CURRENTLY installed manifests,
-// so a target version that tightens its OWN requirements relative to its
-// installed manifest is invisible to them. VerifyTargetPeerVersions closes that
-// gap: after assemble fetches the real files, the rebuild re-runs the solve
+// pre-flight gates only have the CURRENTLY installed manifests, so they check
+// the requirements of the packages a set leaves untouched and skip those of
+// the packages it changes: an installed manifest describes the version being
+// replaced, and enforcing it would refuse a valid set that moves a package and
+// its dependency together. VerifyTargetPeerVersions checks the targets' own
+// requirements: after assemble fetches the real files, the rebuild re-runs the solve
 // against the manifests on disk in the build dir and refuses before the build
 // pipeline runs (build dir discarded, live state untouched). The pre-flight
 // gate remains the friendly synchronous refusal for what it can see; the

@@ -20,8 +20,8 @@ import (
 //	{ "changes": { "<slug>": "<targetVersion>", ... } }
 //
 // The resolved version map is every installed package's current version with the
-// proposed changes overlaid, plus @tinycld/core. peerVersions for each package
-// come from its currently-installed manifest_json. Responds:
+// proposed changes overlaid, plus @tinycld/core. peerVersions come from the
+// installed manifest_json of each package the set leaves unchanged. Responds:
 //
 //	{ "ok": bool, "violations": [ { package, requires, range, found }, ... ] }
 func handleVersionsCheck(app *pocketbase.PocketBase, re *core.RequestEvent) error {
@@ -44,7 +44,8 @@ func handleVersionsCheck(app *pocketbase.PocketBase, re *core.RequestEvent) erro
 
 // solveRegistryCompat resolves the registry's current versions with the
 // proposed changes overlaid (keyed by registry slug) and runs the solver
-// against every installed package's declared peerVersions. Shared by the
+// against the declared peerVersions of every package the set leaves at its
+// installed version. Shared by the
 // advisory check endpoint and the apply pre-flight gate so the two cannot
 // drift.
 func solveRegistryCompat(app core.App, changes map[string]string) ([]compatViolation, error) {
@@ -59,10 +60,16 @@ func solveRegistryCompat(app core.App, changes map[string]string) ([]compatViola
 	for _, rec := range records {
 		slug := rec.GetString("slug")
 		if target, changing := changes[slug]; changing {
+			// The installed manifest's peerVersions are the requirements of the
+			// version being replaced, not of the target. Applying them refuses
+			// every set that moves a package and its dependency past the old
+			// range together (a core minor bump against bounded feature ranges).
+			// The target's own requirements are checked post-assemble by
+			// pkgbuild.VerifyTargetPeerVersions, once its manifest is on disk.
 			resolved[slug] = target
-		} else {
-			resolved[slug] = rec.GetString("version")
+			continue
 		}
+		resolved[slug] = rec.GetString("version")
 		if peers := peerVersionsFromManifest(rec.GetString("manifest_json")); len(peers) > 0 {
 			peerVersionsBySlug[slug] = peers
 		}
