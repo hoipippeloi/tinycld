@@ -22,7 +22,9 @@ const pnpmProgressInterval = 10 * time.Second
 // re-deriving pnpm-workspace.yaml and package-versions.json when it is set,
 // keeping the version pins frozen at the ACTIVE build's versions (the ones
 // matching the embedded native binary) instead of following an upgraded
-// tinycld member's newer core table.
+// tinycld member's newer core table. A host that moves the build to a new
+// runtime lane writes the target's table before the install instead (see
+// AdoptTargetPins); the flag then keeps that one.
 const ServerRebuildEnv = "TINYCLD_SERVER_REBUILD=1"
 
 // childEnv is the extra environment every pipeline child that resolves the

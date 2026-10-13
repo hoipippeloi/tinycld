@@ -91,6 +91,17 @@ the same change set, or picking a different target version.
 The same check runs again on the server immediately before anything is applied,
 so a staged set can never slip through in a stale state.
 
+## Updates that need new build tools
+
+The server builds each update with pnpm, Go and Node. When a new version needs a
+newer one, the update downloads it during the **Getting build tools** step and
+keeps it for later updates. The server needs internet access for this.
+
+If a tool cannot be downloaded, the update stops at that step, before anything
+changes. The message names the tools and the TinyCld release to use. To continue,
+let the server reach the internet and try again, or deploy that release (a new
+image or binary).
+
 ## Versions vs. build history
 
 [Build history](help://core:build-history) reverts the **whole image** to an

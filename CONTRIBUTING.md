@@ -337,7 +337,7 @@ If you are ever debugging a feature repo that is red in CI but green locally, ch
 
 **To bump a pin:** edit `core/package-versions.json` (and core's own `peerDependencies` if the compatible range moved), then commit — one commit in this repo. Every developer picks it up with `git pull` + `pnpm install`; if the script detects the pins changed since the last write it warns to run `pnpm install` again so the new `overrides:` block actually reaches `node_modules`. The bump then rides the next `@tinycld/core` release and the next EAS build.
 
-Server-triggered OTA rebuilds set `TINYCLD_SERVER_REBUILD=1` (`ServerRebuildEnv` in `core/server/pkgbuild/pipeline.go`) on their `pnpm install`. Under that flag the root-writer leaves the pin files alone — a rebuild must keep the versions the active build's embedded native binary actually shipped with, not whatever `core/package-versions.json` says today.
+Server-triggered OTA rebuilds set `TINYCLD_SERVER_REBUILD=1` (`ServerRebuildEnv` in `core/server/pkgbuild/pipeline.go`) on their `pnpm install`. Under that flag the root-writer leaves the pin files alone — a rebuild must keep the versions the active build's embedded native binary actually shipped with, not whatever `core/package-versions.json` says today. The one exception: when the target moves to a new native runtime lane (`expo.version` in `app.json` changes), the Go rebuild writes the target's own `core/package-versions.json` into the build first (`pkgbuild.AdoptTargetPins`), because that build's OTA bundles go only to the new lane's binaries.
 
 **Run `pnpm install` only at the workspace root, never inside a member.** The root install does two things in order, and the order matters:
 

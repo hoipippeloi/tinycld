@@ -664,6 +664,36 @@ to. The runtime image (`app/Dockerfile`) provides:
   break pnpm's same-filesystem linkability probe.)
 - **`pnpm` runs with `CI=true`** so `pnpm install` doesn't block on an
   interactive node_modules-purge confirmation.
+- **Build tools the target pins are fetched, not baked.** A target release can
+  pin newer tools than the image was built with. After assemble, the rebuild's
+  "Getting build tools" step (`coreserver/build_tools.go`) fetches them into
+  `<state>/toolchains/`, where later updates reuse them:
+  - **pnpm** (`packageManager` in the base member): corepack fetches it on first
+    use. The image's `/opt/corepack` is read-only to the runtime user, so at
+    every start-up the server moves `COREPACK_HOME` to a writable copy in
+    `<state>/toolchains/corepack` (`useWritableCorepackHome`). Each start-up
+    copies in what the image holds that the copy lacks, keeps earlier
+    downloads, and takes the image's `lastKnownGood.json`. The assembled root's
+    `packageManager` is set to the target's pin, so the root install and the
+    generator's nested `pnpm run` use the same pnpm.
+  - **Go** (the `go` line of `core/server/go.mod`): `GOTOOLCHAIN=auto`, Go's
+    default, fetches the toolchain into the module cache under `/workspace/go`.
+  - **Node** (`engines.node` in the base member): the image's Node is used
+    when it is in range, so a newer image is never hidden behind an old
+    download. Otherwise an earlier download in range is used, and only then is
+    a release downloaded from nodejs.org: the newest release of the lowest LTS
+    major in range, checked against its `SHASUMS256.txt`. The download goes
+    first on `PATH` (`<state>/toolchains/node/current/bin`) for that build only.
+
+  `pkgbuild.VerifyBuildTools` then runs `pnpm --version`, `go list -m` and
+  `node --version` in the target. If a tool still cannot be resolved (for
+  example, no network), the update is refused before the build, and the error
+  names the release to deploy instead.
+- **Version pins follow the native runtime lane.** A rebuild keeps the active
+  build's `package-versions.json`, so its OTA bundles match the store binaries.
+  When the target's runtime lane (`expo.version` in `app.json`) differs from the
+  active build's, its bundles go only to the new lane's binaries, so the rebuild
+  takes the target's own pins instead (`pkgbuild.AdoptTargetPins`).
 - **A stop timeout of 45 s.** On a stop, the supervisor drains its child, which
   can take up to 30 s (`ChildDrainTimeout`) plus its shutdown hooks. Docker's
   default stop timeout is 10 s, after which it kills the container and cuts the
