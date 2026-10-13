@@ -64,6 +64,11 @@ type Pipeline struct {
 	// step sitting frozen for the minutes a cold bundle takes. Default
 	// RunCmdStreaming.
 	ExpoStream StreamingRunner
+	// GoStream executes the server's `go build -v` with line streaming, so
+	// the compile's package-by-package output can move the bar. Default: Run
+	// adapted to the streaming shape when Run is set (a test that stubs Run
+	// stubs every command), otherwise RunCmdStreaming.
+	GoStream StreamingRunner
 	// Stage moves the exported dist/ into release-staging/<id>/ and returns
 	// the staged dir. Default StageRelease.
 	Stage func(appDir string) (string, error)
@@ -112,6 +117,18 @@ func (p Pipeline) runEnv() CmdEnvRunner {
 		return p.RunEnv
 	}
 	return RunCmdEnv
+}
+
+func (p Pipeline) goStream() StreamingRunner {
+	if p.GoStream != nil {
+		return p.GoStream
+	}
+	if p.Run != nil {
+		return func(_ func(string), dir, name string, args ...string) (string, error) {
+			return p.Run(dir, name, args...)
+		}
+	}
+	return RunCmdStreaming
 }
 
 func (p Pipeline) expoStream() StreamingRunner {
@@ -173,7 +190,7 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// by sandboxing the build alone — member Go gets compiled into the server
 	// below and runs as the server at runtime regardless, so a build sandbox
 	// would buy no real isolation.
-	sink.Progress("Building client UI", ProgPnpmInstall, "pnpm install")
+	sink.Progress(stepClientDeps, ProgPnpmInstall, "Finding packages")
 	if err := TimeStep(sink, "pnpm install (+ generator postinstall)", func() error {
 		return p.runPnpmInstall(sink, buildDir)
 	}); err != nil {
@@ -190,39 +207,26 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 			return BuildOutput{}, wrapStep("prepare server", err)
 		}
 	}
-	sink.Progress("Building application", ProgGoBuild, "go build")
+	sink.Progress(stepServer, ProgGoBuild, "Getting source code")
 	if err := TimeStep(sink, "go build (server binary)", func() error {
-		args := []string{"build", "-o", filepath.Join(appDir, p.binaryName())}
-		if len(p.GoBuildTags) > 0 {
-			args = append(args, "-tags", strings.Join(p.GoBuildTags, ","))
-		}
-		args = append(args, ".")
-		out, e := p.run()(goDir, "go", args...)
-		if e != nil {
-			// Same rationale as runPnpmInstall: in a confined builder the
-			// error string is all that leaves the job child, so the compile
-			// errors must ride it.
-			return ErrFromCmd("go build", lastLines(out, 30), e)
-		}
-		return nil
+		return p.buildServer(sink, appDir, goDir)
 	}); err != nil {
 		return BuildOutput{}, wrapStep("go build", err)
 	}
-	// Cross-compile the per-org CLI binaries. Shares the ProgGoBuild slot (the
-	// progress bands are contiguous; a new constant would renumber them) and
-	// never fails the build — see buildCLIBinaries.
-	sink.Progress("Building application tools", ProgGoBuild, "go build (cli)")
+	// Cross-compile the per-org CLI binaries. Never fails the build — see
+	// buildCLIBinaries.
+	sink.Progress(stepCLI, ProgCLIBuild, "")
 	_ = TimeStep(sink, "cli cross-compile (best-effort)", func() error {
 		p.buildCLIBinaries(sink, appDir)
 		return nil
 	})
-	// The web bundle owns [ProgGoBuild, ProgExpoWeb): runExportWithProgress climbs
-	// the bar through it from Metro's per-module progress so a cold (multi-minute)
-	// bundle visibly advances instead of parking at one value.
-	sink.Progress("Packaging client UI", ProgGoBuild, "expo export --platform web")
+	// The web bundle owns [ProgExpoWebStart, ProgExpoWeb): runExportWithProgress
+	// climbs the bar through it from Metro's per-module progress so a cold
+	// (multi-minute) bundle visibly advances instead of parking at one value.
+	sink.Progress(stepWebBundle, ProgExpoWebStart, "")
 	if err := TimeStep(sink, "expo export (web bundle)", func() error {
-		out, e := p.runExportWithProgress(sink, ProgGoBuild, ProgExpoWeb,
-			"Packaging client UI", appDir, "--platform", "web")
+		out, e := p.runExportWithProgress(sink, ProgExpoWebStart, ProgExpoWeb,
+			stepWebBundle, appDir, "--platform", "web")
 		if e != nil {
 			// Same rationale as runPnpmInstall and go build above: in a
 			// confined builder the error STRING is all that leaves the job
@@ -239,7 +243,7 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// entrypoint's promote_release (which reads /workspace/current/release-staging
 	// after the swap) finds the new bundle. Without this the server serves the old
 	// bundle or 404s ("Unmatched Route") on a newly-installed package's routes.
-	sink.Progress("Preparing client UI", ProgStageRelease, "release-staging")
+	sink.Progress(stepStage, ProgStageRelease, "")
 	stageDir, err := p.stage()(appDir)
 	if err != nil {
 		return BuildOutput{}, wrapStep("stage release", err)
@@ -250,7 +254,7 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// Export the native iOS/Android OTA bundles and stage them into the release so
 	// /api/app/update can advertise them. nativeExport no-ops (returns nil) when the
 	// RN toolchain is absent, leaving mobile on the embedded bundle.
-	sink.Progress("Building mobile app", ProgNativeStart, "expo export --platform ios/android")
+	sink.Progress(stepNative, ProgNativeStart, "")
 	sink.Logf("web bundle staged: release %s (runtime version %s)", releaseID, runtimeVersion)
 	var bundles []BundleMeta
 	if err := TimeStep(sink, "native OTA export (ios/android)", func() error {
@@ -272,7 +276,7 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 		sink.Logf("native OTA export skipped (RN toolchain absent) — mobile stays on embedded bundle")
 	}
 
-	sink.Progress("Build finished", ProgNativeEnd, "workspace built")
+	sink.Progress(stepBuildDone, ProgNativeEnd, "")
 	return BuildOutput{
 		ReleaseID:      releaseID,
 		StageDir:       stageDir,
@@ -402,7 +406,8 @@ func (t *pnpmProgressThrottle) allow(now time.Time) bool {
 // band [ProgPnpmInstall, ProgGoBuild). pnpm's non-TTY reporter prints periodic
 // "Progress: resolved N, reused M, downloaded K, added W" lines and "Packages:
 // +N" / "Done" markers; we nudge the bar a little on each so it visibly moves,
-// and surface the raw line in the step log. Unrecognized lines (postinstall /
+// say what it means in pnpmLineMessage's words, and keep the raw line in the
+// log. Unrecognized lines (postinstall /
 // generator output) advance nothing but still log.
 //
 // Only the high-frequency "Progress:" lines are throttle-gated (pnpm emits one
@@ -422,7 +427,8 @@ func (p Pipeline) reportPnpmProgress(sink ProgressSink, line string, throttle *p
 	if strings.HasPrefix(line, "Progress:") && !throttle.allow(p.now()) {
 		return // a "Progress:" line still inside the throttle window — drop it
 	}
-	sink.Progress("Building client UI", pct, line)
+	sink.Logf("pnpm: %s", line)
+	sink.Progress(stepClientDeps, pct, pnpmLineMessage(line))
 }
 
 // pnpmLineProgress returns the progress percentage a recognized pnpm reporter
@@ -441,6 +447,8 @@ func pnpmLineProgress(line string) int {
 		return 54 // packages linked into node_modules
 	case strings.HasPrefix(line, "Done in"), strings.Contains(line, "packages:generate"):
 		return 58 // install finished / postinstall (generator) running
+	case strings.Contains(line, "Generated config for"):
+		return 59 // generator done; export-types compiling
 	default:
 		return 0
 	}
@@ -516,10 +524,12 @@ func (p Pipeline) reportExpoProgress(sink ProgressSink, line, step string, lo, h
 		if !throttle.allow(p.now()) {
 			return // a percentage line still inside the throttle window — drop it
 		}
-		ReportStepProgress(sink, step, bandPct(lo, hi, frac), int(frac*100), line)
+		sink.Logf("expo: %s", line)
+		ReportStepProgress(sink, step, bandPct(lo, hi, frac), int(frac*100), expoLineMessage(line))
 	case strings.Contains(line, "Bundled "), strings.HasPrefix(line, "Exported:"):
 		// Bundle finished / written — park just below hi (staging owns hi).
-		ReportStepProgress(sink, step, hi-1, 100, line)
+		sink.Logf("expo: %s", line)
+		ReportStepProgress(sink, step, hi-1, 100, expoLineMessage(line))
 	default:
 		// Asset listings, the per-file output dump, warnings — keep the bar put.
 	}

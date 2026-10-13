@@ -175,7 +175,7 @@ func AssembleBuild(sink ProgressSink, m RebuildManifest, buildDir string, src Me
 		// ProgAssembleEnd) as each member is materialized, BEFORE the work so a
 		// slow npm-pack visibly parks the bar on the member it's fetching rather
 		// than after it finishes.
-		sink.Progress("Gathering components", assembleMemberPct(i, len(m.Members)), memberAssembleMsg(ms))
+		sink.Progress(stepAssemble, assembleMemberPct(i, len(m.Members)), memberAssembleMsg(ms, i, len(m.Members)))
 		memStart := time.Now()
 		if ms.FromCurrent {
 			integrity, err := src.CopyCurrent(ms, buildDir)
@@ -223,15 +223,6 @@ func assembleMemberPct(i, n int) int {
 	}
 	span := ProgAssembleEnd - ProgAssembleStart
 	return ProgAssembleStart + (span*i)/n
-}
-
-// memberAssembleMsg is the progress message for materializing one member —
-// "Fetching <spec>" for a changed member, "Copying <slug>" for an unchanged one.
-func memberAssembleMsg(ms MemberSpec) string {
-	if ms.FromCurrent {
-		return "Copying " + ms.Slug
-	}
-	return "Fetching " + ms.Spec
 }
 
 // WriteWorkspaceScaffold writes the workspace-root manifests into buildDir and

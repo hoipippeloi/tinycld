@@ -9,7 +9,10 @@ import "time"
 // the library stays silent by default (NopSink) and hosts own presentation.
 type ProgressSink interface {
 	// Progress marks a milestone: it moves the progress bar to percent and
-	// records a headline step + message.
+	// records a headline step + message. step and message are both shown to
+	// the person waiting: step is the stable label of the stage, message a
+	// short line of our own words about where in it the build is ("2 of 5
+	// platforms"), or empty. Raw tool output goes to Logf, never to message.
 	Progress(step string, percent int, message string)
 	// Logf records a detail line under the current milestone WITHOUT moving
 	// the progress bar.
@@ -78,11 +81,17 @@ func TimeStep(s ProgressSink, step string, fn func() error) error {
 // coreserver; artifact publish in the builder) own the 90..100 band ABOVE
 // this ceiling. Keeping the whole scale here (rather than scattered magic
 // numbers) keeps the bar monotonic across every host and rebuild path.
+//
+// The server compile, the CLI cross-compile and the web bundle each own a band
+// of their own ([ProgGoBuild, ProgCLIBuild), [ProgCLIBuild, ProgExpoWebStart),
+// [ProgExpoWebStart, ProgExpoWeb)), so each climbs through its own slice.
 const (
 	ProgAssembleStart = 5
 	ProgAssembleEnd   = 42
 	ProgPnpmInstall   = 45
 	ProgGoBuild       = 60
+	ProgCLIBuild      = 63
+	ProgExpoWebStart  = 65
 	ProgExpoWeb       = 72
 	ProgStageRelease  = 76
 	ProgNativeStart   = 80
