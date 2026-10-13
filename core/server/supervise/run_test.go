@@ -168,8 +168,8 @@ func fakeChild() int {
 		if to := os.Getenv("FAKE_ACTIVATE"); to != "" {
 			fakeActivate(root, os.Getenv("FAKE_BUILD"), to, os.Getenv("FAKE_KEEP_DB") == "1")
 		}
-		Send(ctl, Msg{Type: MsgRestart})
 		ev("restart")
+		Send(ctl, Msg{Type: MsgRestart})
 		select {
 		case <-acked:
 		case <-time.After(5 * time.Second):
@@ -179,11 +179,15 @@ func fakeChild() int {
 	if d := os.Getenv("FAKE_READY_DELAY"); d != "" {
 		time.Sleep(time.Duration(atoi(d)) * time.Millisecond)
 	}
+	// Record each event BEFORE the message the supervisor reacts to: the
+	// supervisor answers "ready" by draining the old child, which records
+	// "drain" at once, so a "ready" written after the send can land behind it
+	// in events.log on a loaded runner and invert the order tests assert.
+	ev("ready")
 	if err := Send(ctl, Msg{Type: MsgReady, Version: atoi(os.Getenv("FAKE_READY_VERSION"))}); err != nil {
 		ev("ready-failed")
 		return 2
 	}
-	ev("ready")
 
 	body := os.Getenv("FAKE_SERVE_BODY")
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -214,8 +218,8 @@ func fakeChild() int {
 				ev("exit")
 				return atoi(code)
 			}
-			Send(ctl, Msg{Type: MsgRestart, Cold: os.Getenv("FAKE_COLD") == "1"})
 			ev("restart")
+			Send(ctl, Msg{Type: MsgRestart, Cold: os.Getenv("FAKE_COLD") == "1"})
 		case <-drain:
 			ev("drain")
 			ctx, cancel := context.WithTimeout(context.Background(), ChildDrainTimeout)

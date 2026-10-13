@@ -628,6 +628,8 @@ RUN mkdir -p /workspace/pb_data /workspace/releases /workspace/builds \
 # The entrypoint lives at a FIXED path outside the swapped tree so it survives a
 # `current` flip and isn't part of any build dir.
 COPY --chown=tinycld:tinycld --chmod=0755 tinycld/config/entrypoint.sh /opt/entrypoint.sh
+# The entrypoint runs this before adopting the image's baked build (see it).
+COPY --chown=tinycld:tinycld --chmod=0755 tinycld/config/build-downgrades.sh /opt/build-downgrades.sh
 
 # Ownership note: there is deliberately NO `chown -R tinycld:tinycld /workspace
 # /opt/tinycld-baked` here. Every tree that lands in the runtime image is already

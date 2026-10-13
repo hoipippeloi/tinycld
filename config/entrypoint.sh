@@ -71,7 +71,7 @@ echo "[entrypoint] starting; pwd=$(pwd) user=$(id -un) uid=$(id -u)"
 #
 # Two situations both flow through here:
 #   1. First boot / empty volume — no live `current`, so we must seed.
-#   2. Image redeploy (`deploy.sh` → Dokku rebuild) — the volume already has a
+#   2. Image redeploy (a new image tag) — the volume already has a
 #      `current` from the prior image (or an in-app install), but the NEW image
 #      carries a NEWER baked build that must supersede it. A plain redeploy does
 #      NOT otherwise re-point `current`, so without this the server keeps running
@@ -109,6 +109,30 @@ seed_baked_build() {
     fi
 
     if [ -e "$CURRENT_LINK/tinycld" ]; then
+        # Never adopt an image whose baked build is OLDER than the running one.
+        # The app upgrades itself in place, so the volume's current can be ahead
+        # of the image it started from; adopting would run older code against a
+        # database that newer migrations already changed. Keep current, and
+        # record this image as seen so later boots of it do not ask again — nor
+        # undo a deliberate in-app downgrade below it.
+        running_root=$(dirname "$(readlink -f "$CURRENT_LINK")")
+        downgrades=$(/opt/build-downgrades.sh "$running_root" "$BAKED_BUILD") && compare_rc=0 || compare_rc=$?
+        if [ "$compare_rc" -ne 0 ]; then
+            if [ "$compare_rc" -eq 1 ]; then
+                echo "[entrypoint] keeping current: image (baked='$baked_id') is older than the running build:"
+                printf '%s\n' "$downgrades" | sed 's/^/[entrypoint]   /'
+                echo "[entrypoint] upgrade in the app, or deploy an image at least this new"
+            else
+                echo "[entrypoint] keeping current: could not compare it with image (baked='$baked_id')" >&2
+            fi
+            if [ -n "$baked_id" ]; then
+                printf '%s' "$baked_id" > "$BAKED_MARKER" 2>/dev/null || true
+                if [ "$(id -u)" = "0" ]; then
+                    chown "$RUN_AS:$RUN_AS" "$BAKED_MARKER" 2>/dev/null || true
+                fi
+            fi
+            return 0
+        fi
         echo "[entrypoint] new image detected (baked='$baked_id' adopted='$adopted_id'); adopting baked build over the volume's current"
     else
         echo "[entrypoint] no live build; seeding from $BAKED_BUILD (baked='$baked_id')"
