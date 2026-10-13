@@ -117,12 +117,12 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 	jobLogf(job, "rebuild starting: %s", memberSetSummary(m))
 	jobLogf(job, "build dir: %s  (state root: %s)", buildDir, resolveStateDir())
 
-	emitProgress(job, "Gathering components", progAssembleStart, memberSetSummary(m))
+	emitProgress(job, "Gathering components", progAssembleStart, "")
 	if err := timeStep(job, "assemble", func() error { return d.assemble(m, buildDir) }); err != nil {
 		return d.fail(job, "assemble", err)
 	}
 	if d.verifyCompat != nil {
-		emitProgress(job, "Checking compatibility", progAssembleEnd, "Checking peer versions from fetched manifests")
+		emitProgress(job, "Checking compatibility", progAssembleEnd, "")
 		if err := timeStep(job, "verify peer versions", func() error { return d.verifyCompat(m, buildDir) }); err != nil {
 			jobLogf(job, "peer-version verify failed — discarding build dir %s (live state untouched)", buildDir)
 			_ = os.RemoveAll(buildDir)
@@ -130,7 +130,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		}
 	}
 	if d.prepareTools != nil {
-		emitProgress(job, "Getting build tools", progAssembleEnd, "Fetching and checking pnpm, Go and Node")
+		emitProgress(job, "Getting build tools", progAssembleEnd, "")
 		if err := timeStep(job, "prepare build tools", func() error { return d.prepareTools(buildDir) }); err != nil {
 			jobLogf(job, "build tools unavailable — discarding build dir %s (live state untouched)", buildDir)
 			_ = os.RemoveAll(buildDir)
@@ -153,7 +153,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		}
 	}
 	// From here the DB may change — back it up so we can roll back.
-	emitProgress(job, "Backing up your data", progBackupDB, "Creating SQLite backup")
+	emitProgress(job, "Backing up your data", progBackupDB, "")
 	// Every failure from here until activation leaves this process serving, so
 	// each one resumes writes after it has put the database back.
 	resumeWrites := pauseWritesForBackup()
@@ -162,7 +162,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		resumeWrites()
 		return d.fail(job, "backup", err)
 	}
-	emitProgress(job, "Updating your data", progSyncMig, "Reconciling schema to new build")
+	emitProgress(job, "Updating your data", progSyncMig, "")
 	if err := timeStep(job, "sync migrations", func() error {
 		res, mErr := d.syncMig(buildDir)
 		if mErr == nil {
@@ -176,7 +176,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		resumeWrites()
 		return d.fail(job, "migrate", err)
 	}
-	emitProgress(job, "Switching to the new version", progActivate, "Flipping current symlink")
+	emitProgress(job, "Switching to the new version", progActivate, "")
 	if err := timeStep(job, "activate build", func() error { return d.activate(m.BuildID) }); err != nil {
 		jobLogf(job, "activate failed — restoring DB backup")
 		restore(d)
@@ -206,7 +206,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 				m.BuildID, out.ReleaseID, len(out.Bundles))
 		}
 	}
-	emitProgress(job, "Finishing up", progCommit, "Recording build + registry")
+	emitProgress(job, "Finishing up", progCommit, "")
 	if d.commitRegistry != nil {
 		if err := d.commitRegistry(); err != nil {
 			// The build is already live; a registry mirror failure is logged but
@@ -229,7 +229,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 	if d.finalizeLog != nil {
 		d.finalizeLog("success", "")
 	}
-	emitProgress(job, "Restarting", progRestart, "Restarting to activate build")
+	emitProgress(job, "Restarting", progRestart, "")
 	emitComplete(job, "success", "")
 	d.restart()
 	return nil

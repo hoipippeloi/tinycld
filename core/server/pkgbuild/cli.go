@@ -28,6 +28,23 @@ var CLITargets = []CLITarget{
 	{OS: "windows", Arch: "amd64"},
 }
 
+// Label names the target for a person ("macOS (Apple silicon)").
+func (t CLITarget) Label() string {
+	switch t.Platform() {
+	case "darwin-arm64":
+		return "macOS (Apple silicon)"
+	case "darwin-amd64":
+		return "macOS (Intel)"
+	case "linux-amd64":
+		return "Linux (x86-64)"
+	case "linux-arm64":
+		return "Linux (ARM)"
+	case "windows-amd64":
+		return "Windows"
+	}
+	return t.Platform()
+}
+
 // Platform is the URL key for this target ("darwin-arm64").
 func (t CLITarget) Platform() string { return t.OS + "-" + t.Arch }
 
@@ -78,7 +95,12 @@ func (p Pipeline) buildCLIBinaries(sink ProgressSink, appDir string) {
 	}
 
 	built := 0
-	for _, t := range CLITargets {
+	for i, t := range CLITargets {
+		// One tick per target: each is a separate cold compile of the
+		// standard library, and together they run for minutes.
+		frac := float64(i) / float64(len(CLITargets))
+		ReportStepProgress(sink, stepCLI, bandPct(ProgCLIBuild, ProgExpoWebStart, frac), int(frac*100),
+			cliTargetMessage(t, i, len(CLITargets)))
 		out, err := p.runEnv()(cliDir,
 			[]string{"GOOS=" + t.OS, "GOARCH=" + t.Arch, "CGO_ENABLED=0"},
 			"go", "build", "-trimpath", "-ldflags", "-s -w",

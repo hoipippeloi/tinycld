@@ -44,7 +44,7 @@ func resolveInstallSlugVersion(app *pocketbase.PocketBase, job *installjob.Job) 
 	}
 	defer os.RemoveAll(tmp)
 
-	emitProgress(job, "Downloading the package", 2, "npm pack "+job.NpmPkg)
+	emitProgress(job, "Downloading the package", 2, job.NpmPkg)
 	if _, err := runCmd(tmp, "npm", "pack", job.NpmPkg, "--pack-destination", tmp); err != nil {
 		return "", "", fmt.Errorf("npm pack: %w", err)
 	}
@@ -193,7 +193,7 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 
 	revertStart := monoNow()
 	jobLogf(job, "revert starting: reactivating retained build %s (package %s) — NO rebuild", targetID, job.Slug)
-	emitProgress(job, "Checking the saved version", 5, "Checking "+targetID)
+	emitProgress(job, "Checking the saved version", 5, "")
 	targetDir := filepath.Join(stateBuildsDir(), targetID, "tinycld")
 	if _, err := os.Stat(targetDir); err != nil {
 		failRevert("validate", fmt.Errorf("build %s not retained on disk: %w", targetID, err))
@@ -212,7 +212,7 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	}
 	// Revert has no build pipeline (the target tree already exists), so it runs
 	// its own compressed-but-monotonic scale rather than the rebuild constants.
-	emitProgress(job, "Backing up your data", 25, "Creating SQLite backup")
+	emitProgress(job, "Backing up your data", 25, "")
 	// Every failure from here until activation leaves this process serving, so
 	// each one resumes writes after it has put the database back.
 	resumeWrites := pauseWritesForBackup()
@@ -237,7 +237,7 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 		}
 	}
 
-	emitProgress(job, "Updating your data", 50, "Syncing migrations to target build")
+	emitProgress(job, "Updating your data", 50, "")
 	newSet, err := buildMigrationFiles(filepath.Join(stateBuildsDir(), targetID))
 	if err != nil {
 		restoreAndRecover()
@@ -269,7 +269,7 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	}
 	logSyncResult(job, syncRes)
 
-	emitProgress(job, "Switching to the new version", 80, "Flipping current symlink")
+	emitProgress(job, "Switching to the new version", 80, "")
 	if err := activateBuild(targetID); err != nil {
 		restoreAndRecover()
 		failRevert("activate", err)
@@ -289,7 +289,7 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	job.Status = "success"
 	jobLogf(job, "revert succeeded in %s — restarting onto build %s", monoSince(revertStart), targetID)
 	finalizeInstallLog(app, logRecord, "success", "", job.LogLines)
-	emitProgress(job, "Restarting", progRestart, "Restarting to activate reverted build")
+	emitProgress(job, "Restarting", progRestart, "")
 	emitComplete(job, "success", "")
 	// Revert is also a post-activation success path (schema synced + symlink
 	// flipped against the live DB), so it arms the surviving backup the same way

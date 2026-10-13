@@ -228,7 +228,8 @@ func stageNativeBundlesIntoRelease(releaseDir string, bundles []BundleMeta) erro
 func (p Pipeline) ExportNativeBundles(sink ProgressSink, appDir, buildID, runtimeVersion string) ([]BundleMeta, error) {
 	sink = sinkOrNop(sink)
 	if !nativeToolchainPresent(appDir) {
-		sink.Progress("Skipping mobile app", ProgNativeStart, "RN toolchain absent — mobile served embedded bundle")
+		sink.Logf("RN toolchain absent — mobile served embedded bundle")
+		sink.Progress(stepNativeSkip, ProgNativeStart, msgNativeAbsent)
 		return nil, nil
 	}
 
@@ -253,8 +254,9 @@ func (p Pipeline) ExportNativeBundles(sink ProgressSink, appDir, buildID, runtim
 		span := ProgNativeEnd - ProgNativeStart
 		lo := ProgNativeStart + (span*i)/len(platforms)
 		hi := ProgNativeStart + (span*(i+1))/len(platforms)
-		step := "Building mobile app (" + p2.label() + ")"
-		sink.Progress(step, lo, "Running expo export --platform "+string(p2))
+		step := stepNative + " (" + p2.label() + ")"
+		sink.Logf("running expo export --platform %s", p2)
+		sink.Progress(step, lo, "")
 		// --source-maps external emits a <bundle>.hbc.map next to each .hbc so we can
 		// upload it to Sentry below (mirrors the web export's --source-maps external
 		// in the Dockerfile). Without it an OTA-bundle crash arrives as unsymbolicated
