@@ -84,22 +84,41 @@ func TestAdoptTargetScaffold_UnknownLaneKeepsFrozenPins(t *testing.T) {
 	}
 }
 
-// The image's corepack home is read-only to the runtime user: the build moves
-// to a writable copy that keeps what the image had cached.
-func TestUseToolchainEnv_MovesReadOnlyCorepackHome(t *testing.T) {
+// fakeNode writes an executable `node` into dir that prints version.
+func fakeNode(t *testing.T, dir, version string) {
+	t.Helper()
+	writeTestFile(t, filepath.Join(dir, "node"), "#!/bin/sh\necho "+version+"\n")
+	if err := os.Chmod(filepath.Join(dir, "node"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func noLog(string, ...any) {}
+
+// readOnlyCorepackHome builds an image-like corepack home holding pnpm
+// 11.3.0 and lastKnownGood.json, made read-only.
+func readOnlyCorepackHome(t *testing.T, lastKnownGood string) string {
+	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("root can write a 0555 directory")
 	}
-	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
-	imageHome := t.TempDir()
-	writeTestFile(t, filepath.Join(imageHome, "v1", "pnpm", "11.3.0", "package.json"), `{}`)
-	if err := os.Chmod(imageHome, 0o555); err != nil {
+	home := t.TempDir()
+	writeTestFile(t, filepath.Join(home, "v1", "pnpm", "11.3.0", "package.json"), `{}`)
+	writeTestFile(t, filepath.Join(home, "lastKnownGood.json"), lastKnownGood)
+	if err := os.Chmod(home, 0o555); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(imageHome, 0o755) })
-	t.Setenv("COREPACK_HOME", imageHome)
+	t.Cleanup(func() { _ = os.Chmod(home, 0o755) })
+	return home
+}
 
-	if err := useToolchainEnv(&installjob.Job{ID: "j"}); err != nil {
+// The image's corepack home is read-only to the runtime user: the server
+// moves to a writable copy that keeps what the image had cached.
+func TestUseWritableCorepackHome_MovesReadOnlyHome(t *testing.T) {
+	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	t.Setenv("COREPACK_HOME", readOnlyCorepackHome(t, `{"pnpm":"11.3.0"}`))
+
+	if err := useWritableCorepackHome(noLog); err != nil {
 		t.Fatal(err)
 	}
 	moved := os.Getenv("COREPACK_HOME")
@@ -114,47 +133,102 @@ func TestUseToolchainEnv_MovesReadOnlyCorepackHome(t *testing.T) {
 	}
 }
 
-func TestUseToolchainEnv_LeavesWritableCorepackHome(t *testing.T) {
+// Every start-up re-seeds from the image (the env does not survive a
+// restart): a newer image's pnpm is copied in, a download already in the copy
+// is kept, and lastKnownGood.json follows the image.
+func TestUseWritableCorepackHome_ReseedKeepsDownloadsAndFollowsImage(t *testing.T) {
+	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	writable := filepath.Join(stateToolchainsDir(), "corepack")
+	writeTestFile(t, filepath.Join(writable, "v1", "pnpm", "12.9.1", "pnpm"), "download")
+	writeTestFile(t, filepath.Join(writable, "v1", "pnpm", "11.3.0", "package.json"), "kept")
+	writeTestFile(t, filepath.Join(writable, "lastKnownGood.json"), `{"pnpm":"12.9.1"}`)
+	t.Setenv("COREPACK_HOME", readOnlyCorepackHome(t, `{"pnpm":"11.3.0"}`))
+
+	if err := useWritableCorepackHome(noLog); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join("v1", "pnpm", "12.9.1", "pnpm"):         "download",
+		filepath.Join("v1", "pnpm", "11.3.0", "package.json"): "kept",
+		"lastKnownGood.json":                                  `{"pnpm":"11.3.0"}`,
+	} {
+		if got, err := os.ReadFile(filepath.Join(writable, path)); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", path, got, err, want)
+		}
+	}
+}
+
+func TestUseWritableCorepackHome_LeavesWritableHome(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("COREPACK_HOME", home)
-	if err := useToolchainEnv(&installjob.Job{ID: "j"}); err != nil {
+	if err := useWritableCorepackHome(noLog); err != nil {
 		t.Fatal(err)
 	}
 	if got := os.Getenv("COREPACK_HOME"); got != home {
 		t.Fatalf("COREPACK_HOME = %s, want it unchanged (%s)", got, home)
 	}
+	if _, err := os.Stat(stateToolchainsDir()); !os.IsNotExist(err) {
+		t.Fatal("a writable home must not be copied")
+	}
 }
 
-// A Node fetched by an earlier build goes first on PATH for this one.
-func TestUseToolchainEnv_PutsFetchedNodeFirstOnPath(t *testing.T) {
+// nodeBuild is an assembled build whose base member declares engines.node.
+func nodeBuild(t *testing.T, engines string) string {
+	t.Helper()
+	buildDir := t.TempDir()
+	writeTestFile(t, filepath.Join(buildDir, baseMemberSlug, "package.json"), `{"engines":{"node":"`+engines+`"}}`)
+	return buildDir
+}
+
+// cachedNode leaves an earlier download at nodeCurrentDir printing version.
+func cachedNode(t *testing.T, version string) {
+	t.Helper()
+	fakeNode(t, filepath.Join(stateToolchainsDir(), "node", version, "bin"), version)
+	if err := os.Symlink(version, nodeCurrentDir()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A newer image's Node wins over an older download left in the state volume,
+// and a download put on PATH by an earlier build is taken off again.
+func TestEnsureNode_ImageNodeWinsOverOldDownload(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
-	t.Setenv("COREPACK_HOME", "")
-	t.Setenv("PATH", "/usr/bin")
-	writeTestFile(t, filepath.Join(stateToolchainsDir(), "node", "v22.12.0", "bin", "node"), "")
-	if err := os.Symlink("v22.12.0", nodeCurrentDir()); err != nil {
+	imageBin := t.TempDir()
+	fakeNode(t, imageBin, "v24.1.0")
+	cachedNode(t, "v22.12.0")
+	cachedBin := filepath.Join(nodeCurrentDir(), "bin")
+	t.Setenv("PATH", cachedBin+string(os.PathListSeparator)+imageBin)
+
+	if err := ensureNode(noLog, nodeBuild(t, ">=22")); err != nil {
 		t.Fatal(err)
 	}
-	if err := useToolchainEnv(&installjob.Job{ID: "j"}); err != nil {
+	if got := os.Getenv("PATH"); got != imageBin {
+		t.Fatalf("PATH = %s, want only the image's %s", got, imageBin)
+	}
+}
+
+// An image Node below the range uses the earlier download, with no network.
+func TestEnsureNode_UsesEarlierDownloadWhenImageIsTooOld(t *testing.T) {
+	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	imageBin := t.TempDir()
+	fakeNode(t, imageBin, "v20.18.0")
+	cachedNode(t, "v22.12.0")
+	t.Setenv("PATH", imageBin)
+
+	if err := ensureNode(noLog, nodeBuild(t, ">=22")); err != nil {
 		t.Fatal(err)
 	}
-	want := filepath.Join(nodeCurrentDir(), "bin") + string(os.PathListSeparator) + "/usr/bin"
+	want := filepath.Join(nodeCurrentDir(), "bin") + string(os.PathListSeparator) + imageBin
 	if got := os.Getenv("PATH"); got != want {
 		t.Fatalf("PATH = %s, want %s", got, want)
-	}
-	// Idempotent: a second build does not stack the entry.
-	if err := useToolchainEnv(&installjob.Job{ID: "j"}); err != nil {
-		t.Fatal(err)
-	}
-	if got := os.Getenv("PATH"); got != want {
-		t.Fatalf("PATH after a second call = %s, want %s", got, want)
 	}
 }
 
 func TestEnsureNode_NoEnginesRangeDoesNothing(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
 	buildDir, _ := laneBuild(t, "3.0.0", "3.0.0")
-	if err := ensureNode(&installjob.Job{ID: "j"}, buildDir); err != nil {
+	if err := ensureNode(noLog, buildDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(stateToolchainsDir(), "node")); !os.IsNotExist(err) {

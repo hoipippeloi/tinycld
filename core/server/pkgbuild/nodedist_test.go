@@ -150,16 +150,20 @@ func TestNodeDistEnsure_RefusesEntriesOutsideArchive(t *testing.T) {
 	}
 }
 
-func TestPickNodeRelease_PrefersNewestLTSInRange(t *testing.T) {
+func TestPickNodeRelease_NewestOfLowestLTSMajorInRange(t *testing.T) {
 	releases := []nodeRelease{
-		{Version: "v24.1.0", Files: []string{"linux-x64"}, LTS: false},
+		{Version: "v25.1.0", Files: []string{"linux-x64"}, LTS: false},
+		{Version: "v24.11.0", Files: []string{"linux-x64"}, LTS: "Krypton"},
+		{Version: "v23.11.0", Files: []string{"linux-x64"}, LTS: false},
+		{Version: "v22.14.0", Files: []string{"linux-x64"}, LTS: "Jod"},
 		{Version: "v22.12.0", Files: []string{"linux-x64", "osx-arm64-tar"}, LTS: "Jod"},
-		{Version: "v22.13.0-rc.1", Files: []string{"linux-x64"}, LTS: "Jod"},
+		{Version: "v22.15.0-rc.1", Files: []string{"linux-x64"}, LTS: "Jod"},
 		{Version: "v20.18.0", Files: []string{"linux-x64"}, LTS: "Iron"},
 	}
 	for _, tc := range []struct{ rng, platform, want string }{
-		{">=22", "linux-x64", "v22.12.0"},    // LTS beats a newer Current
-		{">=23", "linux-x64", "v24.1.0"},     // no LTS in range: newest
+		{">=22", "linux-x64", "v22.14.0"},    // 22 and 24 both LTS: the floor's major, newest
+		{">=23", "linux-x64", "v24.11.0"},    // an odd floor goes to the next LTS major
+		{">=25", "linux-x64", "v25.1.0"},     // no LTS in range: lowest major
 		{">=22", "darwin-arm64", "v22.12.0"}, // macOS reads the osx-*-tar file
 		{">=20 <21", "darwin-arm64", ""},     // no macOS tarball listed
 		{">=26", "linux-x64", ""},
