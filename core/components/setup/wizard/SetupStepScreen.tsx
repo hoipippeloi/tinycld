@@ -1,3 +1,4 @@
+import { HelpDrawer } from '@tinycld/core/components/help/HelpDrawer'
 import { appHref } from '@tinycld/core/lib/org-routes'
 import { paramToStepId, stepIdToParam } from '@tinycld/core/lib/setup/registry'
 import type { LoadedSetupStep, SetupStepProps, StepStatus } from '@tinycld/core/lib/setup/types'
@@ -127,10 +128,22 @@ export function SetupStepScreen({ param }: { param: string }) {
     // Loading is sub-second, so there is no skeleton.
     if (!steps || !actions.isReady) return null
     return (
-        <StepStatusChain steps={steps}>
-            {statuses => (
-                <StepScreenBody param={param} steps={steps} statuses={statuses} actions={actions} />
-            )}
-        </StepStatusChain>
+        <>
+            <StepStatusChain steps={steps}>
+                {statuses => (
+                    <StepScreenBody
+                        param={param}
+                        steps={steps}
+                        statuses={statuses}
+                        actions={actions}
+                    />
+                )}
+            </StepStatusChain>
+            {/* The wizard runs outside app/(app)/, whose layout mounts the
+                workspace's drawer, so a step's help icon needs one here. The
+                help hub is not offered: opening it would leave the wizard,
+                and the workspace sends an unfinished wizard straight back. */}
+            <HelpDrawer hasReadAllLink={false} />
+        </>
     )
 }

@@ -17,7 +17,18 @@ import { useHelpGroupForPackage, useHelpTopic } from '../../lib/help/use-help-to
 import { HelpTopicView } from './HelpTopicView'
 import { PackageTopicList } from './PackageTopicList'
 
-export function HelpDrawer() {
+function ReadAllLink({ isVisible, onPress }: { isVisible: boolean; onPress: () => void }) {
+    if (!isVisible) return null
+    return (
+        <Pressable onPress={onPress} accessibilityRole="link">
+            <Text className="text-xs text-muted-foreground hover:underline">
+                Read all tinycld help →
+            </Text>
+        </Pressable>
+    )
+}
+
+export function HelpDrawer({ hasReadAllLink = true }: { hasReadAllLink?: boolean }) {
     const isOpen = useHelpStore(s => s.isOpen)
     const mode = useHelpStore(s => s.mode)
     const topicId = useHelpStore(s => s.topicId)
@@ -77,11 +88,7 @@ export function HelpDrawer() {
                     />
                 </DrawerBody>
                 <DrawerFooter>
-                    <Pressable onPress={onReadAll} accessibilityRole="link">
-                        <Text className="text-xs text-muted-foreground hover:underline">
-                            Read all tinycld help →
-                        </Text>
-                    </Pressable>
+                    <ReadAllLink isVisible={hasReadAllLink} onPress={onReadAll} />
                 </DrawerFooter>
             </DrawerContent>
         </Drawer>
