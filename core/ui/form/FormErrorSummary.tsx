@@ -49,6 +49,16 @@ const flattenRecordErrors = (record: Record<string, unknown>, keyPath: string): 
     return entries
 }
 
+// A form-level error (setError('root', …), or a bare string) is not about a
+// named field, so it reads as a plain sentence rather than "root: …".
+const FORM_LEVEL_KEY = /^(root|form)(\.|$)/
+
+const entryText = (entry: ErrorEntry, showFieldNames: boolean) => {
+    const message = entry.message || 'Invalid value'
+    if (!showFieldNames || FORM_LEVEL_KEY.test(entry.key)) return message
+    return `${entry.key}: ${message}`
+}
+
 const extractErrorEntries = (errors: FieldErrors): ErrorEntry[] =>
     Object.entries(errors).flatMap(([key, value]) => flattenErrorValue(value, key))
 
@@ -57,6 +67,11 @@ export interface FormErrorSummaryProps {
     title?: string
     testID?: string
     isEnabled?: boolean
+    /**
+     * Prefix each message with its field path. Turn off when the messages are
+     * already full sentences and the paths are internal (`actions[0].params.x`).
+     */
+    showFieldNames?: boolean
 }
 
 export function FormErrorSummary({
@@ -64,6 +79,7 @@ export function FormErrorSummary({
     title = 'Please fix the following errors:',
     testID,
     isEnabled = false,
+    showFieldNames = true,
 }: FormErrorSummaryProps) {
     if (!isEnabled) return null
 
@@ -78,7 +94,7 @@ export function FormErrorSummary({
             <Text className="text-sm font-semibold text-danger mb-2">{title}</Text>
             {errorEntries.map(entry => (
                 <Text key={`${entry.key}-${entry.message}`} className="text-xs text-danger mb-1">
-                    {entry.key}: {entry.message || 'Invalid value'}
+                    {entryText(entry, showFieldNames)}
                 </Text>
             ))}
         </View>

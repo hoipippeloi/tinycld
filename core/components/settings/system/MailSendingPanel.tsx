@@ -98,7 +98,8 @@ export function MailSendingPanel() {
                 }
             }
         } catch (err) {
-            setError('fromAddress', {
+            setError('root', {
+                type: 'server',
                 message: err instanceof Error ? err.message : 'Failed to save',
             })
         }

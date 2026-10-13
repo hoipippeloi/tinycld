@@ -36,7 +36,6 @@ export type TextAreaInputProps<T extends FieldValues = Record<string, unknown>> 
 > & {
     name: Path<T>
     control: Control<T>
-    rules?: Record<string, unknown>
     label?: string
     labelIcon?: ComponentType<{ size: number; color: string }>
     hint?: string
@@ -53,7 +52,6 @@ export function TextAreaInput<T extends FieldValues = Record<string, unknown>>(
         hint,
         name,
         control,
-        rules,
         numberOfLines = 4,
         wrapperProps = {},
         testID,
@@ -64,7 +62,7 @@ export function TextAreaInput<T extends FieldValues = Record<string, unknown>>(
     const {
         field,
         fieldState: { error },
-    } = useController({ name, control, rules })
+    } = useController({ name, control })
 
     const placeholderColor = useThemeColor('field-placeholder')
 

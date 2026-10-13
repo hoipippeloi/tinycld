@@ -466,6 +466,8 @@ That is what `fork-drift` exists for, and why a fully green scan is not full cov
 - Use `create.isPending` to disable the submit button and show loading state
 - Error utilities in `@tinycld/core/lib/errors`: `errorToString()`, `extractValidationErrors()`, `handleMutationErrorsWithForm()`, `captureException()`
 - Do NOT use manual `useState` for form fields — always use `useForm` + the form components
+- **All validation lives in the zod schema.** No hand-rolled checks: no `useState` error strings, no trim/regex/length checks in a submit handler, no `canSubmit` derived from field values (use `formState.isValid`), no manual `setError` for client-side rules. Cross-field rules use `.refine()` / `.superRefine()`; server errors go through `handleMutationErrorsWithForm`. Exception: an inline quick-add or rename input where an empty value cancels.
+- For a "type X to confirm" field guarding a destructive action, use `confirmTextSchema(expected, { ignoreCase })` from `@tinycld/core/ui/form`.
 - For complex forms, extract a `useFeatureForm()` hook that wraps `useForm` with schema, defaults, and submit logic
 - See `@tinycld/contacts`'s `screens/new.tsx` (in the contacts sibling repo) for a reference implementation
 - When developing a feature for a package, consider if the components you are adding would be of use to other packages. If so add them to core's shared `tinycld/core/components/` (or `tinycld/core/ui/`) and offer to update other packages to use them.

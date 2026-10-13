@@ -4,6 +4,7 @@ import type { RuleDraft } from '@tinycld/core/lib/automation/draft'
 import { parseRefSafe } from '@tinycld/core/lib/automation/helpers'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useSortedPackages } from '@tinycld/core/lib/use-sorted-packages'
+import { type Control, Controller } from '@tinycld/core/ui/form'
 import { Menu } from '@tinycld/core/ui/menu'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
 import { ChevronDown } from 'lucide-react-native'
@@ -11,9 +12,11 @@ import { Pressable, Text, View } from 'react-native'
 import { RuleCard } from './RuleCard'
 
 export interface TriggerCardProps {
+    control: Control<RuleDraft>
     draft: RuleDraft
     catalog: CatalogResponse
-    onChange: (patch: Partial<RuleDraft>) => void
+    /** Re-picking the selected trigger is passed on too; the form ignores it. */
+    onSelectTrigger: (ref: string) => void
     isLocked: boolean
     /** Narrows the trigger picker to one package's triggers (e.g. mail's
      * "Rules" screen only offers mail-flavored automation) — core's
@@ -140,29 +143,24 @@ function SchedulePresetMenu({
     )
 }
 
-function ScheduleRow({
-    draft,
-    onChange,
-}: {
-    draft: RuleDraft
-    onChange: (patch: Partial<RuleDraft>) => void
-}) {
-    const cron = draft.triggerConfig.cron ?? ''
-
-    const handleCronText = (text: string) => {
-        onChange({ triggerConfig: { ...draft.triggerConfig, cron: text } })
-    }
-
+function ScheduleRow({ control }: { control: Control<RuleDraft> }) {
     return (
-        <View className="gap-2">
-            <SchedulePresetMenu cron={cron} onSelectCron={handleCronText} />
-            <PlainInput
-                value={cron}
-                onChangeText={handleCronText}
-                placeholder="* * * * *"
-                className="font-mono border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
-            />
-        </View>
+        <Controller
+            control={control}
+            name="triggerConfig.cron"
+            render={({ field }) => (
+                <View className="gap-2">
+                    <SchedulePresetMenu cron={field.value ?? ''} onSelectCron={field.onChange} />
+                    <PlainInput
+                        value={field.value ?? ''}
+                        onChangeText={field.onChange}
+                        onBlur={field.onBlur}
+                        placeholder="* * * * *"
+                        className="font-mono border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
+                    />
+                </View>
+            )}
+        />
     )
 }
 
@@ -177,30 +175,16 @@ function triggersForPreset(catalog: CatalogResponse, presetPkg: string | undefin
     return catalog.triggers.filter(t => t.pkg === presetPkg || t.synthetic)
 }
 
-export function TriggerCard({ draft, catalog, onChange, isLocked, presetPkg }: TriggerCardProps) {
+export function TriggerCard({
+    control,
+    draft,
+    catalog,
+    onSelectTrigger,
+    isLocked,
+    presetPkg,
+}: TriggerCardProps) {
     const isSchedule = draft.trigger === SCHEDULE_TRIGGER_REF
     const triggers = triggersForPreset(catalog, presetPkg)
-
-    const handleSelectTrigger = (trigger: CatalogTrigger) => {
-        // Re-picking the trigger already selected is a no-op, not a reset:
-        // the menu shows the current choice, so clicking it is the natural way
-        // to close the menu — and it used to silently discard every condition
-        // and action the user had built.
-        if (trigger.ref === draft.trigger) return
-        // Switching triggers invalidates conditions (built against the old
-        // trigger's field set) and actions (may target the old trigger's
-        // collection) — both reset rather than silently carrying over.
-        //
-        // Resetting to zero groups is also what re-arms ConditionsCard's ready
-        // first row against the NEW trigger's fields (see its SyntheticFirstGroup).
-        // The literal deliberately skips ensureUids, which is safe only because
-        // the array is empty — anything seeded here would need uids to key on.
-        onChange({
-            trigger: trigger.ref,
-            conditions: { match: 'all', groups: [] },
-            actions: [],
-        })
-    }
 
     return (
         <RuleCard title="WHEN">
@@ -210,10 +194,10 @@ export function TriggerCard({ draft, catalog, onChange, isLocked, presetPkg }: T
                 <TriggerMenu
                     catalog={{ ...catalog, triggers }}
                     selectedRef={draft.trigger}
-                    onSelect={handleSelectTrigger}
+                    onSelect={trigger => onSelectTrigger(trigger.ref)}
                 />
             )}
-            {isSchedule ? <ScheduleRow draft={draft} onChange={onChange} /> : null}
+            {isSchedule ? <ScheduleRow control={control} /> : null}
         </RuleCard>
     )
 }

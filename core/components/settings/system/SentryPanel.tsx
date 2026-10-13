@@ -27,7 +27,8 @@ export function SentryPanel() {
             { key: 'sentry.dsn', value: data.dsn, isSecret: false },
             {
                 onError: err =>
-                    setError('dsn', {
+                    setError('root', {
+                        type: 'server',
                         message: err instanceof Error ? err.message : 'Failed to save',
                     }),
             }

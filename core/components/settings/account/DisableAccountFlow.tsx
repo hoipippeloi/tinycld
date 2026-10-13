@@ -1,7 +1,14 @@
-import { useMutation } from '@tanstack/react-query'
 import { disableAccount } from '@tinycld/core/lib/account'
 import { errorToString } from '@tinycld/core/lib/errors'
-import { useState } from 'react'
+import { useMutation } from '@tinycld/core/lib/mutations'
+import {
+    Controller,
+    confirmTextSchema,
+    isFormSubmittable,
+    useForm,
+    zodResolver,
+} from '@tinycld/core/ui/form'
+import { useMemo } from 'react'
 import { Text, View } from 'react-native'
 import {
     CancelButton,
@@ -28,16 +35,25 @@ export function DisableAccountFlow(props: DisableAccountFlowProps) {
 }
 
 function DisableAccountFlowOpen({ onClose, onSuccess, email }: DisableAccountFlowProps) {
-    const [typed, setTyped] = useState('')
-    const [error, setError] = useState<string | null>(null)
+    const schema = useMemo(() => confirmTextSchema(email, { ignoreCase: true }), [email])
+    const {
+        control,
+        handleSubmit,
+        setError,
+        formState: { isValid, errors },
+    } = useForm({
+        resolver: zodResolver(schema),
+        defaultValues: { confirm: '' },
+        mode: 'onChange',
+    })
 
     const mutation = useMutation({
         mutationFn: () => disableAccount(email),
         onSuccess,
-        onError: e => setError(errorToString(e)),
+        onError: e => setError('root', { type: 'server', message: errorToString(e) }),
     })
 
-    const matches = typed.trim().toLowerCase() === email.trim().toLowerCase()
+    const submit = handleSubmit(() => mutation.mutate())
 
     return (
         <ModalShell>
@@ -49,22 +65,28 @@ function DisableAccountFlowOpen({ onClose, onSuccess, email }: DisableAccountFlo
                     files, documents and comments stay exactly as they are.
                 </Text>
 
-                <ErrorMessage message={error} />
+                <ErrorMessage message={errors.root?.message ?? null} />
 
-                <ConfirmInput
-                    testID="disable-account-confirm"
-                    label="Type your email address to confirm"
-                    placeholder={email}
-                    value={typed}
-                    onChangeText={setTyped}
-                    editable={!mutation.isPending}
+                <Controller
+                    control={control}
+                    name="confirm"
+                    render={({ field }) => (
+                        <ConfirmInput
+                            testID="disable-account-confirm"
+                            label="Type your email address to confirm"
+                            placeholder={email}
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            editable={!mutation.isPending}
+                        />
+                    )}
                 />
 
                 <DangerButton
                     testID="disable-account-submit"
                     label="Disable my account"
-                    onPress={() => mutation.mutate()}
-                    disabled={!matches || mutation.isPending}
+                    onPress={submit}
+                    disabled={!isFormSubmittable({ isValid, errors }) || mutation.isPending}
                     isPending={mutation.isPending}
                 />
                 <CancelButton onPress={onClose} disabled={mutation.isPending} />

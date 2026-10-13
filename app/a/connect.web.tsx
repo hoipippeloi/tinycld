@@ -1,6 +1,7 @@
 import { ConnectIllustration } from '@tinycld/core/components/connect/ConnectIllustration'
 import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
 import { getCoreConfigOptional } from '@tinycld/core/lib/core-config'
+import { useMutation } from '@tinycld/core/lib/mutations'
 import { normalizeAddress, probeServer, setResolvedAddress } from '@tinycld/core/lib/server-address'
 import { setActiveServer } from '@tinycld/core/lib/servers'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
@@ -13,7 +14,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native'
 const FALLBACK_DEFAULT_SERVER = 'https://tinycld.org'
 
 const urlSchema = z.object({
-    url: z.string().min(1, 'Enter a server address.'),
+    url: z.string().trim().min(1, 'Enter a server address.'),
 })
 
 export default function ConnectWeb() {
@@ -24,15 +25,12 @@ export default function ConnectWeb() {
     const defaultServerLabel = hostLabel(defaultServer) ?? 'tinycld.org'
 
     const [expanded, setExpanded] = useState(false)
-    const [busyDefault, setBusyDefault] = useState(false)
-    const [busyCustom, setBusyCustom] = useState(false)
-    const [submitError, setSubmitError] = useState<string | null>(null)
 
     const fg = useThemeColor('foreground')
     const bg = useThemeColor('background')
     const muted = useThemeColor('muted-foreground')
 
-    const { control, handleSubmit } = useForm({
+    const { control, handleSubmit, setError, clearErrors, formState } = useForm({
         resolver: zodResolver(urlSchema),
         defaultValues: { url: '' },
         mode: 'onChange',
@@ -53,32 +51,33 @@ export default function ConnectWeb() {
         router.replace(target)
     }
 
-    async function onUseDefault() {
-        setSubmitError(null)
-        setBusyDefault(true)
-        try {
-            await connectTo(normalizeAddress(defaultServer))
-        } catch (err) {
-            const reason = err instanceof Error ? err.message : 'Connection failed'
-            setSubmitError(`Couldn't reach ${defaultServerLabel}: ${reason}`)
-            setBusyDefault(false)
-        }
+    function reportUnreachable(label: string, err: unknown) {
+        const reason = err instanceof Error ? err.message : 'Connection failed'
+        setError('root', { type: 'server', message: `Couldn't reach ${label}: ${reason}` })
     }
 
+    // The default server is not a form submission, but its failure is shown
+    // in the same place as the custom address's, so it shares the root error.
+    const connectDefault = useMutation({
+        mutationFn: () => connectTo(normalizeAddress(defaultServer)),
+        onMutate: () => clearErrors('root'),
+        onError: err => reportUnreachable(defaultServerLabel, err),
+    })
+
     const onSubmitCustom = handleSubmit(async ({ url }) => {
-        setSubmitError(null)
-        setBusyCustom(true)
         const addr = normalizeAddress(url)
         try {
             await connectTo(addr)
         } catch (err) {
-            const reason = err instanceof Error ? err.message : 'Connection failed'
-            setSubmitError(`Couldn't reach ${addr}: ${reason}`)
-            setBusyCustom(false)
+            reportUnreachable(addr, err)
         }
     })
 
+    // A successful connect stays busy until the route change unmounts the screen.
+    const busyDefault = connectDefault.isPending || connectDefault.isSuccess
+    const busyCustom = formState.isSubmitting || formState.isSubmitSuccessful
     const busy = busyDefault || busyCustom
+    const submitError = formState.errors.root?.message
 
     return (
         <ScrollView
@@ -154,7 +153,7 @@ export default function ConnectWeb() {
                 <View className="flex-1 p-10 gap-4" style={{ minWidth: 320 }}>
                     <Pressable
                         testID="connect-use-default"
-                        onPress={onUseDefault}
+                        onPress={() => connectDefault.mutate()}
                         disabled={busy}
                         className={`border-[1.5px] border-foreground bg-foreground rounded-2xl p-[18px] flex-row items-start gap-3.5 ${busy ? 'opacity-60' : 'opacity-100'}`}
                     >

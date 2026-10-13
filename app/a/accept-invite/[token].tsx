@@ -28,7 +28,7 @@ type LoadState =
 
 const acceptSchema = z
     .object({
-        name: z.string().min(1, 'Name is required'),
+        name: z.string().trim().min(1, 'Name is required'),
         password: z.string().min(8, 'Min 8 characters'),
         confirmPassword: z.string(),
     })
@@ -115,14 +115,11 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
     const fgColor = useThemeColor('foreground')
     const primaryBg = useThemeColor('primary')
 
-    const [submitError, setSubmitError] = useState<string | null>(null)
-    const [isSubmitting, setIsSubmitting] = useState(false)
-    const [isSuccess, setIsSuccess] = useState(false)
-
     const {
         control,
         handleSubmit,
-        formState: { errors, isSubmitted },
+        setError,
+        formState: { errors, isSubmitted, isSubmitting, isSubmitSuccessful },
     } = useForm({
         resolver: zodResolver(acceptSchema),
         defaultValues: { name: '', password: '', confirmPassword: '' },
@@ -130,8 +127,6 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
     })
 
     const onSubmit = handleSubmit(async data => {
-        setSubmitError(null)
-        setIsSubmitting(true)
         try {
             const res = await serverFetch(`${PB_SERVER_ADDR}/api/accept-invite/${token}`, {
                 method: 'POST',
@@ -148,16 +143,18 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
             }
 
             await pb.collection('users').authWithPassword(username, data.password)
-            setIsSuccess(true)
             router.replace('/')
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to accept invitation'
             captureException('invite.accept.submit', err)
-            setSubmitError(message)
-        } finally {
-            setIsSubmitting(false)
+            setError('root', { type: 'server', message })
         }
     })
+
+    // A successful sign-in stays busy until the route change unmounts the form.
+    const isSuccess = isSubmitSuccessful
+    // The server refusal has its own banner, so the summary lists field errors only.
+    const fieldErrors: typeof errors = { ...errors, root: undefined }
 
     return (
         <View
@@ -191,13 +188,8 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
                 </Text>
             </View>
 
-            <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
-
-            {submitError && (
-                <View className="rounded-lg p-2 bg-danger-soft">
-                    <Text className="text-xs text-danger">{submitError}</Text>
-                </View>
-            )}
+            <FormErrorSummary errors={fieldErrors} isEnabled={isSubmitted} />
+            <ServerError message={errors.root?.message} />
 
             <TextInput control={control} name="name" label="Name" placeholder="Your name" />
 
@@ -232,6 +224,15 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
                           : 'Set password and sign in'}
                 </Text>
             </Pressable>
+        </View>
+    )
+}
+
+function ServerError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return (
+        <View className="rounded-lg p-2 bg-danger-soft">
+            <Text className="text-xs text-danger">{message}</Text>
         </View>
     )
 }

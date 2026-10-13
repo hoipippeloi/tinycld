@@ -24,13 +24,12 @@ export type Condition = {
 export type Group = { uid?: string; match: 'all' | 'any'; conditions: Condition[] }
 export type ConditionsAst = { match: 'all' | 'any'; groups: Group[] }
 
-// Same rationale as Condition/Group's `uid` above, applied to THEN actions:
-// ActionsCard's up/down reorder (moveAction) actively remaps array indices,
-// so an index key would reconcile an open param Menu or focused input onto
-// whichever action slides into that slot. `uid` gives ActionEntry a stable
-// React key that moves WITH its action. Optional so a plain action item
-// (straight off the wire, pre-ensureActionUids) remains assignable.
-// draftToRecord strips it via ruleActionsSchema.parse before persisting.
+// A builder-local identity for a THEN action, like Condition/Group's `uid`
+// above. ActionsCard keys its rows on useFieldArray's own ids, so nothing
+// renders from this one; it is kept so every draft action has the same shape
+// whether it was loaded or added. Optional so a plain action item (straight
+// off the wire, pre-ensureActionUids) remains assignable. draftToRecord strips
+// it via ruleActionsSchema.parse before persisting.
 export type ActionItem = {
     uid?: string
     ref: string
@@ -61,8 +60,7 @@ export function ensureUids(ast: ConditionsAst): ConditionsAst {
  * Assigns a `uid` to every action missing one — same one-pass-on-load
  * rationale as ensureUids, run by emptyDraft/recordToDraft so a rule loaded
  * from the server (whose stored actions never carry a uid — draftToRecord
- * strips it) gets stable keys too, not just actions appended fresh in this
- * session via ActionsCard's add-action Menu.
+ * strips it) gets one too, like an action appended in this session.
  */
 export function ensureActionUids(actions: ActionItem[]): ActionItem[] {
     return actions.map(a => ({ ...a, uid: a.uid ?? newRecordId() }))
@@ -241,21 +239,6 @@ export function compatibleActions(
         if (trigger.synthetic) return false
         return action.collection === trigger.collection
     })
-}
-
-/**
- * Immutably moves the item at `from` to index `to`. Out-of-bounds `to` is a
- * no-op (returns a value equal to `list`, not necessarily the same
- * reference) rather than clamping — an up/down button already can't request
- * an out-of-bounds move under normal use (it's disabled at the ends), so this
- * is a defensive guard, not a UI-reachable path.
- */
-export function moveAction<T>(list: T[], from: number, to: number): T[] {
-    if (to < 0 || to >= list.length) return list
-    const next = [...list]
-    const [item] = next.splice(from, 1)
-    next.splice(to, 0, item)
-    return next
 }
 
 /**

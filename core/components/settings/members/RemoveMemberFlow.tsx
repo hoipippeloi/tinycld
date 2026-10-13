@@ -1,4 +1,3 @@
-import { useMutation } from '@tanstack/react-query'
 import {
     CancelButton,
     ConfirmInput,
@@ -8,9 +7,15 @@ import {
     ModalShell,
     usePeers,
 } from '@tinycld/core/components/settings/account/OffboardDialog'
+import {
+    defaultRemovalPlan,
+    removeMemberSchemaFor,
+} from '@tinycld/core/components/settings/account/offboard-schemas'
 import { type OffboardPlan, type OffboardResult, offboardMember } from '@tinycld/core/lib/account'
 import { errorToString } from '@tinycld/core/lib/errors'
-import { useState } from 'react'
+import { useMutation } from '@tinycld/core/lib/mutations'
+import { Controller, isFormSubmittable, useForm, zodResolver } from '@tinycld/core/ui/form'
+import { useMemo } from 'react'
 import { Text, View } from 'react-native'
 
 export interface RemoveMemberFlowProps {
@@ -35,21 +40,30 @@ export function RemoveMemberFlow(props: RemoveMemberFlowProps) {
 
 function RemoveMemberFlowOpen({ onClose, onSuccess, userId, displayName }: RemoveMemberFlowProps) {
     const peers = usePeers(userId)
-    const [typed, setTyped] = useState('')
-    const [error, setError] = useState<string | null>(null)
-    const [plan, setPlan] = useState<OffboardPlan>(
-        peers.length > 0
-            ? { mode: 'reassign', successor_user_id: peers[0]?.id }
-            : { mode: 'delete_my_data' }
-    )
+    const schema = useMemo(() => removeMemberSchemaFor(displayName), [displayName])
+    const {
+        control,
+        handleSubmit,
+        setError,
+        watch,
+        formState: { isValid, errors },
+    } = useForm({
+        resolver: zodResolver(schema),
+        defaultValues: { confirm: '', plan: undefined },
+        mode: 'onChange',
+    })
+    // Until the admin picks, the plan is derived from the peer list during
+    // render, so the highlighted option and the submitted plan stay the same
+    // thing even when the peers load after the dialog opens.
+    const plan = watch('plan') ?? defaultRemovalPlan(peers)
 
     const mutation = useMutation({
-        mutationFn: () => offboardMember(userId, plan),
+        mutationFn: (chosen: OffboardPlan) => offboardMember(userId, chosen),
         onSuccess,
-        onError: e => setError(errorToString(e)),
+        onError: e => setError('root', { type: 'server', message: errorToString(e) }),
     })
 
-    const matches = typed.trim() === displayName.trim()
+    const submit = handleSubmit(() => mutation.mutate(plan))
 
     return (
         <ModalShell>
@@ -61,30 +75,42 @@ function RemoveMemberFlowOpen({ onClose, onSuccess, userId, displayName }: Remov
                     account instead if the change might be temporary.
                 </Text>
 
-                <ContentPlanPicker
-                    peers={peers}
-                    subjectLabel={`${displayName}'s`}
-                    value={plan}
-                    onChange={setPlan}
-                    disabled={mutation.isPending}
+                <Controller
+                    control={control}
+                    name="plan"
+                    render={({ field }) => (
+                        <ContentPlanPicker
+                            peers={peers}
+                            subjectLabel={`${displayName}'s`}
+                            value={plan}
+                            onChange={field.onChange}
+                            disabled={mutation.isPending}
+                        />
+                    )}
                 />
 
-                <ErrorMessage message={error} />
+                <ErrorMessage message={errors.root?.message ?? null} />
 
-                <ConfirmInput
-                    testID="remove-member-confirm"
-                    label="Type their name to confirm"
-                    placeholder={displayName}
-                    value={typed}
-                    onChangeText={setTyped}
-                    editable={!mutation.isPending}
+                <Controller
+                    control={control}
+                    name="confirm"
+                    render={({ field }) => (
+                        <ConfirmInput
+                            testID="remove-member-confirm"
+                            label="Type their name to confirm"
+                            placeholder={displayName}
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            editable={!mutation.isPending}
+                        />
+                    )}
                 />
 
                 <DangerButton
                     testID="remove-member-submit"
                     label={`Remove ${displayName}`}
-                    onPress={() => mutation.mutate()}
-                    disabled={!matches || mutation.isPending}
+                    onPress={submit}
+                    disabled={!isFormSubmittable({ isValid, errors }) || mutation.isPending}
                     isPending={mutation.isPending}
                 />
                 <CancelButton onPress={onClose} disabled={mutation.isPending} />

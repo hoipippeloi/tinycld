@@ -1,73 +1,68 @@
-import { deleteMyAccount, type OffboardPlan } from '@tinycld/core/lib/account'
+import { deleteMyAccount } from '@tinycld/core/lib/account'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { errorToString } from '@tinycld/core/lib/errors'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { CONNECT_HREF } from '@tinycld/core/lib/org-routes'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
+import { Controller, isFormSubmittable, useForm, type z, zodResolver } from '@tinycld/core/ui/form'
 import { router } from 'expo-router'
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { ActivityIndicator, Text, TextInput, View } from 'react-native'
 import { ContentPlanPicker, usePeers } from './account/OffboardDialog'
+import { deleteAccountSchemaFor } from './account/offboard-schemas'
 
 interface DeleteAccountModalProps {
     isVisible: boolean
     onClose: () => void
 }
 
+type DeleteAccountValues = z.infer<ReturnType<typeof deleteAccountSchemaFor>>
+
 // useDeleteAccountForm owns the whole flow so the submit contract is testable:
 // what the picker shows and what the mutation sends must be the same thing.
 export function useDeleteAccountForm(onClose: () => void) {
     const { user, logout } = useAuth()
-    const [typed, setTyped] = useState('')
-    const [error, setError] = useState<string | null>(null)
     // Who could inherit this user's files/documents/comments. Empty when
     // they're the only non-guest account, in which case the picker hides and
     // the plan stays undefined — content is left attributed to "Deleted user".
     const peers = usePeers(user.id)
-    const [plan, setPlan] = useState<OffboardPlan | undefined>(undefined)
+    const hasPeers = peers.length > 0
+    const schema = useMemo(
+        () => deleteAccountSchemaFor(user.email, hasPeers),
+        [user.email, hasPeers]
+    )
+
+    const form = useForm({
+        resolver: zodResolver(schema),
+        defaultValues: { confirm: '', plan: undefined },
+        mode: 'onChange',
+    })
 
     const mutation = useMutation({
-        mutationFn: async (email: string) => {
-            await deleteMyAccount(email, plan)
+        mutationFn: async (values: DeleteAccountValues) => {
+            await deleteMyAccount(values.confirm, values.plan)
         },
         onSuccess: () => {
             logout()
             router.replace(CONNECT_HREF)
         },
-        onError: err => setError(errorToString(err)),
+        onError: err => form.setError('root', { type: 'server', message: errorToString(err) }),
     })
 
-    const expected = user.email.trim().toLowerCase()
-    // The picker starts unselected and submit stays blocked until a plan is
-    // chosen: a destructive option must never be pre-selected, and what the
-    // picker shows must be what the mutation sends. With no peers the picker
-    // is hidden and the undefined plan is the deliberate leave-content path.
-    const needsPlanChoice = peers.length > 0 && plan === undefined
-    const canSubmit =
-        typed.trim().toLowerCase() === expected && !needsPlanChoice && !mutation.isPending
+    const canSubmit = isFormSubmittable(form.formState) && !mutation.isPending
 
     const handleCancel = () => {
         if (mutation.isPending) return
-        setTyped('')
-        setError(null)
         onClose()
     }
 
-    const handleSubmit = () => {
-        if (!canSubmit) return
-        setError(null)
-        mutation.mutate(typed.trim())
-    }
+    const handleSubmit = form.handleSubmit(values => mutation.mutate(values))
 
     return {
         user,
-        typed,
-        setTyped,
-        error,
+        form,
         peers,
-        plan,
-        setPlan,
         isPending: mutation.isPending,
         canSubmit,
         handleCancel,
@@ -75,26 +70,21 @@ export function useDeleteAccountForm(onClose: () => void) {
     }
 }
 
-export function DeleteAccountModal({ isVisible, onClose }: DeleteAccountModalProps) {
-    const {
-        user,
-        typed,
-        setTyped,
-        error,
-        peers,
-        plan,
-        setPlan,
-        isPending,
-        canSubmit,
-        handleCancel,
-        handleSubmit,
-    } = useDeleteAccountForm(onClose)
+// Mounted only while visible, so each open starts from a blank confirmation and
+// no plan rather than whatever was left from the last cancel.
+export function DeleteAccountModal(props: DeleteAccountModalProps) {
+    if (!props.isVisible) return null
+    return <DeleteAccountModalOpen {...props} />
+}
+
+function DeleteAccountModalOpen({ onClose }: DeleteAccountModalProps) {
+    const { user, form, peers, isPending, canSubmit, handleCancel, handleSubmit } =
+        useDeleteAccountForm(onClose)
+    const { control, formState } = form
 
     const mutedColor = useThemeColor('muted-foreground')
     const backdropColor = useThemeColor('overlay-backdrop')
     const dangerFg = useThemeColor('danger-foreground')
-
-    if (!isVisible) return null
 
     return (
         <View
@@ -124,36 +114,48 @@ export function DeleteAccountModal({ isVisible, onClose }: DeleteAccountModalPro
                 </Text>
 
                 <View className="mb-6">
-                    <ContentPlanPicker
-                        peers={peers}
-                        subjectLabel="your"
-                        value={plan}
-                        onChange={setPlan}
-                        disabled={isPending}
+                    <Controller
+                        control={control}
+                        name="plan"
+                        render={({ field, fieldState }) => (
+                            <>
+                                <ContentPlanPicker
+                                    peers={peers}
+                                    subjectLabel="your"
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    disabled={isPending}
+                                />
+                                <FieldError message={fieldState.error?.message} />
+                            </>
+                        )}
                     />
                 </View>
 
-                {error && (
-                    <View className="rounded-lg p-3 mb-4 bg-danger-soft">
-                        <Text className="text-sm text-danger">{error}</Text>
-                    </View>
-                )}
+                <ServerError message={formState.errors.root?.message} />
 
                 <View className="mb-6">
                     <Text className="mb-1.5 text-sm font-semibold text-foreground">
                         Type your email to confirm
                     </Text>
-                    <TextInput
-                        className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
-                        value={typed}
-                        onChangeText={setTyped}
-                        placeholder={user.email}
-                        placeholderTextColor={mutedColor}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        autoComplete="email"
-                        editable={!isPending}
-                        onSubmitEditing={handleSubmit}
+                    <Controller
+                        control={control}
+                        name="confirm"
+                        render={({ field }) => (
+                            <TextInput
+                                className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
+                                value={field.value}
+                                onChangeText={field.onChange}
+                                onBlur={field.onBlur}
+                                placeholder={user.email}
+                                placeholderTextColor={mutedColor}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoComplete="email"
+                                editable={!isPending}
+                                onSubmitEditing={handleSubmit}
+                            />
+                        )}
                     />
                 </View>
 
@@ -179,6 +181,20 @@ export function DeleteAccountModal({ isVisible, onClose }: DeleteAccountModalPro
                     <ButtonText>Cancel</ButtonText>
                 </Button>
             </View>
+        </View>
+    )
+}
+
+function FieldError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return <Text className="mt-1.5 text-xs text-danger">{message}</Text>
+}
+
+function ServerError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return (
+        <View className="rounded-lg p-3 mb-4 bg-danger-soft">
+            <Text className="text-sm text-danger">{message}</Text>
         </View>
     )
 }

@@ -7,7 +7,6 @@ import type {
 import {
     appendPlaceholder,
     compatibleActions,
-    moveAction,
     orderGroupsByUserPreference,
 } from '@tinycld/core/lib/automation/condition-helpers'
 import type { RuleDraft } from '@tinycld/core/lib/automation/draft'
@@ -16,15 +15,22 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useSortedPackages } from '@tinycld/core/lib/use-sorted-packages'
 import { Menu } from '@tinycld/core/ui/menu'
 import { ArrowDown, ArrowUp, Braces, Plus, Trash2 } from 'lucide-react-native'
-import { newRecordId } from 'pbtsdb/core'
 import { Pressable, Text, View } from 'react-native'
 import { RuleCard } from './RuleCard'
 import { ValueInput } from './ValueInput'
 
+type DraftAction = RuleDraft['actions'][number]
+
 export interface ActionsCardProps {
-    draft: RuleDraft
+    triggerRef: string
+    /** One per action, in order; `key` is a stable React key that moves with
+     * its action on a reorder. */
+    actionRows: { key: string; action: DraftAction }[]
     catalog: CatalogResponse
-    onChange: (patch: Partial<RuleDraft>) => void
+    onAdd: (ref: string) => void
+    onMove: (from: number, to: number) => void
+    onRemove: (index: number) => void
+    onChangeParams: (index: number, params: DraftAction['params']) => void
 }
 
 function groupActionsByPackage(actions: CatalogAction[]): Map<string, CatalogAction[]> {
@@ -183,10 +189,10 @@ function ActionEntry({
 }: {
     index: number
     total: number
-    draftAction: RuleDraft['actions'][number]
+    draftAction: DraftAction
     catalog: CatalogResponse
     trigger: CatalogTrigger | undefined
-    onChangeParams: (params: Record<string, string | number | boolean>) => void
+    onChangeParams: (params: DraftAction['params']) => void
     onMove: (to: number) => void
     onRemove: () => void
 }) {
@@ -250,57 +256,38 @@ function ActionEntry({
     )
 }
 
-export function ActionsCard({ draft, catalog, onChange }: ActionsCardProps) {
-    const trigger = catalog.triggers.find(t => t.ref === draft.trigger)
-
-    const handleSelectAction = (action: CatalogAction) => {
-        onChange({
-            actions: [...draft.actions, { uid: newRecordId(), ref: action.ref, params: {} }],
-        })
-    }
-
-    const handleChangeParams = (
-        index: number,
-        params: Record<string, string | number | boolean>
-    ) => {
-        onChange({
-            actions: draft.actions.map((a, i) => (i === index ? { ...a, params } : a)),
-        })
-    }
-
-    const handleMove = (from: number, to: number) => {
-        onChange({ actions: moveAction(draft.actions, from, to) })
-    }
-
-    const handleRemove = (index: number) => {
-        onChange({ actions: draft.actions.filter((_, i) => i !== index) })
-    }
+export function ActionsCard({
+    triggerRef,
+    actionRows,
+    catalog,
+    onAdd,
+    onMove,
+    onRemove,
+    onChangeParams,
+}: ActionsCardProps) {
+    const trigger = catalog.triggers.find(t => t.ref === triggerRef)
 
     return (
         <RuleCard title="THEN" isDisabled={!trigger} disabledHint="Choose a trigger first">
-            {draft.actions.map((draftAction, index) => (
+            {actionRows.map(({ key, action }, index) => (
                 <ActionEntry
-                    // Keyed on the builder-local uid (condition-helpers.ts's
-                    // ensureActionUids/ActionsCard's handleSelectAction), not
-                    // index — moveAction actively remaps index on every up/down
-                    // reorder, and an index key would reconcile an open param
-                    // Menu (TemplateFieldMenu/ValueInput's relation & select
-                    // Menus own isOpen internally) or a focused input onto
-                    // whichever action slides into that slot. Same rationale as
-                    // ConditionRow/ConditionGroupBox's uid keys.
-                    key={draftAction.uid}
+                    key={key}
                     index={index}
-                    total={draft.actions.length}
-                    draftAction={draftAction}
+                    total={actionRows.length}
+                    draftAction={action}
                     catalog={catalog}
                     trigger={trigger}
-                    onChangeParams={params => handleChangeParams(index, params)}
-                    onMove={to => handleMove(index, to)}
-                    onRemove={() => handleRemove(index)}
+                    onChangeParams={params => onChangeParams(index, params)}
+                    onMove={to => onMove(index, to)}
+                    onRemove={() => onRemove(index)}
                 />
             ))}
 
-            <AddActionMenu catalog={catalog} trigger={trigger} onSelect={handleSelectAction} />
+            <AddActionMenu
+                catalog={catalog}
+                trigger={trigger}
+                onSelect={action => onAdd(action.ref)}
+            />
         </RuleCard>
     )
 }
