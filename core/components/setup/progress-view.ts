@@ -8,9 +8,15 @@ export interface StepRow {
     isCurrent: boolean
     isFailed: boolean
     stepProgress: number | null
+    // Where in the step the build is, in the build's own short words ("2 of 5
+    // platforms"). Null when the latest event said nothing, or failed: a
+    // failure's message is internal detail for the debug log.
+    message: string | null
 }
 
 const isFailure = (step: ProgressStep) => step.message.startsWith('FAILED')
+
+const shownMessage = (step: ProgressStep) => (isFailure(step) ? null : step.message || null)
 
 // A step streams many events (every Metro percentage line, every pnpm tick), but
 // a user needs one row per step. Only a run of events with the same step merges,
@@ -22,6 +28,7 @@ export function collapseSteps(steps: ProgressStep[], status: OperationStatus): S
         if (last?.step === event.step) {
             last.isFailed ||= isFailure(event)
             last.stepProgress = event.stepProgress ?? last.stepProgress
+            last.message = shownMessage(event)
             continue
         }
         rows.push({
@@ -30,6 +37,7 @@ export function collapseSteps(steps: ProgressStep[], status: OperationStatus): S
             isCurrent: false,
             isFailed: isFailure(event),
             stepProgress: event.stepProgress ?? null,
+            message: shownMessage(event),
         })
     }
     const current = rows[rows.length - 1]

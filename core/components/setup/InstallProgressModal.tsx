@@ -261,6 +261,7 @@ function StepRowLine({
                     {label}
                 </Text>
             </View>
+            <StepMessage row={row} />
             <StepProgress
                 row={row}
                 status={status}
@@ -291,6 +292,13 @@ function StepSpinner({ color }: { color: string }) {
             <ActivityIndicator size="small" color={color} style={{ transform: [{ scale: 0.6 }] }} />
         </View>
     )
+}
+
+// A step can run for minutes; its message says where in it the build is, so a
+// slow step reads as working rather than stuck.
+function StepMessage({ row }: { row: StepRow }) {
+    if (!row.isCurrent || !row.message) return null
+    return <Text className="pl-5 text-[12px] text-muted-foreground">{row.message}</Text>
 }
 
 // Bundling runs for minutes inside a few points of the overall bar; its own

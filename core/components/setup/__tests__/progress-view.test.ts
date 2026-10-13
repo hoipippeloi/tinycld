@@ -54,4 +54,25 @@ describe('collapseSteps', () => {
         expect(rows).toHaveLength(1)
         expect(rows[0].isFailed).toBe(true)
     })
+
+    it('shows the latest message of the current step', () => {
+        const rows = collapseSteps(
+            [
+                event('Building application tools', ''),
+                event('Building application tools', 'macOS (Apple silicon), 1 of 5'),
+                event('Building application tools', 'Windows, 5 of 5'),
+            ],
+            'running'
+        )
+        expect(rows[0].message).toBe('Windows, 5 of 5')
+    })
+
+    it('shows no message for a step that said nothing or failed', () => {
+        expect(collapseSteps([event('Restarting', '')], 'running')[0].message).toBeNull()
+        const failed = collapseSteps(
+            [event('Building application', 'FAILED: go build: exit 1')],
+            'failed'
+        )
+        expect(failed[0].message).toBeNull()
+    })
 })

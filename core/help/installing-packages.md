@@ -39,9 +39,9 @@ history & reverting* for what a failed or rolled-back install looks like.
 
 ## Following an install
 
-When you install, update, or remove a package, a progress panel shows each step of the rebuild, for example *Building client UI* and *Building application*. Some steps, such as *Packaging client UI*, also show their own progress bar because they can take several minutes.
+When you install, update, or remove a package, a progress panel shows each step of the rebuild, for example *Building client UI* and *Building application*. Under the current step, a short line tells you where the build is in that step, for example *Windows, 5 of 5* or *Bundling 2,957 of 3,576 files*. Some steps, such as *Packaging client UI*, also show their own progress bar because they can take several minutes.
 
-To see the full build output, click **View debug log**. The debug log shows the commands the server ran and the messages they printed. Use it when a step fails. Click **Hide debug log** to go back to the step list.
+To see every progress update the build sent, click **View debug log**. When a step fails, the debug log also shows the error and the last lines the failed command printed. Click **Hide debug log** to go back to the step list.
 
 When the build is done, the server starts the new build next to the old one. The panel shows *Waiting for the server to start the new build…* until the new build answers. Then:
 
