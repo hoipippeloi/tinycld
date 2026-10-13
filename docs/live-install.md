@@ -669,16 +669,21 @@ to. The runtime image (`app/Dockerfile`) provides:
   "Getting build tools" step (`coreserver/build_tools.go`) fetches them into
   `<state>/toolchains/`, where later updates reuse them:
   - **pnpm** (`packageManager` in the base member): corepack fetches it on first
-    use. The image's `/opt/corepack` is read-only to the runtime user, so the
-    rebuild moves `COREPACK_HOME` to a writable copy of it. The assembled root's
+    use. The image's `/opt/corepack` is read-only to the runtime user, so at
+    every start-up the server moves `COREPACK_HOME` to a writable copy in
+    `<state>/toolchains/corepack` (`useWritableCorepackHome`). Each start-up
+    copies in what the image holds that the copy lacks, keeps earlier
+    downloads, and takes the image's `lastKnownGood.json`. The assembled root's
     `packageManager` is set to the target's pin, so the root install and the
     generator's nested `pnpm run` use the same pnpm.
   - **Go** (the `go` line of `core/server/go.mod`): `GOTOOLCHAIN=auto`, Go's
     default, fetches the toolchain into the module cache under `/workspace/go`.
-  - **Node** (`engines.node` in the base member): when the running Node is out
-    of range, the newest LTS release in range is downloaded from nodejs.org,
-    checked against its `SHASUMS256.txt`, and put first on `PATH`
-    (`<state>/toolchains/node/current/bin`).
+  - **Node** (`engines.node` in the base member): the image's Node is used
+    when it is in range, so a newer image is never hidden behind an old
+    download. Otherwise an earlier download in range is used, and only then is
+    a release downloaded from nodejs.org: the newest release of the lowest LTS
+    major in range, checked against its `SHASUMS256.txt`. The download goes
+    first on `PATH` (`<state>/toolchains/node/current/bin`) for that build only.
 
   `pkgbuild.VerifyBuildTools` then runs `pnpm --version`, `go list -m` and
   `node --version` in the target. If a tool still cannot be resolved (for

@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -144,6 +145,13 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	// Parse CLI args so flag-backed fields are populated before we register
 	// plugins that read them (jsvm, migratecmd).
 	_ = app.RootCmd.ParseFlags(os.Args[1:])
+
+	// Before anything can start pnpm: the env this sets does not survive a
+	// restart, and pnpm also runs outside a rebuild.
+	logf := func(format string, args ...any) { srvLog.Info(fmt.Sprintf(format, args...)) }
+	if err := useWritableCorepackHome(logf); err != nil {
+		srvLog.Warn("could not move corepack to a writable home; pnpm cannot fetch a new pin", "err", err)
+	}
 
 	RegisterSharedEarly(app)
 

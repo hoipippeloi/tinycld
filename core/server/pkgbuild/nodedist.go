@@ -73,9 +73,8 @@ type nodeRelease struct {
 }
 
 // Ensure makes a Node release that satisfies rangeSpec present under d.Dir and
-// returns its directory (whose bin/ holds node). It picks the newest LTS
-// release in range, or the newest release in range when no LTS one is, and
-// reuses a directory an earlier call already filled.
+// returns its directory (whose bin/ holds node). See pickNodeRelease for which
+// release; a directory an earlier call already filled is reused.
 func (d NodeDist) Ensure(rangeSpec string) (string, error) {
 	c, err := semver.NewConstraint(rangeSpec)
 	if err != nil {
@@ -103,11 +102,17 @@ func (d NodeDist) Ensure(rangeSpec string) (string, error) {
 	return dest, nil
 }
 
-// pickNodeRelease is the newest LTS release in range that ships a tarball for
-// platform, else the newest release in range that does, else "".
+// pickNodeRelease picks the release a build runs on: from the LTS releases in
+// range that ship a tarball for platform (or, when none is LTS, from all of
+// them), the newest release of the LOWEST major. A download happens only when
+// the image's Node is below engines.node, and the release that raised that
+// floor ships an image on the floor's major; an open range such as ">=22" must
+// not move a lagging install onto a newer major that no image or CI run used.
+// The LTS preference keeps a range whose floor is an odd major (never LTS, and
+// soon out of support) on the next LTS major. Returns "" when nothing fits.
 func pickNodeRelease(releases []nodeRelease, c *semver.Constraints, platform string) string {
-	var bestLTS, bestAny *semver.Version
-	var bestLTSRaw, bestAnyRaw string
+	var lts, all []*semver.Version
+	raw := map[*semver.Version]string{}
 	for _, r := range releases {
 		if !hasNodeFile(r.Files, platform) {
 			continue
@@ -116,17 +121,26 @@ func pickNodeRelease(releases []nodeRelease, c *semver.Constraints, platform str
 		if err != nil || v.Prerelease() != "" || !c.Check(v) {
 			continue
 		}
-		if bestAny == nil || v.GreaterThan(bestAny) {
-			bestAny, bestAnyRaw = v, r.Version
-		}
-		if lts, ok := r.LTS.(string); ok && lts != "" && (bestLTS == nil || v.GreaterThan(bestLTS)) {
-			bestLTS, bestLTSRaw = v, r.Version
+		raw[v] = r.Version
+		all = append(all, v)
+		if name, ok := r.LTS.(string); ok && name != "" {
+			lts = append(lts, v)
 		}
 	}
-	if bestLTS != nil {
-		return bestLTSRaw
+	pool := lts
+	if len(pool) == 0 {
+		pool = all
 	}
-	return bestAnyRaw
+	var best *semver.Version
+	for _, v := range pool {
+		if best == nil || v.Major() < best.Major() || (v.Major() == best.Major() && v.GreaterThan(best)) {
+			best = v
+		}
+	}
+	if best == nil {
+		return ""
+	}
+	return raw[best]
 }
 
 // hasNodeFile reports whether a release ships a .tar.gz for platform. The
