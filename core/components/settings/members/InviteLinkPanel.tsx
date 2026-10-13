@@ -1,10 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
+import { inviteLinkSendSchema } from '@tinycld/core/components/settings/members/invite-link-send-schema'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { pb } from '@tinycld/core/lib/pocketbase'
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
+import { TextInput, useForm, zodResolver } from '@tinycld/core/ui/form'
 import * as Clipboard from 'expo-clipboard'
 import { useState } from 'react'
-import { Pressable, Text, TextInput, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 
 export type InviteLinkPanelProps = {
     userId: string
@@ -116,18 +118,10 @@ type ReadyViewProps = {
 
 function ReadyView({ url, userId, emailedTo, onRotate, rotatePending }: ReadyViewProps) {
     const [copied, setCopied] = useState(false)
-    const [altEmail, setAltEmail] = useState('')
     const [showSend, setShowSend] = useState(false)
-
-    const send = useMutation({
-        mutationFn: async () => {
-            return pb.send<{ delivered: true }>(`/api/invite-link/${userId}/send`, {
-                method: 'POST',
-                body: JSON.stringify({ email: altEmail }),
-                headers: { 'Content-Type': 'application/json' },
-            })
-        },
-    })
+    // Owned here rather than by SendForm so the typed address and the "Sent"
+    // state survive hiding and reshowing the send row.
+    const sendForm = useSendInviteLink(userId)
 
     const copy = async () => {
         await Clipboard.setStringAsync(url)
@@ -158,12 +152,7 @@ function ReadyView({ url, userId, emailedTo, onRotate, rotatePending }: ReadyVie
             <Pressable testID="invite-link-send-toggle" onPress={() => setShowSend(s => !s)}>
                 <Text className="text-foreground">{sendToggleLabel(showSend, emailedTo)}</Text>
             </Pressable>
-            <SendForm
-                isVisible={showSend}
-                altEmail={altEmail}
-                setAltEmail={setAltEmail}
-                send={send}
-            />
+            <SendForm isVisible={showSend} {...sendForm} />
         </View>
     )
 }
@@ -182,42 +171,78 @@ function sendToggleLabel(showSend: boolean, emailedTo: string | undefined) {
     return emailedTo ? 'Email this link to another address' : 'Email this link'
 }
 
-type SendFormProps = {
-    isVisible: boolean
-    altEmail: string
-    setAltEmail: (v: string) => void
-    send: ReturnType<typeof useMutation<{ delivered: true }, Error, void>>
+function useSendInviteLink(userId: string) {
+    const form = useForm({
+        resolver: zodResolver(inviteLinkSendSchema),
+        defaultValues: { email: '' },
+        mode: 'onChange',
+    })
+
+    const send = useMutation({
+        mutationFn: async (email: string) => {
+            return pb.send<{ delivered: true }>(`/api/invite-link/${userId}/send`, {
+                method: 'POST',
+                body: JSON.stringify({ email }),
+                headers: { 'Content-Type': 'application/json' },
+            })
+        },
+    })
+
+    const canSend = form.formState.isValid && !send.isPending
+    const submit = form.handleSubmit(({ email }) => send.mutate(email))
+
+    return {
+        control: form.control,
+        // The button disables itself; this also stops the Enter key.
+        onSend: () => {
+            if (canSend) submit()
+        },
+        canSend,
+        label: sendButtonLabel(send.isPending, send.isSuccess),
+        error: send.isError ? extractSendError(send.error) : null,
+    }
 }
 
-function SendForm({ isVisible, altEmail, setAltEmail, send }: SendFormProps) {
+function sendButtonLabel(isPending: boolean, isSuccess: boolean) {
+    if (isPending) return 'Sending…'
+    return isSuccess ? 'Sent' : 'Send'
+}
+
+type SendFormProps = ReturnType<typeof useSendInviteLink> & { isVisible: boolean }
+
+function SendForm({ isVisible, control, onSend, canSend, label, error }: SendFormProps) {
     if (!isVisible) return null
     return (
         <View className="gap-2">
             <TextInput
+                control={control}
+                name="email"
                 testID="invite-link-alt-email"
-                value={altEmail}
-                onChangeText={setAltEmail}
+                accessibilityLabel="Recipient email"
                 placeholder="recipient@example.com"
                 autoCapitalize="none"
                 keyboardType="email-address"
-                className="text-foreground border-border border rounded p-2"
+                onSubmitEditing={onSend}
             />
             <ServerActionButton
                 variant="link"
                 testID="invite-link-send"
-                onPress={() => send.mutate()}
-                isDisabled={send.isPending || !altEmail}
+                onPress={onSend}
+                isDisabled={!canSend}
             >
-                <ButtonText>
-                    {send.isPending ? 'Sending…' : send.isSuccess ? 'Sent' : 'Send'}
-                </ButtonText>
+                <ButtonText>{label}</ButtonText>
             </ServerActionButton>
-            {send.isError && (
-                <Text testID="invite-link-send-error" className="text-destructive">
-                    {extractSendError(send.error)}
-                </Text>
-            )}
+            <SendError message={error} />
         </View>
+    )
+}
+
+function SendError({ message }: { message: string | null }) {
+    if (!message) return null
+    return (
+        <Text testID="invite-link-send-error" className="text-destructive">
+            {message}
+        </Text>
     )
 }
 

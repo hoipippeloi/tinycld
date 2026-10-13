@@ -29,12 +29,27 @@ export interface DemoLeadFormHandle {
     submit: () => boolean
 }
 
-const schema = z.object({
-    email: z.string().min(1, 'Email is required').email('Enter a valid email'),
-    reason: z.string().max(2000).optional(),
+export const demoLeadSchema = z.object({
+    email: z.string().trim().min(1, 'Email is required').email('Enter a valid email'),
+    reason: z.string().trim().max(2000).optional(),
 })
 
-type DemoLeadFormValues = z.infer<typeof schema>
+type DemoLeadFormValues = z.infer<typeof demoLeadSchema>
+
+// Fire-and-forget. Network failures are logged but not surfaced — the user
+// has already left the form mentally. Address PB explicitly via
+// PB_SERVER_ADDR (matching SetupPage / PackageManager) — the dev / native /
+// self-hosted topologies all run PB on a different origin from the client,
+// so a relative path would 404.
+function postLead(data: DemoLeadFormValues, source: DemoLeadSource) {
+    serverFetch(`${PB_SERVER_ADDR}/api/demo/lead`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email, reason: data.reason ?? '', source }),
+    }).catch(err => {
+        captureException('demo-lead-submit', err, { source })
+    })
+}
 
 export const DemoLeadForm = forwardRef<DemoLeadFormHandle, DemoLeadFormProps>(function DemoLeadForm(
     { source },
@@ -42,56 +57,24 @@ export const DemoLeadForm = forwardRef<DemoLeadFormHandle, DemoLeadFormProps>(fu
 ) {
     const {
         control,
-        getValues,
-        setError,
-        clearErrors,
-        formState: { errors, isSubmitted },
-    } = useForm<DemoLeadFormValues>({
-        resolver: zodResolver(schema),
+        handleSubmit,
+        formState: { errors, isSubmitted, isValid },
+    } = useForm({
+        resolver: zodResolver(demoLeadSchema),
         defaultValues: { email: '', reason: '' },
         mode: 'onChange',
     })
 
     useImperativeHandle(ref, () => ({
         submit: () => {
-            // Validate synchronously via the schema so the surrounding
-            // modal can decide whether to dismiss in the same tick.
-            // react-hook-form's handleSubmit() returns a Promise even
-            // for sync resolvers, so reading a closure flag right after
-            // calling it always sees the initial value and the modal
-            // never closes.
-            const values = getValues()
-            const result = schema.safeParse(values)
-            if (!result.success) {
-                clearErrors()
-                for (const issue of result.error.issues) {
-                    const fieldName = issue.path.join('.') as keyof DemoLeadFormValues
-                    if (fieldName) {
-                        setError(fieldName, { type: 'manual', message: issue.message })
-                    }
-                }
-                return false
-            }
-
-            const body = JSON.stringify({
-                email: result.data.email,
-                reason: result.data.reason ?? '',
-                source,
-            })
-            // Fire-and-forget. Network failures are logged but not
-            // surfaced — the user has already left the form mentally.
-            // Address PB explicitly via PB_SERVER_ADDR (matching
-            // SetupPage / PackageManager) — the dev / native /
-            // self-hosted topologies all run PB on a different origin
-            // from the client, so a relative path would 404.
-            serverFetch(`${PB_SERVER_ADDR}/api/demo/lead`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body,
-            }).catch(err => {
-                captureException('demo-lead-submit', err, { source })
-            })
-            return true
+            // The surrounding modal decides whether to dismiss from the return
+            // value in the same tick, but handleSubmit() resolves a tick
+            // later. Under mode 'onChange' isValid is already current, so it
+            // answers the dismiss question; handleSubmit then runs the
+            // resolver and posts the parsed values, or surfaces the errors
+            // inline when the form is invalid.
+            void handleSubmit(data => postLead(data, source))()
+            return isValid
         },
     }))
 

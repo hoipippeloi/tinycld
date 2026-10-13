@@ -2,17 +2,73 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { COLOR_PALETTE, ColorPickerGrid } from '@tinycld/core/ui/color-picker'
 import { Dialog } from '@tinycld/core/ui/dialog'
 import { Divider } from '@tinycld/core/ui/divider'
-import { useForm, z, zodResolver } from '@tinycld/core/ui/form'
+import { type Control, useForm, zodResolver } from '@tinycld/core/ui/form'
 import { useLabelMutations } from '@tinycld/core/ui/hooks/useLabelMutations'
 import { useLabels } from '@tinycld/core/ui/hooks/useLabels'
 import { Check, Plus, Trash2, X } from 'lucide-react-native'
 import { useState } from 'react'
+import { useController } from 'react-hook-form'
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { type LabelValues, labelSchema } from './label-schema'
 
-const labelSchema = z.object({
-    name: z.string().min(1, 'Name is required').max(50, 'Name must be 50 characters or fewer'),
-    color: z.string().min(1, 'Pick a color'),
-})
+// LabelEditor is the name + color form shared by the edit and create rows. The
+// schema's errors show under the row, so a rejected save says why.
+function LabelEditor({
+    control,
+    onSave,
+    onCancel,
+    isPending,
+}: {
+    control: Control<LabelValues>
+    onSave: () => void
+    onCancel: () => void
+    isPending: boolean
+}) {
+    const accentColor = useThemeColor('primary')
+    const mutedColor = useThemeColor('muted-foreground')
+    const name = useController({ control, name: 'name' })
+    const color = useController({ control, name: 'color' })
+    return (
+        <View className="bg-surface-secondary">
+            <View className="flex-row items-center px-3 py-2 gap-2">
+                <View
+                    className="w-3.5 h-3.5 rounded-full"
+                    style={{ backgroundColor: color.field.value }}
+                />
+                <TextInput
+                    // min-w-0 lets the input shrink within the flex row. On web
+                    // a raw TextInput keeps its intrinsic <input> width (RN flex
+                    // children default to flex-shrink:0), so without this it
+                    // overflows the fixed-width modal instead of fitting beside
+                    // the swatch and action buttons.
+                    className="flex-1 min-w-0 text-sm p-2 border border-border rounded-md bg-background text-foreground"
+                    value={name.field.value}
+                    onChangeText={name.field.onChange}
+                    onBlur={name.field.onBlur}
+                    placeholder="Label name"
+                    autoFocus
+                    onSubmitEditing={onSave}
+                />
+                <Pressable onPress={onSave} className="p-1.5" disabled={isPending}>
+                    <Check size={16} color={accentColor} />
+                </Pressable>
+                <Pressable onPress={onCancel} className="p-1.5">
+                    <X size={16} color={mutedColor} />
+                </Pressable>
+            </View>
+            <FieldError message={name.fieldState.error?.message} />
+            <View className="px-1 pb-2">
+                <ColorPickerGrid selected={color.field.value} onSelect={color.field.onChange} />
+            </View>
+            <FieldError message={color.fieldState.error?.message} />
+        </View>
+    )
+}
+
+function FieldError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return <Text className="px-3 pb-1 text-xs text-danger">{message}</Text>
+}
 
 // Default new-label color: Cornflower Blue. Picked from the shared
 // COLOR_PALETTE rather than the deleted LABEL_COLORS[0] (which was
@@ -37,18 +93,14 @@ function LabelRow({
     onStartDelete: () => void
     onCancelDelete: () => void
 }) {
-    const accentColor = useThemeColor('primary')
     const mutedColor = useThemeColor('muted-foreground')
     const { updateLabel, deleteLabel } = useLabelMutations()
 
-    const { setValue, watch, handleSubmit } = useForm({
+    const { control, reset, handleSubmit } = useForm({
         resolver: zodResolver(labelSchema),
         mode: 'onChange',
         defaultValues: { name: label.name, color: label.color },
     })
-
-    const editName = watch('name')
-    const editColor = watch('color')
 
     const onSave = handleSubmit(data => {
         updateLabel.mutate({ id: label.id, ...data }, { onSuccess: onCancelEdit })
@@ -58,44 +110,20 @@ function LabelRow({
         deleteLabel.mutate(label.id)
     }
 
+    // Each edit starts from the stored label, not what a cancelled edit left.
     const handleStartEdit = () => {
-        setValue('name', label.name)
-        setValue('color', label.color)
+        reset({ name: label.name, color: label.color })
         onStartEdit()
     }
 
     if (isEditing) {
         return (
-            <View className="bg-surface-secondary">
-                <View className="flex-row items-center px-3 py-2 gap-2">
-                    <View
-                        className="w-3.5 h-3.5 rounded-full"
-                        style={{ backgroundColor: editColor }}
-                    />
-                    <TextInput
-                        // min-w-0 lets the input shrink within the flex row. On
-                        // web a raw TextInput keeps its intrinsic <input> width
-                        // (RN flex children default to flex-shrink:0), so without
-                        // this it overflows the fixed-width modal instead of
-                        // fitting beside the swatch and action buttons.
-                        className="flex-1 min-w-0 text-sm p-2 border border-border rounded-md bg-background text-foreground"
-                        value={editName}
-                        onChangeText={v => setValue('name', v)}
-                        placeholder="Label name"
-                        autoFocus
-                        onSubmitEditing={() => onSave()}
-                    />
-                    <Pressable onPress={onSave} className="p-1.5" disabled={updateLabel.isPending}>
-                        <Check size={16} color={accentColor} />
-                    </Pressable>
-                    <Pressable onPress={onCancelEdit} className="p-1.5">
-                        <X size={16} color={mutedColor} />
-                    </Pressable>
-                </View>
-                <View className="px-1 pb-2">
-                    <ColorPickerGrid selected={editColor} onSelect={c => setValue('color', c)} />
-                </View>
-            </View>
+            <LabelEditor
+                control={control}
+                onSave={onSave}
+                onCancel={onCancelEdit}
+                isPending={updateLabel.isPending}
+            />
         )
     }
 
@@ -151,19 +179,15 @@ function LabelRow({
 }
 
 function CreateLabelRow({ onCreated }: { onCreated: () => void }) {
-    const accentColor = useThemeColor('primary')
     const mutedColor = useThemeColor('muted-foreground')
     const { createLabel } = useLabelMutations()
     const [isCreating, setIsCreating] = useState(false)
 
-    const { setValue, watch, handleSubmit, reset } = useForm({
+    const { control, handleSubmit, reset } = useForm({
         resolver: zodResolver(labelSchema),
         mode: 'onChange',
         defaultValues: { name: '', color: DEFAULT_LABEL_COLOR },
     })
-
-    const name = watch('name')
-    const color = watch('color')
 
     const handleCreate = handleSubmit(data => {
         createLabel.mutate(data, {
@@ -204,37 +228,12 @@ function CreateLabelRow({ onCreated }: { onCreated: () => void }) {
     }
 
     return (
-        <View className="bg-surface-secondary">
-            <View className="flex-row items-center px-3 py-2 gap-2">
-                <View className="w-3.5 h-3.5 rounded-full" style={{ backgroundColor: color }} />
-                <TextInput
-                    // min-w-0 lets the input shrink within the flex row. On web
-                    // a raw TextInput keeps its intrinsic <input> width (RN flex
-                    // children default to flex-shrink:0), so without this it
-                    // overflows the fixed-width modal instead of fitting beside
-                    // the swatch and action buttons.
-                    className="flex-1 min-w-0 text-sm p-2 border border-border rounded-md bg-background text-foreground"
-                    value={name}
-                    onChangeText={v => setValue('name', v)}
-                    placeholder="Label name"
-                    autoFocus
-                    onSubmitEditing={() => handleCreate()}
-                />
-                <Pressable
-                    onPress={handleCreate}
-                    className="p-1.5"
-                    disabled={createLabel.isPending}
-                >
-                    <Check size={16} color={accentColor} />
-                </Pressable>
-                <Pressable onPress={handleCancel} className="p-1.5">
-                    <X size={16} color={mutedColor} />
-                </Pressable>
-            </View>
-            <View className="px-1 pb-2">
-                <ColorPickerGrid selected={color} onSelect={c => setValue('color', c)} />
-            </View>
-        </View>
+        <LabelEditor
+            control={control}
+            onSave={handleCreate}
+            onCancel={handleCancel}
+            isPending={createLabel.isPending}
+        />
     )
 }
 

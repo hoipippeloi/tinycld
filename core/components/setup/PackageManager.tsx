@@ -2,7 +2,7 @@ import { eq } from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
 import { SortableDragHandle, SortableList } from '@tinycld/core/components/SortableList'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
-import { captureException } from '@tinycld/core/lib/errors'
+import { captureException, handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
 import { mutation, useMutation } from '@tinycld/core/lib/mutations'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
@@ -11,7 +11,16 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonIcon, ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
 import { Dialog } from '@tinycld/core/ui/dialog'
 import { Divider } from '@tinycld/core/ui/divider'
-import { FormErrorSummary, TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
+import {
+    Controller,
+    confirmTextSchema,
+    FormErrorSummary,
+    isFormSubmittable,
+    TextInput,
+    useForm,
+    z,
+    zodResolver,
+} from '@tinycld/core/ui/form'
 import { Switch } from '@tinycld/core/ui/switch'
 import {
     AlertTriangle,
@@ -74,13 +83,14 @@ interface PkgRecord {
 }
 
 const registerSchema = z.object({
-    name: z.string().min(1, 'Required'),
+    name: z.string().trim().min(1, 'Required'),
     slug: z
         .string()
+        .trim()
         .min(1, 'Required')
         .regex(/^[a-z0-9][a-z0-9-]*$/, 'Lowercase letters, numbers, hyphens'),
-    npm_package: z.string().min(1, 'Required'),
-    description: z.string(),
+    npm_package: z.string().trim().min(1, 'Required'),
+    description: z.string().trim(),
 })
 
 interface PackageManagerProps {
@@ -725,58 +735,55 @@ function SolverStatus({
     )
 }
 
-// UninstallModal requires the operator to type the package slug before the
-// destructive action unlocks — the same typed-confirmation guard used for
-// downgrades, so an errant click can't drop a package's data.
-function UninstallModal({
-    isOpen,
-    name,
-    slug,
-    onClose,
-    onConfirm,
-}: {
+type UninstallModalProps = {
     isOpen: boolean
     name: string
     slug: string
     onClose: () => void
     onConfirm: () => Promise<void>
-}) {
+}
+
+// UninstallModal requires the operator to type the package slug before the
+// destructive action unlocks — the same typed-confirmation guard used for
+// downgrades, so an errant click can't drop a package's data.
+function UninstallModal(props: UninstallModalProps) {
+    if (!props.isOpen) return null
+    return <UninstallModalOpen {...props} />
+}
+
+// Mounted only while open, so each open starts with nothing typed and no error.
+function UninstallModalOpen({ name, slug, onClose, onConfirm }: UninstallModalProps) {
     const dangerColor = useThemeColor('danger')
     const fgColor = useThemeColor('foreground')
     const mutedColor = useThemeColor('muted-foreground')
     const successColor = useThemeColor('success')
-    const [typed, setTyped] = useState('')
-    const [submitting, setSubmitting] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+    const {
+        control,
+        handleSubmit,
+        setError,
+        formState: { isValid, isSubmitting, errors },
+    } = useForm({
+        resolver: zodResolver(confirmTextSchema(slug)),
+        defaultValues: { confirm: '' },
+        mode: 'onChange',
+    })
 
-    if (!isOpen) return null
-
-    const confirmEnabled = typed.trim() === slug && !submitting
-
-    const close = () => {
-        setTyped('')
-        setError(null)
-        onClose()
-    }
-
-    const confirm = async () => {
-        setSubmitting(true)
-        setError(null)
+    const confirm = handleSubmit(async () => {
         try {
             await onConfirm()
-            setTyped('')
         } catch (err) {
             captureException('setup.packages.uninstall', err)
-            setError(err instanceof Error ? err.message : 'Failed to start uninstall')
-        } finally {
-            setSubmitting(false)
+            setError('root', {
+                type: 'server',
+                message: err instanceof Error ? err.message : 'Failed to start uninstall',
+            })
         }
-    }
+    })
 
     return (
         <Dialog
             isOpen
-            onClose={close}
+            onClose={onClose}
             size="lg"
             title={`Uninstall ${name}`}
             header={<UninstallHeader name={name} />}
@@ -788,14 +795,21 @@ function UninstallModal({
                         <Text style={{ fontFamily: 'monospace', color: dangerColor }}>{slug}</Text>{' '}
                         to confirm
                     </Text>
-                    <RNTextInput
-                        value={typed}
-                        onChangeText={setTyped}
-                        autoCapitalize="none"
-                        placeholder={slug}
-                        placeholderTextColor={mutedColor}
-                        className="rounded-lg border border-border px-3 py-2.5 bg-surface"
-                        style={{ color: fgColor, fontSize: 14, fontFamily: 'monospace' }}
+                    <Controller
+                        control={control}
+                        name="confirm"
+                        render={({ field }) => (
+                            <RNTextInput
+                                value={field.value}
+                                onChangeText={field.onChange}
+                                onBlur={field.onBlur}
+                                autoCapitalize="none"
+                                placeholder={slug}
+                                placeholderTextColor={mutedColor}
+                                className="rounded-lg border border-border px-3 py-2.5 bg-surface"
+                                style={{ color: fgColor, fontSize: 14, fontFamily: 'monospace' }}
+                            />
+                        )}
                     />
                 </View>
 
@@ -807,14 +821,14 @@ function UninstallModal({
                 </View>
             </Dialog.Body>
 
-            <PinnedDialogError message={error} />
+            <PinnedDialogError message={errors.root?.message} />
 
             <Dialog.Footer>
-                <Dialog.CancelButton onPress={close} isDisabled={submitting} />
+                <Dialog.CancelButton onPress={onClose} isDisabled={isSubmitting} />
                 <Dialog.ActionButton
-                    label={submitting ? 'Uninstalling…' : 'Uninstall'}
+                    label={isSubmitting ? 'Uninstalling…' : 'Uninstall'}
                     onPress={confirm}
-                    isDisabled={!confirmEnabled}
+                    isDisabled={!isFormSubmittable({ isValid, errors }) || isSubmitting}
                     isDestructive
                 />
             </Dialog.Footer>
@@ -844,7 +858,7 @@ function UninstallHeader({ name }: { name: string }) {
     )
 }
 
-function DialogError({ message }: { message: string | null }) {
+function DialogError({ message }: { message: string | undefined }) {
     if (!message) return null
     return (
         <View className="rounded-md p-2.5 bg-danger-soft">
@@ -854,7 +868,7 @@ function DialogError({ message }: { message: string | null }) {
 }
 
 // Pinned between the body and the footer so a failure is visible without scrolling.
-function PinnedDialogError({ message }: { message: string | null }) {
+function PinnedDialogError({ message }: { message: string | undefined }) {
     if (!message) return null
     return (
         <View className="px-5 pb-4">
@@ -864,10 +878,11 @@ function PinnedDialogError({ message }: { message: string | null }) {
 }
 
 const editSchema = z.object({
-    name: z.string().min(1, 'Required'),
-    description: z.string(),
-    icon: z.string(),
-    nav_order: z.string(),
+    name: z.string().trim().min(1, 'Required'),
+    description: z.string().trim(),
+    icon: z.string().trim(),
+    // A text field; blank means 0, the default order.
+    nav_order: z.string().trim().regex(/^\d*$/, 'Enter a whole number'),
 })
 
 function EditPackageForm({
@@ -882,22 +897,14 @@ function EditPackageForm({
     const mutedColor = useThemeColor('muted-foreground')
     const dangerColor = useThemeColor('danger')
     const borderColor = useThemeColor('border')
-    const [saveError, setSaveError] = useState<string | null>(null)
     const [confirmRemove, setConfirmRemove] = useState(false)
     const [pkgRegistryCollection] = useStore('pkg_registry')
-
-    const remove = useMutation({
-        mutationFn: mutation(function* () {
-            yield pkgRegistryCollection.delete(pkg.id)
-        }),
-        onSuccess: () => onClose(),
-        onError: err => setSaveError(err instanceof Error ? err.message : 'Failed to remove'),
-    })
-    const handleRemove = () => remove.mutate()
 
     const {
         control,
         handleSubmit,
+        setError,
+        getValues,
         formState: { errors, isSubmitted, isDirty },
     } = useForm({
         resolver: zodResolver(editSchema),
@@ -910,23 +917,32 @@ function EditPackageForm({
         mode: 'onChange',
     })
 
+    const remove = useMutation({
+        mutationFn: mutation(function* () {
+            yield pkgRegistryCollection.delete(pkg.id)
+        }),
+        onSuccess: () => onClose(),
+    })
+    const handleRemove = () => remove.mutate()
+
     const save = useMutation({
         mutationFn: mutation(function* (data: z.infer<typeof editSchema>) {
             yield pkgRegistryCollection.update(pkg.id, draft => {
                 draft.name = data.name
                 draft.description = data.description
                 draft.icon = data.icon
-                draft.nav_order = Number(data.nav_order) || 0
+                draft.nav_order = Number(data.nav_order)
             })
         }),
         onSuccess: () => onClose(),
-        onError: err => setSaveError(err instanceof Error ? err.message : 'Failed to update'),
+        onError: handleMutationErrorsWithForm({
+            setError,
+            getValues,
+            operation: 'setup.packages.edit',
+        }),
     })
 
-    const onSave = handleSubmit(data => {
-        setSaveError(null)
-        save.mutate(data)
-    })
+    const onSave = handleSubmit(data => save.mutate(data))
 
     if (!isVisible) return null
 
@@ -950,11 +966,6 @@ function EditPackageForm({
             </View>
 
             <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
-            {saveError && (
-                <View className="rounded-md p-2.5 bg-danger-soft">
-                    <Text className="text-xs text-danger">{saveError}</Text>
-                </View>
-            )}
 
             <View className="flex-row gap-3 flex-wrap">
                 <View className="flex-1 min-w-[150px]">
@@ -1022,13 +1033,14 @@ function RegisterPackageModal({
     onClose: () => void
     onCreated: () => void
 }) {
-    const [submitError, setSubmitError] = useState<string | null>(null)
     const [pkgRegistryCollection] = useStore('pkg_registry')
 
     const {
         control,
         handleSubmit,
         reset,
+        setError,
+        getValues,
         formState: { errors, isSubmitted },
     } = useForm({
         resolver: zodResolver(registerSchema),
@@ -1038,7 +1050,6 @@ function RegisterPackageModal({
 
     const close = () => {
         reset(registerDefaults)
-        setSubmitError(null)
         onClose()
     }
 
@@ -1065,13 +1076,14 @@ function RegisterPackageModal({
             reset(registerDefaults)
             onCreated()
         },
-        onError: err => setSubmitError(err instanceof Error ? err.message : 'Failed to register'),
+        onError: handleMutationErrorsWithForm({
+            setError,
+            getValues,
+            operation: 'setup.packages.register',
+        }),
     })
 
-    const onSubmit = handleSubmit(data => {
-        setSubmitError(null)
-        create.mutate(data)
-    })
+    const onSubmit = handleSubmit(data => create.mutate(data))
 
     if (!isOpen) return null
 
@@ -1079,8 +1091,6 @@ function RegisterPackageModal({
         <Dialog isOpen onClose={close} size="xl" title="Register a package source">
             <Dialog.Body>
                 <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
-
-                <DialogError message={submitError} />
 
                 <View className="flex-row gap-3 flex-wrap">
                     <View className="flex-1 min-w-[200px]">
@@ -1136,7 +1146,7 @@ function RegisterPackageModal({
 }
 
 const installSchema = z.object({
-    npm_package: z.string().min(1, 'Required'),
+    npm_package: z.string().trim().min(1, 'Required'),
 })
 
 function InstallPackageModal({
@@ -1150,15 +1160,13 @@ function InstallPackageModal({
     onClose: () => void
     onStarted: (jobId: string) => void
 }) {
-    const [submitError, setSubmitError] = useState<string | null>(null)
-    const [isInstalling, setIsInstalling] = useState(false)
-
     const {
         control,
         handleSubmit,
         reset,
         watch,
-        formState: { errors, isSubmitted },
+        setError,
+        formState: { errors, isSubmitted, isSubmitting },
     } = useForm({
         resolver: zodResolver(installSchema),
         defaultValues: { npm_package: '' },
@@ -1170,13 +1178,12 @@ function InstallPackageModal({
 
     const close = () => {
         reset({ npm_package: '' })
-        setSubmitError(null)
         onClose()
     }
 
+    const failInstall = (message: string) => setError('root', { type: 'server', message })
+
     const onSubmit = handleSubmit(async data => {
-        setSubmitError(null)
-        setIsInstalling(true)
         try {
             const response = await serverFetch(`${PB_SERVER_ADDR}/api/admin/packages/install`, {
                 method: 'POST',
@@ -1188,15 +1195,13 @@ function InstallPackageModal({
             })
             const result = await response.json()
             if (!response.ok) {
-                setSubmitError(result.error ?? 'Failed to start install')
+                failInstall(result.error ?? 'Failed to start install')
                 return
             }
             reset({ npm_package: '' })
             onStarted(result.jobId)
         } catch (err) {
-            setSubmitError(err instanceof Error ? err.message : 'Failed to start install')
-        } finally {
-            setIsInstalling(false)
+            failInstall(err instanceof Error ? err.message : 'Failed to start install')
         }
     })
 
@@ -1206,8 +1211,6 @@ function InstallPackageModal({
         <Dialog isOpen onClose={close} size="xl" title="Install from npm or git">
             <Dialog.Body>
                 <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
-
-                <DialogError message={submitError} />
 
                 <SecurityWarning isVisible={showWarning} />
 
@@ -1222,11 +1225,11 @@ function InstallPackageModal({
             </Dialog.Body>
 
             <Dialog.Footer>
-                <Dialog.CancelButton onPress={close} isDisabled={isInstalling} />
+                <Dialog.CancelButton onPress={close} isDisabled={isSubmitting} />
                 <Dialog.ActionButton
-                    label={isInstalling ? 'Starting…' : 'Install'}
+                    label={isSubmitting ? 'Starting…' : 'Install'}
                     onPress={onSubmit}
-                    isDisabled={isInstalling}
+                    isDisabled={isSubmitting}
                 />
             </Dialog.Footer>
         </Dialog>

@@ -14,7 +14,7 @@ import { ConditionRow } from './ConditionRow'
 import { MatchPillPair } from './MatchPillPair'
 
 export interface ConditionGroupBoxProps {
-    draft: RuleDraft
+    conditions: RuleDraft['conditions']
     fields: CatalogField[]
     // The group to RENDER, passed rather than re-derived from groupIndex: the
     // parent keys these on the builder-local uid, so a re-derive by index reads
@@ -23,15 +23,15 @@ export interface ConditionGroupBoxProps {
     group: RuleDraft['conditions']['groups'][number]
     // The group's position, which is how the mutation helpers address it.
     groupIndex: number
-    onChange: (patch: Partial<RuleDraft>) => void
+    onChangeConditions: (conditions: RuleDraft['conditions']) => void
 }
 
 export function ConditionGroupBox({
-    draft,
+    conditions,
     fields,
     group,
     groupIndex,
-    onChange,
+    onChangeConditions,
 }: ConditionGroupBoxProps) {
     const mutedColor = useThemeColor('muted-foreground')
 
@@ -43,17 +43,13 @@ export function ConditionGroupBox({
                     <MatchPillPair
                         match={group.match}
                         onSelect={match =>
-                            onChange({
-                                conditions: setGroupMatch(draft.conditions, groupIndex, match),
-                            })
+                            onChangeConditions(setGroupMatch(conditions, groupIndex, match))
                         }
                     />
                     <Text className="text-xs text-muted-foreground">conditions</Text>
                 </View>
                 <Pressable
-                    onPress={() =>
-                        onChange({ conditions: removeGroup(draft.conditions, groupIndex) })
-                    }
+                    onPress={() => onChangeConditions(removeGroup(conditions, groupIndex))}
                     className="p-1.5"
                     hitSlop={8}
                 >
@@ -72,29 +68,18 @@ export function ConditionGroupBox({
                     condition={condition}
                     fields={fields}
                     onChange={patch =>
-                        onChange({
-                            conditions: updateCondition(
-                                draft.conditions,
-                                groupIndex,
-                                conditionIndex,
-                                patch
-                            ),
-                        })
+                        onChangeConditions(
+                            updateCondition(conditions, groupIndex, conditionIndex, patch)
+                        )
                     }
                     onRemove={() =>
-                        onChange({
-                            conditions: removeCondition(
-                                draft.conditions,
-                                groupIndex,
-                                conditionIndex
-                            ),
-                        })
+                        onChangeConditions(removeCondition(conditions, groupIndex, conditionIndex))
                     }
                 />
             ))}
 
             <Pressable
-                onPress={() => onChange({ conditions: addCondition(draft.conditions, groupIndex) })}
+                onPress={() => onChangeConditions(addCondition(conditions, groupIndex))}
                 className="self-start flex-row items-center gap-1 py-1"
             >
                 <Plus size={13} color={mutedColor} />

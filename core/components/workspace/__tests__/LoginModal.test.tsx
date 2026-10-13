@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,6 +16,12 @@ vi.mock('@tinycld/core/lib/auth', () => ({
     }),
 }))
 
+// The reset request is a network call; the form only needs to know it ran.
+const requestPasswordReset = vi.fn(async (_email: string) => {})
+vi.mock('@tinycld/core/lib/account-password', () => ({
+    requestPasswordReset: (email: string) => requestPasswordReset(email),
+}))
+
 // Pre-auth branding lookup — irrelevant to the notice behavior under test.
 vi.mock('@tinycld/core/lib/use-org-info', () => ({ useOrgInfo: () => ({ org: null }) }))
 
@@ -30,14 +36,26 @@ function byTestId(container: HTMLElement, id: string): HTMLElement | null {
     return container.querySelector(`[testid="${id}"]`)
 }
 
-function typeInto(input: HTMLElement | null, value: string) {
+// mode: 'onChange' validates asynchronously; act lets it settle so the submit
+// button reflects the typed values.
+async function typeInto(input: HTMLElement | null, value: string) {
     if (!input) throw new Error('input not rendered')
-    fireEvent.input(input, { target: { value } })
+    await act(async () => {
+        fireEvent.input(input, { target: { value } })
+    })
+}
+
+async function click(el: HTMLElement | null) {
+    if (!el) throw new Error('element not rendered')
+    await act(async () => {
+        fireEvent.click(el)
+    })
 }
 
 afterEach(() => {
     cleanup()
     login.mockReset()
+    requestPasswordReset.mockClear()
     useSignInNoticeStore.setState({ notice: null, shownBy: null })
 })
 
@@ -62,9 +80,9 @@ describe('LoginModal — sign-in notice', () => {
         const { container } = render(<LoginModal />)
         expect(byTestId(container, 'sign-in-notice')).toBeTruthy()
 
-        typeInto(byTestId(container, 'identifier'), 'alice@example.com')
-        typeInto(byTestId(container, 'login-password'), 'secret')
-        fireEvent.click(byTestId(container, 'login-submit') as HTMLElement)
+        await typeInto(byTestId(container, 'identifier'), 'alice@example.com')
+        await typeInto(byTestId(container, 'login-password'), 'secret')
+        await click(byTestId(container, 'login-submit'))
 
         expect(login).toHaveBeenCalledWith('alice@example.com', 'secret')
         await vi.waitFor(() => {
@@ -104,12 +122,80 @@ describe('LoginModal — sign-in error', () => {
     it('shows the error a failed sign-in returns', async () => {
         login.mockResolvedValue({ user: null, error: 'Wrong password.' })
         const { container } = render(<LoginModal />)
-        typeInto(byTestId(container, 'identifier'), 'alice@example.com')
-        typeInto(byTestId(container, 'login-password'), 'wrong')
-        fireEvent.click(byTestId(container, 'login-submit') as HTMLElement)
+        await typeInto(byTestId(container, 'identifier'), 'alice@example.com')
+        await typeInto(byTestId(container, 'login-password'), 'wrong')
+        await click(byTestId(container, 'login-submit'))
 
         await vi.waitFor(() => {
             expect(byTestId(container, 'sign-in-error')?.textContent).toBe('Wrong password.')
         })
+    })
+})
+
+describe('LoginModal — sign-in validation', () => {
+    it('trims the identifier before signing in', async () => {
+        login.mockResolvedValue({ user: null, error: 'Wrong password.' })
+        const { container } = render(<LoginModal />)
+        await typeInto(byTestId(container, 'identifier'), '  alice  ')
+        await typeInto(byTestId(container, 'login-password'), ' pw ')
+        await click(byTestId(container, 'login-submit'))
+
+        expect(login).toHaveBeenCalledWith('alice', ' pw ')
+    })
+
+    it('does not sign in with a whitespace-only identifier', async () => {
+        const { container } = render(<LoginModal />)
+        await typeInto(byTestId(container, 'identifier'), '   ')
+        await typeInto(byTestId(container, 'login-password'), 'secret')
+        await click(byTestId(container, 'login-submit'))
+
+        expect(login).not.toHaveBeenCalled()
+    })
+
+    it('clears the server error on the next attempt', async () => {
+        login.mockResolvedValueOnce({ user: null, error: 'Wrong password.' })
+        const { container } = render(<LoginModal />)
+        await typeInto(byTestId(container, 'identifier'), 'alice')
+        await typeInto(byTestId(container, 'login-password'), 'wrong')
+        await click(byTestId(container, 'login-submit'))
+        expect(byTestId(container, 'sign-in-error')?.textContent).toBe('Wrong password.')
+
+        let resolve: (value: { user: null; error: null }) => void = () => {}
+        login.mockReturnValueOnce(
+            new Promise(r => {
+                resolve = r
+            })
+        )
+        await click(byTestId(container, 'login-submit'))
+        expect(login).toHaveBeenCalledTimes(2)
+        expect(byTestId(container, 'sign-in-error')).toBeNull()
+        await act(async () => resolve({ user: null, error: null }))
+    })
+})
+
+describe('LoginModal — reset request', () => {
+    async function openReset(container: HTMLElement) {
+        await click(byTestId(container, 'forgot-password-link'))
+    }
+
+    it('does not send a reset link for a malformed email', async () => {
+        const { container } = render(<LoginModal />)
+        await openReset(container)
+        await typeInto(byTestId(container, 'reset-email'), 'not-an-email')
+        await click(byTestId(container, 'reset-submit'))
+
+        expect(requestPasswordReset).not.toHaveBeenCalled()
+        expect(byTestId(container, 'reset-sent')).toBeNull()
+    })
+
+    it('sends the trimmed email and shows the confirmation', async () => {
+        const { container } = render(<LoginModal />)
+        await openReset(container)
+        await typeInto(byTestId(container, 'reset-email'), '  alice@example.com ')
+        await click(byTestId(container, 'reset-submit'))
+
+        expect(requestPasswordReset).toHaveBeenCalledWith('alice@example.com')
+        expect(byTestId(container, 'reset-sent')).toBeTruthy()
+        expect(byTestId(container, 'reset-email')).toBeNull()
     })
 })

@@ -64,16 +64,43 @@ afterEach(() => {
 
 const noop = () => {}
 
+type Form = ReturnType<typeof useDeleteAccountForm>['form']
+
+// mode: 'onChange' validates asynchronously; act(async) lets isValid settle.
+async function type(form: Form, value: string) {
+    await act(async () => {
+        form.setValue('confirm', value, { shouldValidate: true })
+    })
+}
+
 describe('useDeleteAccountForm — content plan gating', () => {
     it('blocks submit until a content plan is chosen when peers exist', async () => {
         const { result } = renderHook(() => useDeleteAccountForm(noop), { wrapper: wrapper() })
         await waitFor(() => expect(result.current.peers).toHaveLength(1))
 
-        act(() => result.current.setTyped('me@example.com'))
-        expect(result.current.plan).toBeUndefined()
+        await type(result.current.form, 'me@example.com')
+        expect(result.current.form.getValues('plan')).toBeUndefined()
         expect(result.current.canSubmit).toBe(false)
 
-        act(() => result.current.handleSubmit())
+        await act(async () => {
+            await result.current.handleSubmit()
+        })
+        expect(h.send).not.toHaveBeenCalled()
+        expect(result.current.form.getFieldState('plan').error?.message).toBe(
+            'Choose what happens to your files, documents and comments'
+        )
+    })
+
+    it('blocks submit while the typed email does not match', async () => {
+        h.scenario = 'solo'
+        const { result } = renderHook(() => useDeleteAccountForm(noop), { wrapper: wrapper() })
+
+        await type(result.current.form, 'someone@example.com')
+        expect(result.current.canSubmit).toBe(false)
+
+        await act(async () => {
+            await result.current.handleSubmit()
+        })
         expect(h.send).not.toHaveBeenCalled()
     })
 
@@ -81,19 +108,21 @@ describe('useDeleteAccountForm — content plan gating', () => {
         const { result } = renderHook(() => useDeleteAccountForm(noop), { wrapper: wrapper() })
         await waitFor(() => expect(result.current.peers).toHaveLength(1))
 
-        act(() => {
-            result.current.setTyped('me@example.com')
-            result.current.setPlan({ mode: 'delete_my_data' })
+        await act(async () => {
+            result.current.form.setValue('plan', { mode: 'delete_my_data' })
         })
+        await type(result.current.form, ' ME@example.com ')
         expect(result.current.canSubmit).toBe(true)
 
-        act(() => result.current.handleSubmit())
+        await act(async () => {
+            await result.current.handleSubmit()
+        })
         await waitFor(() => expect(h.send).toHaveBeenCalledTimes(1))
 
         const [path, opts] = h.send.mock.calls[0] as unknown as [string, { body: string }]
         expect(path).toBe('/api/account/delete')
         expect(JSON.parse(opts.body)).toEqual({
-            email: 'me@example.com',
+            email: ' ME@example.com ',
             plan: { mode: 'delete_my_data' },
         })
     })
@@ -102,14 +131,33 @@ describe('useDeleteAccountForm — content plan gating', () => {
         h.scenario = 'solo'
         const { result } = renderHook(() => useDeleteAccountForm(noop), { wrapper: wrapper() })
 
-        act(() => result.current.setTyped('me@example.com'))
+        await type(result.current.form, 'me@example.com')
         expect(result.current.peers).toHaveLength(0)
         expect(result.current.canSubmit).toBe(true)
 
-        act(() => result.current.handleSubmit())
+        await act(async () => {
+            await result.current.handleSubmit()
+        })
         await waitFor(() => expect(h.send).toHaveBeenCalledTimes(1))
 
         const [, opts] = h.send.mock.calls[0] as unknown as [string, { body: string }]
         expect(JSON.parse(opts.body)).toEqual({ email: 'me@example.com' })
+    })
+
+    it('shows a server failure as the form root error', async () => {
+        h.scenario = 'solo'
+        h.send.mockRejectedValueOnce(new Error('email confirmation does not match'))
+        const { result } = renderHook(() => useDeleteAccountForm(noop), { wrapper: wrapper() })
+
+        await type(result.current.form, 'me@example.com')
+        await act(async () => {
+            await result.current.handleSubmit()
+        })
+        await waitFor(() =>
+            expect(result.current.form.formState.errors.root?.message).toBe(
+                'email confirmation does not match'
+            )
+        )
+        expect(h.logout).not.toHaveBeenCalled()
     })
 })

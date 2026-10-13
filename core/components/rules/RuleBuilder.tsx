@@ -10,10 +10,12 @@ import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonSpinner, ButtonText } from '@tinycld/core/ui/button'
 import { Dialog } from '@tinycld/core/ui/dialog'
+import { type Control, Controller, FormErrorSummary } from '@tinycld/core/ui/form'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
 import { Switch } from '@tinycld/core/ui/switch'
 import { useEffect, useRef } from 'react'
-import { ActivityIndicator, ScrollView, Text, type TextInput, View } from 'react-native'
+import type { FieldErrors } from 'react-hook-form'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 import { ActionsCard } from './ActionsCard'
 import { ConditionsCard } from './ConditionsCard'
 import { DryRunPanel } from './DryRunPanel'
@@ -82,7 +84,7 @@ function BuilderContent({
 
     // The draft's initial value is only meaningful once the record we're
     // editing (if any) has loaded — until then hold off on mounting the form
-    // so useRuleDraft doesn't seed itself from a still-loading `null` record.
+    // so the form doesn't seed itself from a still-loading `null` record.
     if (!recordReady) return <BuilderLoading />
     if (recordVanished) return <BuilderLoading />
     if (!catalogReady) return <BuilderLoading />
@@ -150,8 +152,8 @@ function RuleBuilderForm({
     isSaving,
     onSave,
 }: RuleBuilderFormProps) {
-    const { draft, patch, errors, validate } = useRuleDraft(initial)
-    const nameRef = useRef<TextInput>(null)
+    const form = useRuleDraft(initial, catalog)
+    const { control, draft, setFocus } = form
 
     // Naming the rule is the first thing every new rule needs, so start there
     // rather than making the user click in.
@@ -165,46 +167,62 @@ function RuleBuilderForm({
     // otherwise land on the first control instead.
     useEffect(() => {
         if (!shouldFocusName) return
-        const raf = requestAnimationFrame(() => nameRef.current?.focus())
+        const raf = requestAnimationFrame(() => setFocus('name'))
         return () => cancelAnimationFrame(raf)
-    }, [shouldFocusName])
+    }, [shouldFocusName, setFocus])
 
-    const handleSave = () => {
-        if (!validate(catalog)) return
-        onSave(draft)
-    }
+    const handleSave = form.handleSubmit(onSave)
 
     return (
         <>
             <Dialog.Body contentClassName="px-5 pb-3 gap-4">
-                <PlainInput
-                    ref={nameRef}
-                    value={draft.name}
-                    onChangeText={name => patch({ name })}
-                    placeholder="Rule name"
-                    autoFocus={shouldFocusName}
-                    accessibilityLabel="Rule name"
-                    className="text-base font-semibold px-3 py-2 border rounded-lg text-foreground bg-background border-border"
+                <Controller
+                    control={control}
+                    name="name"
+                    render={({ field }) => (
+                        <PlainInput
+                            ref={field.ref}
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="Rule name"
+                            autoFocus={shouldFocusName}
+                            accessibilityLabel="Rule name"
+                            className="text-base font-semibold px-3 py-2 border rounded-lg text-foreground bg-background border-border"
+                        />
+                    )}
                 />
 
                 <TriggerCard
+                    control={control}
                     draft={draft}
                     catalog={catalog}
-                    onChange={patch}
+                    onSelectTrigger={form.selectTrigger}
                     isLocked={isLocked}
                     presetPkg={presetPkg}
                 />
-                <ConditionsCard draft={draft} catalog={catalog} onChange={patch} />
-                <ActionsCard draft={draft} catalog={catalog} onChange={patch} />
+                <ConditionsCard
+                    draft={draft}
+                    catalog={catalog}
+                    onChangeConditions={form.setConditions}
+                />
+                <ActionsCard
+                    triggerRef={draft.trigger}
+                    actionRows={form.actionRows}
+                    catalog={catalog}
+                    onAdd={form.addAction}
+                    onMove={form.moveAction}
+                    onRemove={form.removeAction}
+                    onChangeParams={form.setActionParams}
+                />
                 {/* Phase-4 candidate: dry-run resolver-aware scoping (see endpoints.go) */}
                 <DryRunPanel draft={draft} catalog={catalog} isVisible={Boolean(draft.trigger)} />
             </Dialog.Body>
 
-            <BuilderErrors errors={errors} />
+            <BuilderErrors errors={form.errors} isEnabled={form.isSubmitted} />
 
             <BuilderFooter
-                draft={draft}
-                onChangeStopProcessing={stopProcessing => patch({ stopProcessing })}
+                control={control}
                 onCancel={onClose}
                 onSave={handleSave}
                 isSaving={isSaving}
@@ -213,39 +231,29 @@ function RuleBuilderForm({
     )
 }
 
-function BuilderErrors({ errors }: { errors: string[] | null }) {
-    if (!errors || errors.length === 0) return null
+function BuilderErrors({ errors, isEnabled }: { errors: FieldErrors; isEnabled: boolean }) {
+    if (!isEnabled || Object.keys(errors).length === 0) return null
     return (
-        <View className="mx-5 mb-3 bg-danger-soft border border-danger-soft-foreground rounded-lg p-3">
-            <Text className="text-sm font-semibold text-danger mb-2">
-                Please fix the following errors:
-            </Text>
-            {/* Capped and scrollable: validateDraft emits one error per invalid
-                condition AND per missing action param, so a badly-filled rule can
-                produce a list tall enough to squeeze the scroll region above it to
-                nothing. max-h is intrinsic-until-cap, so the common one- or
-                two-error case still renders at natural height. The heading stays
-                outside so it is never scrolled out of view. */}
+        // Capped and scrollable: the schema files one error per invalid
+        // condition AND per missing action param, so a badly-filled rule can
+        // produce a list tall enough to squeeze the scroll region above it to
+        // nothing. max-h is intrinsic-until-cap, so the common one- or
+        // two-error case still renders at natural height.
+        <View className="mx-5">
             <ScrollView className="max-h-[20vh]">
-                {errors.map(error => (
-                    <Text key={error} className="text-xs text-danger mb-1">
-                        {error}
-                    </Text>
-                ))}
+                <FormErrorSummary errors={errors} isEnabled showFieldNames={false} />
             </ScrollView>
         </View>
     )
 }
 
 function BuilderFooter({
-    draft,
-    onChangeStopProcessing,
+    control,
     onCancel,
     onSave,
     isSaving,
 }: {
-    draft: RuleDraft
-    onChangeStopProcessing: (value: boolean) => void
+    control: Control<RuleDraft>
     onCancel: () => void
     onSave: () => void
     isSaving: boolean
@@ -254,10 +262,16 @@ function BuilderFooter({
         <Dialog.Footer className="justify-between">
             <View className="flex-row items-center gap-2 flex-1">
                 <Text className="text-sm text-foreground">Stop processing further rules</Text>
-                <Switch
-                    value={draft.stopProcessing}
-                    onValueChange={onChangeStopProcessing}
-                    accessibilityLabel="Stop processing further rules"
+                <Controller
+                    control={control}
+                    name="stopProcessing"
+                    render={({ field }) => (
+                        <Switch
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            accessibilityLabel="Stop processing further rules"
+                        />
+                    )}
                 />
             </View>
             <Dialog.CancelButton onPress={onCancel} />

@@ -5,7 +5,6 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { FormErrorSummary, TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { CheckCircle2, KeyRound } from 'lucide-react-native'
-import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
 const resetSchema = z
@@ -57,14 +56,11 @@ function ResetForm({ token }: { token: string }) {
     const fgColor = useThemeColor('foreground')
     const primaryBg = useThemeColor('primary')
 
-    const [submitError, setSubmitError] = useState<string | null>(null)
-    const [isSubmitting, setIsSubmitting] = useState(false)
-    const [isSuccess, setIsSuccess] = useState(false)
-
     const {
         control,
         handleSubmit,
-        formState: { errors, isSubmitted },
+        setError,
+        formState: { errors, isSubmitted, isSubmitting, isSubmitSuccessful },
     } = useForm({
         resolver: zodResolver(resetSchema),
         defaultValues: { password: '', confirmPassword: '' },
@@ -72,21 +68,23 @@ function ResetForm({ token }: { token: string }) {
     })
 
     const onSubmit = handleSubmit(async data => {
-        setSubmitError(null)
-        setIsSubmitting(true)
         try {
             await confirmPasswordReset(token, data.password, data.confirmPassword)
-            setIsSuccess(true)
             router.replace('/')
         } catch (err) {
             captureException('account.confirmPasswordReset', err)
-            setSubmitError(
-                'This reset link is invalid or has expired. Request a new one from the sign-in screen.'
-            )
-        } finally {
-            setIsSubmitting(false)
+            setError('root', {
+                type: 'server',
+                message:
+                    'This reset link is invalid or has expired. Request a new one from the sign-in screen.',
+            })
         }
     })
+
+    // A successful reset stays busy until the route change unmounts the form.
+    const isSuccess = isSubmitSuccessful
+    // The server refusal has its own banner, so the summary lists field errors only.
+    const fieldErrors: typeof errors = { ...errors, root: undefined }
 
     return (
         <View
@@ -112,13 +110,8 @@ function ResetForm({ token }: { token: string }) {
                 </Text>
             </View>
 
-            <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
-
-            {submitError && (
-                <View className="rounded-lg p-2 bg-danger-soft" testID="reset-error">
-                    <Text className="text-xs text-danger">{submitError}</Text>
-                </View>
-            )}
+            <FormErrorSummary errors={fieldErrors} isEnabled={isSubmitted} />
+            <ServerError message={errors.root?.message} />
 
             <TextInput
                 control={control}
@@ -152,6 +145,15 @@ function ResetForm({ token }: { token: string }) {
                           : 'Reset password'}
                 </Text>
             </Pressable>
+        </View>
+    )
+}
+
+function ServerError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return (
+        <View className="rounded-lg p-2 bg-danger-soft" testID="reset-error">
+            <Text className="text-xs text-danger">{message}</Text>
         </View>
     )
 }

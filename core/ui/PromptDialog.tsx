@@ -1,8 +1,9 @@
 import { useWritesAvailable } from '@tinycld/core/lib/use-writes-available'
 import { Dialog } from '@tinycld/core/ui/dialog'
+import { Controller, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
-import { useEffect, useRef, useState } from 'react'
-import { type TextInput, View } from 'react-native'
+import { useEffect, useRef } from 'react'
+import { Text, type TextInput, View } from 'react-native'
 
 export type PromptDialogProps = {
     isOpen: boolean
@@ -17,6 +18,8 @@ export type PromptDialogProps = {
     maxLength?: number
     required?: boolean
     isSubmitting?: boolean
+    /** A server-side failure of the last submit, shown under the input. */
+    errorMessage?: string | null
     /**
      * The submitted value is saved to the server (the default: a rename, a
      * copy, a version), so the submit is disabled while changes cannot be
@@ -26,12 +29,39 @@ export type PromptDialogProps = {
     requiresServer?: boolean
 }
 
+function promptSchema(required: boolean, maxLength: number | undefined) {
+    const base = z.string().trim()
+    const bounded = maxLength === undefined ? base : base.max(maxLength)
+    return z.object({ value: required ? bounded.min(1) : bounded })
+}
+
 export function PromptDialog({
     isOpen,
     onClose,
-    onSubmit,
     title,
     description,
+    ...formProps
+}: PromptDialogProps) {
+    return (
+        <Dialog isOpen={isOpen} onClose={onClose} title={title} description={description}>
+            <PromptForm isVisible={isOpen} onClose={onClose} title={title} {...formProps} />
+        </Dialog>
+    )
+}
+
+type PromptFormProps = Omit<PromptDialogProps, 'isOpen' | 'description'> & { isVisible: boolean }
+
+// Mounted only while the dialog is open, so each open starts from defaultValue
+// rather than whatever was typed before the last cancel.
+function PromptForm({ isVisible, ...props }: PromptFormProps) {
+    if (!isVisible) return null
+    return <PromptFormFields {...props} />
+}
+
+function PromptFormFields({
+    onClose,
+    onSubmit,
+    title,
     placeholder,
     confirmLabel = 'Save',
     cancelLabel = 'Cancel',
@@ -39,57 +69,66 @@ export function PromptDialog({
     maxLength,
     required = false,
     isSubmitting = false,
+    errorMessage,
     requiresServer = true,
-}: PromptDialogProps) {
-    const [value, setValue] = useState(defaultValue)
+}: Omit<PromptFormProps, 'isVisible'>) {
     const inputRef = useRef<TextInput>(null)
-
-    useEffect(() => {
-        if (isOpen) setValue(defaultValue)
-    }, [isOpen, defaultValue])
+    const {
+        control,
+        handleSubmit,
+        formState: { isValid },
+    } = useForm({
+        resolver: zodResolver(promptSchema(required, maxLength)),
+        defaultValues: { value: defaultValue },
+        mode: 'onChange',
+    })
 
     // GlueStack's overlay installs its own focus trap after mount and the
     // ModalContent enters with a fade animation, so the input's `autoFocus`
     // prop alone gets clobbered. Imperatively focus on the next frame, once
     // the trap has settled and the content has painted.
     useEffect(() => {
-        if (!isOpen) return
         const raf = requestAnimationFrame(() => inputRef.current?.focus())
         return () => cancelAnimationFrame(raf)
-    }, [isOpen])
+    }, [])
 
-    const trimmed = value.trim()
     // The button disables itself; this also stops the Enter key.
     const writes = useWritesAvailable()
-    const canSubmit =
-        !isSubmitting && (!required || trimmed.length > 0) && (!requiresServer || writes.available)
+    const canSubmit = !isSubmitting && isValid && (!requiresServer || writes.available)
 
-    const handleSubmit = () => {
-        if (!canSubmit) return
-        onSubmit(trimmed)
-    }
+    const submit = handleSubmit(data => {
+        if (canSubmit) onSubmit(data.value)
+    })
 
     return (
-        <Dialog isOpen={isOpen} onClose={onClose} title={title} description={description}>
+        <>
             <Dialog.Body>
                 <View
                     className="flex-row border border-border rounded-lg px-3"
                     style={{ paddingVertical: 10 }}
                 >
-                    <PlainInput
-                        ref={inputRef}
-                        value={value}
-                        onChangeText={setValue}
-                        placeholder={placeholder}
-                        autoFocus
-                        maxLength={maxLength}
-                        onSubmitEditing={handleSubmit}
-                        editable={!isSubmitting}
-                        accessibilityLabel={title}
-                        className="flex-1 text-foreground"
-                        style={{ fontSize: 15 }}
+                    <Controller
+                        control={control}
+                        name="value"
+                        render={({ field }) => (
+                            <PlainInput
+                                ref={inputRef}
+                                value={field.value}
+                                onChangeText={field.onChange}
+                                onBlur={field.onBlur}
+                                placeholder={placeholder}
+                                autoFocus
+                                maxLength={maxLength}
+                                onSubmitEditing={submit}
+                                editable={!isSubmitting}
+                                accessibilityLabel={title}
+                                className="flex-1 text-foreground"
+                                style={{ fontSize: 15 }}
+                            />
+                        )}
                     />
                 </View>
+                <PromptError message={errorMessage} />
             </Dialog.Body>
             <Dialog.Footer>
                 <Dialog.CancelButton
@@ -99,11 +138,20 @@ export function PromptDialog({
                 />
                 <Dialog.ActionButton
                     label={confirmLabel}
-                    onPress={handleSubmit}
+                    onPress={submit}
                     isDisabled={!canSubmit}
                     requiresServer={requiresServer}
                 />
             </Dialog.Footer>
-        </Dialog>
+        </>
+    )
+}
+
+function PromptError({ message }: { message?: string | null }) {
+    if (!message) return null
+    return (
+        <Text className="text-xs text-danger mt-2" accessibilityRole="alert">
+            {message}
+        </Text>
     )
 }

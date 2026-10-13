@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogResponse } from '../../lib/automation/api'
-import { draftToRecord, emptyDraft, validateDraft } from '../../lib/automation/draft'
+import type { RuleDraft } from '../../lib/automation/draft'
+import { draftToRecord, emptyDraft } from '../../lib/automation/draft'
+import { ruleDraftSchemaFor } from '../../lib/automation/rule-draft-schema'
 
 // The IF card renders a ready-to-fill first condition row WITHOUT putting it in
 // the draft (ConditionsCard's SyntheticFirstGroup). These pin the two halves of
 // why that has to stay render-only:
 //
-//   • validateDraft must not error on a rule the user never added conditions to
+//   • the builder's schema must not error on a rule the user never added conditions to
 //     — a seeded blank row would report "Condition field '' is not available".
 //   • draftToRecord must not throw — conditionSchema.field is min(1) and
 //     conditionGroupSchema.conditions is min(1), so a blank condition or an
@@ -60,7 +62,12 @@ const CATALOG: CatalogResponse = {
     ],
 } as unknown as CatalogResponse
 
-function savableDraft() {
+function issueMessages(draft: RuleDraft, catalog: CatalogResponse): string[] {
+    const result = ruleDraftSchemaFor(catalog).safeParse(draft)
+    return result.success ? [] : result.error.issues.map(i => i.message)
+}
+
+function savableDraft(): RuleDraft {
     return {
         ...emptyDraft('personal'),
         name: 'My rule',
@@ -69,22 +76,22 @@ function savableDraft() {
     }
 }
 
-describe('validateDraft with no conditions', () => {
+describe('ruleDraftSchemaFor with no conditions', () => {
     it('accepts a rule whose condition row was never filled in', () => {
         // The exact state the builder is in when a user picks a trigger, adds an
         // action, and saves without touching the offered condition row.
-        expect(validateDraft(savableDraft(), CATALOG)).toEqual([])
+        expect(issueMessages(savableDraft(), CATALOG)).toEqual([])
     })
 
     it('still requires a name, a trigger and an action', () => {
-        const errors = validateDraft(emptyDraft('personal'), CATALOG)
+        const errors = issueMessages(emptyDraft('personal'), CATALOG)
         expect(errors).toContain('Name is required')
         expect(errors).toContain('Trigger is required')
         expect(errors).toContain('At least one action is required')
     })
 })
 
-describe('validateDraft with a partly-filled condition', () => {
+describe('ruleDraftSchemaFor with a partly-filled condition', () => {
     it('rejects a numeric condition with no value', () => {
         // Field chosen but value left blank is INCOMPLETE, not blank: the user
         // showed intent by picking a field, and the engine's numeric operators
@@ -95,7 +102,7 @@ describe('validateDraft with a partly-filled condition', () => {
             match: 'all',
             groups: [{ uid: 'g1', match: 'all', conditions: [{ field: 'size', op: 'gt' }] }],
         }
-        expect(validateDraft(draft, CATALOG)).toContain("Condition on 'Size' needs a number")
+        expect(issueMessages(draft, CATALOG)).toContain("Condition on 'Size' needs a number")
     })
 
     it('rejects a condition naming a field the trigger does not expose', () => {
@@ -110,13 +117,13 @@ describe('validateDraft with a partly-filled condition', () => {
                 },
             ],
         }
-        expect(validateDraft(draft, CATALOG)).toContain(
+        expect(issueMessages(draft, CATALOG)).toContain(
             "Condition field 'nope' is not available on trigger 'A message arrives'"
         )
     })
 })
 
-describe('validateDraft on a synthetic trigger', () => {
+describe('ruleDraftSchemaFor on a synthetic trigger', () => {
     it('rejects conditions on a trigger with no record behind it', () => {
         // The IF card renders disabled for schedule/manual rather than hiding,
         // and this is the rule that disabling is enforcing.
@@ -131,7 +138,7 @@ describe('validateDraft on a synthetic trigger', () => {
                 },
             ],
         }
-        expect(validateDraft(draft, CATALOG)).toContain(
+        expect(issueMessages(draft, CATALOG)).toContain(
             "Trigger 'Run manually' has no fields — it cannot have conditions"
         )
     })
@@ -200,7 +207,7 @@ describe('required action params', () => {
             ...savableDraft(),
             actions: [{ uid: 'a1', ref: 'core:notify', params: { title: '' } }],
         }
-        expect(validateDraft(draft, CATALOG)).toContain(
+        expect(issueMessages(draft, CATALOG)).toContain(
             "Action 'Send me a notification' requires 'Title'"
         )
     })
@@ -210,7 +217,7 @@ describe('required action params', () => {
             ...savableDraft(),
             actions: [{ uid: 'a1', ref: 'core:notify', params: { title: '   ' } }],
         }
-        expect(validateDraft(draft, CATALOG)).toContain(
+        expect(issueMessages(draft, CATALOG)).toContain(
             "Action 'Send me a notification' requires 'Title'"
         )
     })
@@ -220,7 +227,7 @@ describe('required action params', () => {
             ...savableDraft(),
             actions: [{ uid: 'a1', ref: 'core:notify', params: {} }],
         }
-        expect(validateDraft(draft, CATALOG)).toContain(
+        expect(issueMessages(draft, CATALOG)).toContain(
             "Action 'Send me a notification' requires 'Title'"
         )
     })
@@ -231,6 +238,6 @@ describe('required action params', () => {
             ...savableDraft(),
             actions: [{ uid: 'a1', ref: 'core:notify', params: { title: 'hi', body: '' } }],
         }
-        expect(validateDraft(draft, CATALOG)).toEqual([])
+        expect(issueMessages(draft, CATALOG)).toEqual([])
     })
 })

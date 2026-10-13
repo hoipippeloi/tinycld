@@ -1,0 +1,53 @@
+// @vitest-environment happy-dom
+
+import { act, cleanup, render, renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { useForm } from '..'
+import { FormErrorSummary } from '../FormErrorSummary'
+
+// Real errors from a real form, so the shapes match what RHF produces at runtime.
+function useErrors() {
+    const form = useForm({ defaultValues: { name: '' } })
+    return { form, errors: form.formState.errors }
+}
+
+describe('FormErrorSummary', () => {
+    afterEach(cleanup)
+
+    it('labels a field error with its field name', () => {
+        const { result } = renderHook(useErrors)
+        act(() => result.current.form.setError('name', { type: 'server', message: 'Required' }))
+        const { getByText } = render(<FormErrorSummary isEnabled errors={result.current.errors} />)
+        expect(getByText('name: Required')).not.toBeNull()
+    })
+
+    it('omits the field name when showFieldNames is off', () => {
+        const { result } = renderHook(useErrors)
+        act(() => result.current.form.setError('name', { type: 'server', message: 'Required' }))
+        const { getByText } = render(
+            <FormErrorSummary isEnabled showFieldNames={false} errors={result.current.errors} />
+        )
+        expect(getByText('Required')).not.toBeNull()
+    })
+
+    it('shows a root error as a plain message', () => {
+        const { result } = renderHook(useErrors)
+        act(() =>
+            result.current.form.setError('root', { type: 'server', message: 'Could not save' })
+        )
+        const { getByText, queryByText } = render(
+            <FormErrorSummary isEnabled errors={result.current.errors} />
+        )
+        expect(getByText('Could not save')).not.toBeNull()
+        expect(queryByText(/root/)).toBeNull()
+    })
+
+    it('shows a nested root error as a plain message', () => {
+        const { result } = renderHook(useErrors)
+        act(() =>
+            result.current.form.setError('root.server', { type: 'server', message: 'Rate limited' })
+        )
+        const { getByText } = render(<FormErrorSummary isEnabled errors={result.current.errors} />)
+        expect(getByText('Rate limited')).not.toBeNull()
+    })
+})

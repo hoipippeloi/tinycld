@@ -1,50 +1,72 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Dialog } from '@tinycld/core/ui/dialog'
+import {
+    type Control,
+    Controller,
+    isFormSubmittable,
+    useForm,
+    zodResolver,
+} from '@tinycld/core/ui/form'
 import { useEffect, useState } from 'react'
 import { Text, TextInput, View } from 'react-native'
+import { downgradeConfirmHint, downgradeConfirmSchema } from './downgrade-confirm-schema'
 import type { DropReport, PendingChange } from './use-package-versions'
 import { formatVersion } from './version-compare'
 
-// ConfirmChangesModal gates Apply. For an upgrade-only set it is a simple
-// confirm; when the set includes downgrades it loads a drop report for EVERY
-// downgraded package and requires the operator to type each downgraded slug
-// (comma/space separated) — so confirming one package can never silently
-// downgrade another. An apply failure is surfaced inline (the dialog stays open).
-export function ConfirmChangesModal({
-    isOpen,
-    pendingChanges,
-    hasDowngrade,
-    fetchDropReport,
-    onCancel,
-    onConfirm,
-}: {
+type ConfirmChangesModalProps = {
     isOpen: boolean
     pendingChanges: PendingChange[]
     hasDowngrade: boolean
     fetchDropReport: (slug: string, targetVersion: string) => Promise<DropReport>
     onCancel: () => void
     onConfirm: () => Promise<void>
-}) {
-    const [typed, setTyped] = useState('')
+}
+
+// ConfirmChangesModal gates Apply. For an upgrade-only set it is a simple
+// confirm; when the set includes downgrades it loads a drop report for EVERY
+// downgraded package and requires the operator to type each downgraded slug
+// (comma/space separated) — so confirming one package can never silently
+// downgrade another. An apply failure is surfaced inline (the dialog stays open).
+export function ConfirmChangesModal(props: ConfirmChangesModalProps) {
+    if (!props.isOpen) return null
+    return <ConfirmChangesModalOpen {...props} />
+}
+
+// Mounted only while open, so each open starts with nothing typed, no stale
+// drop reports and no error from the last attempt.
+function ConfirmChangesModalOpen({
+    pendingChanges,
+    hasDowngrade,
+    fetchDropReport,
+    onCancel,
+    onConfirm,
+}: ConfirmChangesModalProps) {
     const [reports, setReports] = useState<Record<string, DropReport>>({})
     const [loadingReports, setLoadingReports] = useState(false)
-    const [submitting, setSubmitting] = useState(false)
-    const [submitError, setSubmitError] = useState<string | null>(null)
 
     const downgrades = pendingChanges.filter(c => c.isDowngrade)
     const downgradeSlugs = downgrades.map(c => c.slug)
     // Stable string key of the downgraded {slug→version} set — used as the effect
-    // dep so it re-runs only when the set (or a target version) actually changes,
-    // not on every render. Pairs are re-parsed from it inside the effect.
+    // dep so it re-runs only when the set (or a target version) actually
+    // changes, not on every render. Pairs are re-parsed from it inside the effect.
     const downgradeKey = downgrades.map(c => `${c.slug}@${c.targetVersion}`).join(',')
 
+    const {
+        control,
+        handleSubmit,
+        setError,
+        formState: { isValid, isSubmitting, errors },
+    } = useForm({
+        resolver: zodResolver(downgradeConfirmSchema(downgradeSlugs)),
+        defaultValues: { confirm: '' },
+        mode: 'onChange',
+    })
+
     // Load a drop report for EVERY downgraded package when the confirm opens.
-    // Reset reports at the top so a previous open's data never flashes through.
     useEffect(() => {
         const pairs = downgradeKey ? downgradeKey.split(',').map(p => p.split('@')) : []
-        if (!isOpen || pairs.length === 0) return
+        if (pairs.length === 0) return
         let cancelled = false
-        setReports({})
         setLoadingReports(true)
         Promise.all(
             pairs.map(([slug, version]) =>
@@ -58,51 +80,25 @@ export function ConfirmChangesModal({
         return () => {
             cancelled = true
         }
-    }, [isOpen, downgradeKey, fetchDropReport])
+    }, [downgradeKey, fetchDropReport])
 
-    if (!isOpen) return null
-
-    const typedSlugs = new Set(
-        typed
-            .split(/[,\s]+/)
-            .map(s => s.trim())
-            .filter(Boolean)
-    )
-    const allConfirmed = downgradeSlugs.every(s => typedSlugs.has(s))
-    const confirmEnabled = (hasDowngrade ? allConfirmed : true) && !submitting
-
-    const handleConfirm = async () => {
-        setSubmitting(true)
-        setSubmitError(null)
+    const handleConfirm = handleSubmit(async () => {
         try {
             await onConfirm()
-            setTyped('')
-            setReports({})
         } catch (err) {
             // Surface the failure inline instead of leaving the user with a
             // silently-closed dialog and no feedback.
-            setSubmitError(err instanceof Error ? err.message : 'Failed to apply changes')
-        } finally {
-            setSubmitting(false)
+            setError('root', {
+                type: 'server',
+                message: err instanceof Error ? err.message : 'Failed to apply changes',
+            })
         }
-    }
-
-    const handleCancel = () => {
-        setTyped('')
-        setReports({})
-        setSubmitError(null)
-        onCancel()
-    }
-
-    const confirmHint =
-        downgradeSlugs.length === 1
-            ? `Type ${downgradeSlugs[0]} to confirm`
-            : `Type each package name to confirm: ${downgradeSlugs.join(', ')}`
+    })
 
     return (
         <Dialog
             isOpen
-            onClose={handleCancel}
+            onClose={onCancel}
             title={hasDowngrade ? 'Confirm downgrade' : 'Apply version changes'}
             size="xl"
         >
@@ -119,20 +115,19 @@ export function ConfirmChangesModal({
 
             <DowngradeConfirm
                 isVisible={hasDowngrade}
-                hint={confirmHint}
+                hint={downgradeConfirmHint(downgradeSlugs)}
                 slugs={downgradeSlugs}
-                typed={typed}
-                onChangeTyped={setTyped}
+                control={control}
             />
 
-            <SubmitError message={submitError} />
+            <SubmitError message={errors.root?.message} />
 
             <Dialog.Footer>
-                <Dialog.CancelButton onPress={handleCancel} isDisabled={submitting} />
+                <Dialog.CancelButton onPress={onCancel} isDisabled={isSubmitting} />
                 <Dialog.ActionButton
-                    label={applyLabel(submitting, hasDowngrade)}
+                    label={applyLabel(isSubmitting, hasDowngrade)}
                     onPress={handleConfirm}
-                    isDisabled={!confirmEnabled}
+                    isDisabled={!isFormSubmittable({ isValid, errors }) || isSubmitting}
                     isDestructive={hasDowngrade}
                 />
             </Dialog.Footer>
@@ -152,14 +147,12 @@ function DowngradeConfirm({
     isVisible,
     hint,
     slugs,
-    typed,
-    onChangeTyped,
+    control,
 }: {
     isVisible: boolean
     hint: string
     slugs: string[]
-    typed: string
-    onChangeTyped: (value: string) => void
+    control: Control<{ confirm: string }>
 }) {
     const fgColor = useThemeColor('foreground')
     if (!isVisible) return null
@@ -172,20 +165,27 @@ function DowngradeConfirm({
                 <Text className="text-muted-foreground" style={{ fontSize: 12 }}>
                     {hint}
                 </Text>
-                <TextInput
-                    value={typed}
-                    onChangeText={onChangeTyped}
-                    autoCapitalize="none"
-                    placeholder={slugs.join(', ')}
-                    className="rounded-lg border border-border px-3 py-2"
-                    style={{ color: fgColor, fontSize: 14 }}
+                <Controller
+                    control={control}
+                    name="confirm"
+                    render={({ field }) => (
+                        <TextInput
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            onBlur={field.onBlur}
+                            autoCapitalize="none"
+                            placeholder={slugs.join(', ')}
+                            className="rounded-lg border border-border px-3 py-2"
+                            style={{ color: fgColor, fontSize: 14 }}
+                        />
+                    )}
                 />
             </View>
         </View>
     )
 }
 
-function SubmitError({ message }: { message: string | null }) {
+function SubmitError({ message }: { message: string | undefined }) {
     if (!message) return null
     return (
         <View className="px-5 pb-4">

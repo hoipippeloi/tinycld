@@ -29,7 +29,8 @@ function WindowEditor({ au, isVisible }: { au: AutoUpgrade; isVisible: boolean }
             { key: KEY_WINDOW, value: data.window, isSecret: false },
             {
                 onError: err =>
-                    setError('window', {
+                    setError('root', {
+                        type: 'server',
                         message: err instanceof Error ? err.message : 'Failed to save',
                     }),
             }

@@ -38,7 +38,6 @@ export type TextInputProps<T extends FieldValues = Record<string, unknown>> = Om
 > & {
     name: Path<T>
     control: Control<T>
-    rules?: Record<string, unknown>
     label?: string
     labelIcon?: ComponentType<{ size: number; color: string }>
     hint?: string
@@ -60,7 +59,6 @@ export function TextInput<T extends FieldValues = Record<string, unknown>>(
         hint,
         name,
         control,
-        rules,
         wrapperProps = {},
         addon,
         onBlur: onBlurProp,
@@ -72,7 +70,7 @@ export function TextInput<T extends FieldValues = Record<string, unknown>>(
     const {
         field,
         fieldState: { error },
-    } = useController({ name, control, rules })
+    } = useController({ name, control })
 
     const placeholderColor = useThemeColor('field-placeholder')
 

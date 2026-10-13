@@ -18,7 +18,7 @@ import { RuleCard } from './RuleCard'
 export interface ConditionsCardProps {
     draft: RuleDraft
     catalog: CatalogResponse
-    onChange: (patch: Partial<RuleDraft>) => void
+    onChangeConditions: (conditions: RuleDraft['conditions']) => void
 }
 
 const NO_TRIGGER_HINT = 'Choose a trigger first'
@@ -58,7 +58,7 @@ function SyntheticFirstGroup({
     )
 }
 
-export function ConditionsCard({ draft, catalog, onChange }: ConditionsCardProps) {
+export function ConditionsCard({ draft, catalog, onChangeConditions }: ConditionsCardProps) {
     const mutedColor = useThemeColor('muted-foreground')
     const trigger = catalog.triggers.find(t => t.ref === draft.trigger)
     const isSynthetic = Boolean(trigger?.synthetic)
@@ -66,7 +66,7 @@ export function ConditionsCard({ draft, catalog, onChange }: ConditionsCardProps
     const hasGroups = draft.conditions.groups.length > 0
 
     const handleSeed = (patch: Partial<Condition>) =>
-        onChange({ conditions: seedFirstCondition(draft.conditions, patch) })
+        onChangeConditions(seedFirstCondition(draft.conditions, patch))
 
     // Adding the FIRST group has to carry a condition row with it. The offered
     // row above is render-only and disappears the moment a real group exists,
@@ -74,18 +74,16 @@ export function ConditionsCard({ draft, catalog, onChange }: ConditionsCardProps
     // vanish and be replaced by a group with nothing in it — the work they were
     // about to do, silently discarded. Later groups start empty as before.
     const handleAddGroup = () =>
-        onChange({
-            conditions: hasGroups
-                ? addGroup(draft.conditions)
-                : addCondition(addGroup(draft.conditions), 0),
-        })
+        onChangeConditions(
+            hasGroups ? addGroup(draft.conditions) : addCondition(addGroup(draft.conditions), 0)
+        )
 
     const matchPills = (
         <View className="flex-row items-center gap-2">
             <Text className="text-xs text-muted-foreground">Match</Text>
             <MatchPillPair
                 match={draft.conditions.match}
-                onSelect={match => onChange({ conditions: setTopMatch(draft.conditions, match) })}
+                onSelect={match => onChangeConditions(setTopMatch(draft.conditions, match))}
             />
             <Text className="text-xs text-muted-foreground">groups</Text>
         </View>
@@ -110,11 +108,11 @@ export function ConditionsCard({ draft, catalog, onChange }: ConditionsCardProps
                     // not groupIndex — same reconciliation-identity rationale
                     // as ConditionGroupBox's own ConditionRow keys.
                     key={group.uid}
-                    draft={draft}
+                    conditions={draft.conditions}
                     fields={trigger?.fields ?? []}
                     group={group}
                     groupIndex={groupIndex}
-                    onChange={onChange}
+                    onChangeConditions={onChangeConditions}
                 />
             ))}
 

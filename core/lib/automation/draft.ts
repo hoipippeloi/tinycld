@@ -1,14 +1,12 @@
 // Pure functions only — no React. The rule builder UI works against this
 // draft shape, then converts to/from the PocketBase `rules` record on
-// load/save. See `use-rule-mutations.ts` for the mutation-side glue.
+// load/save. See `use-rule-mutations.ts` for the mutation-side glue and
+// `rule-draft-schema.ts` for the builder's validation.
 
 import type { Rules } from '@tinycld/core/types/pbSchema'
-import type { CatalogResponse } from './api'
 import type { ActionItem } from './condition-helpers'
 import { ensureActionUids, ensureUids } from './condition-helpers'
-import { OPERATORS_BY_TYPE } from './helpers'
 import { conditionsAstSchema, ruleActionsSchema } from './schemas'
-import type { ConditionOp } from './types'
 
 export interface RuleDraft {
     id?: string
@@ -38,9 +36,8 @@ type ConditionsAstDraft = {
 }
 
 // Re-derived from condition-helpers.ts's ActionItem, same reasoning as
-// ConditionsAstDraft above: draft.ts stays pure/no-React while ActionsCard
-// (and condition-helpers.ts's ensureActionUids/moveAction) work against the
-// uid-bearing shape.
+// ConditionsAstDraft above: draft.ts stays pure/no-React while
+// condition-helpers.ts's ensureActionUids works against the uid-bearing shape.
 type RuleDraftAction = ActionItem
 
 const EMPTY_AST: ConditionsAstDraft = { match: 'all', groups: [] }
@@ -91,8 +88,8 @@ function toActions(value: unknown): RuleDraftAction[] {
         actions.push({ ref, params })
     }
     // ensureActionUids runs on every load so a rule fetched from the server
-    // (whose stored actions never carry a uid — draftToRecord strips it) gets
-    // stable React keys too, not just actions added fresh in this session.
+    // (whose stored actions never carry a uid — draftToRecord strips it) has
+    // the same shape as a fresh draft action.
     return ensureActionUids(actions)
 }
 
@@ -128,7 +125,7 @@ export function draftToRecord(draft: RuleDraft): RulesRecordFields {
         // reaches the server. The draft is always schema-valid by construction
         // (condition-helpers.ts only ever produces well-formed ASTs), so this
         // can't throw in practice; it's the serialization boundary, not a
-        // validation gate — validateDraft already ran before save.
+        // validation gate — the builder's ruleDraftSchemaFor already ran before save.
         conditions: conditionsAstSchema.parse(draft.conditions),
         // Same uid-stripping as conditions above, via ruleActionsSchema (also
         // has no `uid` field). ruleActionsSchema.min(1) rejects an empty
@@ -139,162 +136,4 @@ export function draftToRecord(draft: RuleDraft): RulesRecordFields {
         stop_processing: draft.stopProcessing,
         order: draft.order,
     }
-}
-
-function findTrigger(catalog: CatalogResponse, ref: string) {
-    return catalog.triggers.find(t => t.ref === ref)
-}
-
-function findAction(catalog: CatalogResponse, ref: string) {
-    return catalog.actions.find(a => a.ref === ref)
-}
-
-function validateConditionsAgainstTrigger(
-    conditions: RuleDraft['conditions'],
-    trigger: CatalogResponse['triggers'][number]
-): string[] {
-    const errors: string[] = []
-    const fieldsByKey = new Map((trigger.fields ?? []).map(f => [f.key, f]))
-    for (const group of conditions.groups) {
-        for (const condition of group.conditions) {
-            const field = fieldsByKey.get(condition.field)
-            if (!field) {
-                errors.push(
-                    `Condition field '${condition.field}' is not available on trigger '${trigger.label}'`
-                )
-                continue
-            }
-            const legalOps = OPERATORS_BY_TYPE[field.type]
-            if (!legalOps.includes(condition.op as (typeof legalOps)[number])) {
-                errors.push(
-                    `Operator '${condition.op}' is not valid for field '${field.label}' (${field.type})`
-                )
-            }
-            if (NUMERIC_OPS.has(condition.op as ConditionOp) && !isFiniteValue(condition.value)) {
-                // The engine's numeric operators fail closed on a value they
-                // can't read as a number, so saving one is saving a rule that
-                // silently never matches. Caught here rather than at the input.
-                errors.push(`Condition on '${field.label}' needs a number`)
-            }
-        }
-    }
-    return errors
-}
-
-// The operators evalCondition reads with toFloat: eq/neq/gt/lt over a number
-// field, plus within_last_days, whose value is a day count on a date field.
-const NUMERIC_OPS: ReadonlySet<ConditionOp> = new Set(['eq', 'neq', 'gt', 'lt', 'within_last_days'])
-
-function isFiniteValue(value: unknown): boolean {
-    if (typeof value === 'number') return Number.isFinite(value)
-    // A stored string is tolerated only if it actually reads as a number: rules
-    // written by an older build (or by hand) may carry "5" rather than 5.
-    if (typeof value === 'string' && value.trim() !== '') return Number.isFinite(Number(value))
-    return false
-}
-
-function validateTrigger(draft: RuleDraft, catalog: CatalogResponse): string[] {
-    const trigger = findTrigger(catalog, draft.trigger)
-    if (!trigger) return [`Trigger '${draft.trigger}' is not in the catalog`]
-
-    const errors: string[] = []
-    const isSynthetic = Boolean(trigger.synthetic)
-    const hasConditions = draft.conditions.groups.some(g => g.conditions.length > 0)
-    if (isSynthetic && hasConditions) {
-        errors.push(`Trigger '${trigger.label}' has no fields — it cannot have conditions`)
-    }
-    if (!isSynthetic) {
-        errors.push(...validateConditionsAgainstTrigger(draft.conditions, trigger))
-    }
-    if (trigger.synthetic === 'schedule' && !draft.triggerConfig.cron?.trim()) {
-        errors.push('Schedule trigger requires a cron expression')
-    }
-    return errors
-}
-
-function validateActionParams(
-    draftAction: RuleDraft['actions'][number],
-    action: CatalogResponse['actions'][number]
-): string[] {
-    const errors: string[] = []
-    for (const param of action.params ?? []) {
-        // Most text and field-ref params may legitimately be empty strings, so
-        // only params the catalog marks required are enforced — every relation
-        // param, plus text params that back a required column.
-        //
-        // This used to test `type !== 'relation'` and skip everything else,
-        // which let core:notify save with a blank title. The rule then RAN,
-        // reported a matched run, and failed at the insert with "title: cannot
-        // be blank" — a notification nobody received, on a run that looked
-        // healthy.
-        // A relation param is required regardless of the flag: the engine
-        // refuses an empty one, and deriving it here means the client stays
-        // correct against a catalog (or a test fixture) that predates
-        // `required` rather than silently dropping the check.
-        if (!param.required && param.field.type !== 'relation') continue
-        const value = draftAction.params[param.key]
-        const provided = value !== undefined && value !== null
-        if (!provided || (typeof value === 'string' && value.trim() === '')) {
-            errors.push(`Action '${action.label}' requires '${param.label}'`)
-        }
-    }
-    return errors
-}
-
-function validateActionTarget(
-    action: CatalogResponse['actions'][number],
-    trigger: CatalogResponse['triggers'][number] | undefined
-): string[] {
-    if (action.opTarget !== 'trigger-record') return []
-    if (!trigger || trigger.synthetic) {
-        return [
-            `Action '${action.label}' targets the trigger-record, but a synthetic trigger has no record to act on`,
-        ]
-    }
-    if (trigger.collection !== action.collection) {
-        return [
-            `Action '${action.label}' targets collection '${action.collection}', which doesn't match trigger '${trigger.label}''s collection '${trigger.collection}'`,
-        ]
-    }
-    return []
-}
-
-function validateAction(
-    draftAction: RuleDraft['actions'][number],
-    catalog: CatalogResponse,
-    trigger: CatalogResponse['triggers'][number] | undefined
-): string[] {
-    const action = findAction(catalog, draftAction.ref)
-    if (!action) return [`Action '${draftAction.ref}' is not in the catalog`]
-
-    const errors: string[] = []
-    if (!action.available) errors.push(`Action '${action.label}' is not available`)
-    errors.push(...validateActionTarget(action, trigger))
-    errors.push(...validateActionParams(draftAction, action))
-    return errors
-}
-
-function validateActions(draft: RuleDraft, catalog: CatalogResponse): string[] {
-    const trigger = findTrigger(catalog, draft.trigger)
-    return draft.actions.flatMap(draftAction => validateAction(draftAction, catalog, trigger))
-}
-
-export function validateDraft(draft: RuleDraft, catalog: CatalogResponse | undefined): string[] {
-    const errors: string[] = []
-
-    if (!draft.name.trim()) errors.push('Name is required')
-
-    if (!draft.trigger) {
-        errors.push('Trigger is required')
-    } else if (catalog) {
-        errors.push(...validateTrigger(draft, catalog))
-    }
-
-    if (draft.actions.length === 0) {
-        errors.push('At least one action is required')
-    } else if (catalog) {
-        errors.push(...validateActions(draft, catalog))
-    }
-
-    return errors
 }

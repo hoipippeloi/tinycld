@@ -1,6 +1,7 @@
 import { ChangeServerLink } from '@tinycld/core/components/ChangeServerLink'
 import { ReviewModeHints } from '@tinycld/core/components/connect/ReviewModeHints'
 import { OrgLogo } from '@tinycld/core/components/OrgLogo'
+import { loginSchema, resetRequestSchema } from '@tinycld/core/components/workspace/login-schemas'
 import { requestPasswordReset } from '@tinycld/core/lib/account-password'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { takePendingRoute } from '@tinycld/core/lib/pending-route'
@@ -13,6 +14,13 @@ import type { OrgBranding as OrgBrandingInfo } from '@tinycld/core/lib/use-org-i
 import { useOrgInfo } from '@tinycld/core/lib/use-org-info'
 import { useDeviceInsets } from '@tinycld/core/lib/use-safe-area'
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
+import {
+    type Control,
+    Controller,
+    isFormSubmittable,
+    useForm,
+    zodResolver,
+} from '@tinycld/core/ui/form'
 import { router } from 'expo-router'
 import { useState } from 'react'
 import {
@@ -68,6 +76,58 @@ export function LoginModal() {
     )
 }
 
+function useLoginForm() {
+    const { login } = useAuth({ throwIfAnon: false })
+    const clearNotice = useSignInNoticeStore(s => s.clear)
+    const form = useForm({
+        resolver: zodResolver(loginSchema),
+        defaultValues: { identifier: '', password: '' },
+        mode: 'onChange',
+    })
+
+    const onSubmit = form.handleSubmit(async ({ identifier, password }) => {
+        const result = await login(identifier, password)
+        if (result.error) {
+            form.setError('root', { type: 'server', message: result.error })
+            return
+        }
+        if (!result.user) return
+        // The notice (if any) explained why this sign-in was needed; a
+        // fresh session no longer needs the explanation, and it must not
+        // reappear if this user is later routed back to sign-in for an
+        // unrelated reason.
+        clearNotice()
+        // Return to whatever route the gate interrupted — a deep link, or
+        // the screen an expired session flipped out from under the user.
+        // Recorded by AuthGate; replace (not push) so the sign-in overlay
+        // isn't a back-button destination. Nothing to return to: send every
+        // signed-in user to the app root.
+        router.replace(takePendingRoute() ?? '/')
+    })
+
+    const prefill = (identifier: string, password: string) => {
+        form.setValue('identifier', identifier, { shouldValidate: true })
+        form.setValue('password', password, { shouldValidate: true })
+    }
+
+    const { isSubmitting, isSubmitSuccessful, isValid, errors } = form.formState
+    // A successful sign-in stays busy until the route change unmounts the form.
+    const isBusy = isSubmitting || isSubmitSuccessful
+    const canSubmit = isFormSubmittable({ isValid, errors }) && !isBusy
+
+    return {
+        control: form.control,
+        // The button disables itself; this also stops the Enter key.
+        onSubmit: () => {
+            if (canSubmit) onSubmit()
+        },
+        prefill,
+        isBusy,
+        canSubmit,
+        error: errors.root?.message ?? null,
+    }
+}
+
 function LoginForm({
     isVisible,
     onForgotPassword,
@@ -77,49 +137,13 @@ function LoginForm({
 }) {
     const mutedColor = useThemeColor('muted-foreground')
     const primaryFg = useThemeColor('primary-foreground')
-    const { login } = useAuth({ throwIfAnon: false })
     const notice = useSignInNotice()
-    const clearNotice = useSignInNoticeStore(s => s.clear)
     // Pre-auth: reads the unauthenticated /api/org-info endpoint, so it
     // resolves fine before the user signs in. `org` is null while loading or
     // on an unbranded deployment — OrgBranding degrades to nothing rather
     // than an empty circle in that case.
     const { org } = useOrgInfo()
-    const [identifier, setIdentifier] = useState('')
-    const [password, setPassword] = useState('')
-    const [error, setError] = useState<string | null>(null)
-    const [isSubmitting, setIsSubmitting] = useState(false)
-
-    const canSubmit = identifier.trim().length > 0 && password.length > 0 && !isSubmitting
-
-    const handleSubmit = async () => {
-        if (!canSubmit) return
-        setError(null)
-        setIsSubmitting(true)
-        const result = await login(identifier.trim(), password)
-        if (result.error) {
-            setError(result.error)
-            setIsSubmitting(false)
-        } else if (result.user) {
-            // The notice (if any) explained why this sign-in was needed; a
-            // fresh session no longer needs the explanation, and it must not
-            // reappear if this user is later routed back to sign-in for an
-            // unrelated reason.
-            clearNotice()
-            // Return to whatever route the gate interrupted — a deep link, or
-            // the screen an expired session flipped out from under the user.
-            // Recorded by AuthGate; replace (not push) so the sign-in overlay
-            // isn't a back-button destination.
-            const pending = takePendingRoute()
-            if (pending) {
-                router.replace(pending)
-            } else {
-                // Nothing to return to: send every signed-in user to the
-                // app root.
-                router.replace('/')
-            }
-        }
-    }
+    const { control, onSubmit, prefill, isBusy, canSubmit, error } = useLoginForm()
 
     if (!isVisible) return null
 
@@ -140,55 +164,60 @@ function LoginForm({
                 <Text className="mb-1.5 text-sm font-semibold text-foreground">
                     Username or email
                 </Text>
-                <TextInput
-                    className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
-                    testID="identifier"
-                    value={identifier}
-                    onChangeText={setIdentifier}
-                    placeholder="alice or alice@company.com"
-                    placeholderTextColor={mutedColor}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="username"
-                    editable={!isSubmitting}
+                <Controller
+                    control={control}
+                    name="identifier"
+                    render={({ field }) => (
+                        <TextInput
+                            className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
+                            testID="identifier"
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="alice or alice@company.com"
+                            placeholderTextColor={mutedColor}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="username"
+                            editable={!isBusy}
+                        />
+                    )}
                 />
             </View>
 
             <View className="mb-2">
                 <Text className="mb-1.5 text-sm font-semibold text-foreground">Password</Text>
-                <TextInput
-                    className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
-                    testID="login-password"
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Password"
-                    placeholderTextColor={mutedColor}
-                    secureTextEntry
-                    autoComplete="current-password"
-                    editable={!isSubmitting}
-                    onSubmitEditing={handleSubmit}
+                <Controller
+                    control={control}
+                    name="password"
+                    render={({ field }) => (
+                        <TextInput
+                            className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
+                            testID="login-password"
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="Password"
+                            placeholderTextColor={mutedColor}
+                            secureTextEntry
+                            autoComplete="current-password"
+                            editable={!isBusy}
+                            onSubmitEditing={onSubmit}
+                        />
+                    )}
                 />
             </View>
 
             <ServerActionButton
                 testID="login-submit"
                 className="mt-4 w-full"
-                onPress={handleSubmit}
+                onPress={onSubmit}
                 isDisabled={!canSubmit}
             >
-                {isSubmitting ? (
-                    <ActivityIndicator color={primaryFg} size="small" />
-                ) : (
-                    <ButtonText>Sign in</ButtonText>
-                )}
+                <SubmitLabel isBusy={isBusy} color={primaryFg} label="Sign in" />
             </ServerActionButton>
 
-            <ReviewModeHints
-                onPrefill={(id, password) => {
-                    setIdentifier(id)
-                    setPassword(password)
-                }}
-            />
+            <ReviewModeHints onPrefill={prefill} />
 
             <View className="mt-4 flex-row justify-around">
                 <Pressable
@@ -204,6 +233,11 @@ function LoginForm({
             </View>
         </>
     )
+}
+
+function SubmitLabel({ isBusy, color, label }: { isBusy: boolean; color: string; label: string }) {
+    if (isBusy) return <ActivityIndicator color={color} size="small" />
+    return <ButtonText>{label}</ButtonText>
 }
 
 function SignInNotice({ isVisible, notice }: { isVisible: boolean; notice: string | null }) {
@@ -240,24 +274,34 @@ function OrgBranding({ org }: { org: OrgBrandingInfo | null }) {
     )
 }
 
-function ResetForm({ isVisible, onBack }: { isVisible: boolean; onBack: () => void }) {
-    const mutedColor = useThemeColor('muted-foreground')
-    const primaryFg = useThemeColor('primary-foreground')
-    const [email, setEmail] = useState('')
-    const [isSubmitting, setIsSubmitting] = useState(false)
-    const [isSent, setIsSent] = useState(false)
+function useResetRequestForm() {
+    const form = useForm({
+        resolver: zodResolver(resetRequestSchema),
+        defaultValues: { email: '' },
+        mode: 'onChange',
+    })
 
-    const canSubmit = email.trim().length > 0 && !isSubmitting
+    // requestPasswordReset never throws and never reveals whether the email
+    // exists — we always land on the same confirmation.
+    const onSubmit = form.handleSubmit(({ email }) => requestPasswordReset(email))
 
-    const handleSubmit = async () => {
-        if (!canSubmit) return
-        setIsSubmitting(true)
-        // requestPasswordReset never throws and never reveals whether the email
-        // exists — we always land on the same confirmation.
-        await requestPasswordReset(email.trim())
-        setIsSubmitting(false)
-        setIsSent(true)
+    const { isSubmitting, isSubmitSuccessful, isValid } = form.formState
+    const canSubmit = isValid && !isSubmitting
+    return {
+        control: form.control,
+        // The button disables itself; this also stops the Enter key.
+        onSubmit: () => {
+            if (canSubmit) onSubmit()
+        },
+        isSubmitting,
+        isSent: isSubmitSuccessful,
+        canSubmit,
     }
+}
+
+function ResetForm({ isVisible, onBack }: { isVisible: boolean; onBack: () => void }) {
+    const primaryFg = useThemeColor('primary-foreground')
+    const { control, onSubmit, isSubmitting, isSent, canSubmit } = useResetRequestForm()
 
     if (!isVisible) return null
 
@@ -268,47 +312,20 @@ function ResetForm({ isVisible, onBack }: { isVisible: boolean; onBack: () => vo
                 Enter your email and we'll send you a reset link
             </Text>
 
-            {isSent ? (
-                <View className="rounded-lg p-3 mb-4 bg-surface-secondary" testID="reset-sent">
-                    <Text className="text-sm text-foreground">
-                        If an account exists for that email, we've sent a reset link. Check your
-                        inbox.
-                    </Text>
-                </View>
-            ) : (
-                <View className="mb-2">
-                    <Text className="mb-1.5 text-sm font-semibold text-foreground">Email</Text>
-                    <TextInput
-                        className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
-                        testID="reset-email"
-                        value={email}
-                        onChangeText={setEmail}
-                        placeholder="alice@company.com"
-                        placeholderTextColor={mutedColor}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="email-address"
-                        autoComplete="email"
-                        editable={!isSubmitting}
-                        onSubmitEditing={handleSubmit}
-                    />
-                </View>
-            )}
-
-            {!isSent && (
-                <ServerActionButton
-                    testID="reset-submit"
-                    className="mt-2 w-full"
-                    onPress={handleSubmit}
-                    isDisabled={!canSubmit}
-                >
-                    {isSubmitting ? (
-                        <ActivityIndicator color={primaryFg} size="small" />
-                    ) : (
-                        <ButtonText>Send reset link</ButtonText>
-                    )}
-                </ServerActionButton>
-            )}
+            <ResetSentNotice isVisible={isSent} />
+            <ResetEmailField
+                isVisible={!isSent}
+                control={control}
+                isSubmitting={isSubmitting}
+                onSubmit={onSubmit}
+            />
+            <ResetSubmitButton
+                isVisible={!isSent}
+                isSubmitting={isSubmitting}
+                isDisabled={!canSubmit}
+                color={primaryFg}
+                onSubmit={onSubmit}
+            />
 
             <Pressable
                 testID="reset-back"
@@ -319,5 +336,95 @@ function ResetForm({ isVisible, onBack }: { isVisible: boolean; onBack: () => vo
                 <Text className="text-xs text-muted-foreground underline">Back to sign in</Text>
             </Pressable>
         </>
+    )
+}
+
+function ResetSentNotice({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <View className="rounded-lg p-3 mb-4 bg-surface-secondary" testID="reset-sent">
+            <Text className="text-sm text-foreground">
+                If an account exists for that email, we've sent a reset link. Check your inbox.
+            </Text>
+        </View>
+    )
+}
+
+type ResetEmailFieldProps = {
+    isVisible: boolean
+    control: Control<{ email: string }>
+    isSubmitting: boolean
+    onSubmit: () => void
+}
+
+function ResetEmailField({ isVisible, control, isSubmitting, onSubmit }: ResetEmailFieldProps) {
+    const mutedColor = useThemeColor('muted-foreground')
+    if (!isVisible) return null
+    return (
+        <View className="mb-2">
+            <Text className="mb-1.5 text-sm font-semibold text-foreground">Email</Text>
+            <Controller
+                control={control}
+                name="email"
+                render={({ field, fieldState }) => (
+                    <>
+                        <TextInput
+                            className="border border-border rounded-lg p-3 text-base text-foreground bg-surface-secondary"
+                            testID="reset-email"
+                            value={field.value}
+                            onChangeText={field.onChange}
+                            onBlur={field.onBlur}
+                            placeholder="alice@company.com"
+                            placeholderTextColor={mutedColor}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            keyboardType="email-address"
+                            autoComplete="email"
+                            editable={!isSubmitting}
+                            onSubmitEditing={onSubmit}
+                        />
+                        <TouchedFieldError
+                            isTouched={fieldState.isTouched}
+                            message={fieldState.error?.message}
+                        />
+                    </>
+                )}
+            />
+        </View>
+    )
+}
+
+// Shown once the person leaves the field, so a half-typed address does not
+// flag an error on every keystroke; until then the disabled button is the cue.
+function TouchedFieldError({ isTouched, message }: { isTouched: boolean; message?: string }) {
+    if (!isTouched || !message) return null
+    return <Text className="mt-1 text-xs text-danger">{message}</Text>
+}
+
+type ResetSubmitButtonProps = {
+    isVisible: boolean
+    isSubmitting: boolean
+    isDisabled: boolean
+    color: string
+    onSubmit: () => void
+}
+
+function ResetSubmitButton({
+    isVisible,
+    isSubmitting,
+    isDisabled,
+    color,
+    onSubmit,
+}: ResetSubmitButtonProps) {
+    if (!isVisible) return null
+    return (
+        <ServerActionButton
+            testID="reset-submit"
+            className="mt-2 w-full"
+            onPress={onSubmit}
+            isDisabled={isDisabled}
+        >
+            <SubmitLabel isBusy={isSubmitting} color={color} label="Send reset link" />
+        </ServerActionButton>
     )
 }
