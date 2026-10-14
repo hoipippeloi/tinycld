@@ -85,6 +85,18 @@
                 "width": "full",
                 "required": false,
                 "hidden": false
+            },
+            {
+                "key": "area",
+                "kind": "select",
+                "page": "b",
+                "label": "Area",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [{ "value": "ui", "label": "UI" }, { "value": "api", "label": "API" }]
             }
         ],
         "rules": [
@@ -145,6 +157,30 @@
                 "match": "all",
                 "when": [{ "field": "severity", "op": "lt", "value": 5 }],
                 "actions": [{ "action": "hide", "field": "note" }]
+            },
+            {
+                "key": "ne_prefix_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "starts_with", "value": "n\u00e9" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "tag_x_hides_done",
+                "match": "all",
+                "when": [{ "field": "tags", "op": "is", "value": "x" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "note_has_5_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "contains", "value": "5" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "area_any_hides_done",
+                "match": "all",
+                "when": [{ "field": "area", "op": "is_any_of", "value": ["ui", "api"] }],
+                "actions": [{ "action": "hide", "field": "done" }]
             }
         ],
         "defaults": {
@@ -240,6 +276,54 @@
             "expect": {
                 "fields": { "note": { "visible": true, "required": false } },
                 "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "starts_with counts characters, not bytes",
+            "values": { "kind": "bug", "note": "névé" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "ne_prefix_hides_done"]
+            }
+        },
+        {
+            "name": "is matches an array field holding the value",
+            "values": { "kind": "bug", "tags": ["x"] },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "tag_x_hides_done"]
+            }
+        },
+        {
+            "name": "is does not match an array field without the value",
+            "values": { "kind": "bug", "tags": ["y"] },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "contains matches text holding a digit",
+            "values": { "kind": "bug", "note": "abc5" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "note_has_5_hides_done"]
+            }
+        },
+        {
+            "name": "contains does not match text without the digit",
+            "values": { "kind": "bug", "note": "abc" },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "is_any_of matches a single value in the list",
+            "values": { "kind": "bug", "area": "ui" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "area_any_hides_done"]
             }
         }
     ],

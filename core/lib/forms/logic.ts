@@ -45,6 +45,13 @@ function ensureOperations() {
         'anyOpen',
         (v: unknown) => Array.isArray(v) && v.some(i => (i as { done?: boolean }).done !== true)
     )
+    jsonLogic.add_operation('hasValue', (v: unknown, x: unknown) =>
+        Array.isArray(v) ? v.includes(x) : v === x
+    )
+    jsonLogic.add_operation('anyOf', (v: unknown, list: unknown) => {
+        if (!Array.isArray(list) || isEmpty(v)) return false
+        return Array.isArray(v) ? v.some(i => list.includes(i)) : list.includes(v)
+    })
     jsonLogic.add_operation('today', () => currentContext.today)
     jsonLogic.add_operation('me', () => currentContext.userId)
     jsonLogic.add_operation('addDays', (date: unknown, days: unknown) =>
@@ -71,19 +78,21 @@ export function compileCondition(c: RuleCondition): JsonLogicRule {
     const v = { var: c.field }
     switch (c.op) {
         case 'eq':
-        case 'is':
             return { '==': [v, c.value] } as JsonLogicRule
+        case 'is':
+            return { hasValue: [v, c.value] } as unknown as JsonLogicRule
         case 'neq':
-        case 'is_not':
             return { '!=': [v, c.value] } as JsonLogicRule
+        case 'is_not':
+            return { '!': { hasValue: [v, c.value] } } as unknown as JsonLogicRule
         case 'contains':
-            return guarded(v, { in: [c.value, v] })
+            return guarded(v, { in: [c.value, { cat: [v] }] })
         case 'starts_with':
             return guarded(v, {
-                '==': [{ substr: [v, 0, String(c.value ?? '').length] }, c.value],
+                '==': [{ substr: [{ cat: [v] }, 0, String(c.value ?? '').length] }, c.value],
             })
         case 'is_any_of':
-            return { in: [v, c.value] } as JsonLogicRule
+            return { anyOf: [v, c.value] } as unknown as JsonLogicRule
         case 'is_empty':
             return { isEmpty: [v] } as unknown as JsonLogicRule
         case 'not_empty':

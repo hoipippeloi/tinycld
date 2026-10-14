@@ -2,8 +2,10 @@ package forms
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/diegoholiveira/jsonlogic/v3"
 )
@@ -49,6 +51,31 @@ func isEmpty(v any) bool {
 	return false
 }
 
+func hasValue(v, x any) bool {
+	if arr, ok := v.([]any); ok {
+		for _, it := range arr {
+			if reflect.DeepEqual(it, x) {
+				return true
+			}
+		}
+		return false
+	}
+	return reflect.DeepEqual(v, x)
+}
+
+func anyOf(v, list any) bool {
+	items, ok := list.([]any)
+	if !ok || isEmpty(v) {
+		return false
+	}
+	for _, it := range items {
+		if hasValue(v, it) {
+			return true
+		}
+	}
+	return false
+}
+
 func first(values any) any {
 	if arr, ok := values.([]any); ok && len(arr) > 0 {
 		return arr[0]
@@ -89,6 +116,20 @@ func registerOperations() {
 			}
 			return false
 		})
+		jsonlogic.AddOperator("hasValue", func(values, data any) any {
+			arr, ok := values.([]any)
+			if !ok || len(arr) != 2 {
+				return false
+			}
+			return hasValue(arr[0], arr[1])
+		})
+		jsonlogic.AddOperator("anyOf", func(values, data any) any {
+			arr, ok := values.([]any)
+			if !ok || len(arr) != 2 {
+				return false
+			}
+			return anyOf(arr[0], arr[1])
+		})
 		jsonlogic.AddOperator("today", func(values, data any) any { return evalCtx.Today })
 		jsonlogic.AddOperator("me", func(values, data any) any { return evalCtx.UserID })
 		jsonlogic.AddOperator("addDays", func(values, data any) any {
@@ -123,17 +164,21 @@ func guarded(v, op map[string]any) map[string]any {
 func compileCondition(c Condition) map[string]any {
 	v := map[string]any{"var": c.Field}
 	switch c.Op {
-	case "eq", "is":
+	case "eq":
 		return map[string]any{"==": []any{v, c.Value}}
-	case "neq", "is_not":
+	case "is":
+		return map[string]any{"hasValue": []any{v, c.Value}}
+	case "neq":
 		return map[string]any{"!=": []any{v, c.Value}}
+	case "is_not":
+		return map[string]any{"!": map[string]any{"hasValue": []any{v, c.Value}}}
 	case "contains":
-		return guarded(v, map[string]any{"in": []any{c.Value, v}})
+		return guarded(v, map[string]any{"in": []any{c.Value, map[string]any{"cat": []any{v}}}})
 	case "starts_with":
 		s, _ := c.Value.(string)
-		return guarded(v, map[string]any{"==": []any{map[string]any{"substr": []any{v, float64(0), float64(len(s))}}, c.Value}})
+		return guarded(v, map[string]any{"==": []any{map[string]any{"substr": []any{map[string]any{"cat": []any{v}}, float64(0), float64(utf8.RuneCountInString(s))}}, c.Value}})
 	case "is_any_of":
-		return map[string]any{"in": []any{v, c.Value}}
+		return map[string]any{"anyOf": []any{v, c.Value}}
 	case "is_empty":
 		return map[string]any{"isEmpty": []any{v}}
 	case "not_empty":
@@ -191,6 +236,8 @@ func evaluateExpressionLocked(expr any, values map[string]any) (any, error) {
 	return expr, nil
 }
 
+// EvaluateExpression needs values holding JSON-decoded types only (float64,
+// []any, map[string]any, string, bool, nil); jsonlogic rejects others.
 func EvaluateExpression(expr any, ctx Context, values map[string]any) (any, error) {
 	registerOperations()
 	evalMu.Lock()
@@ -202,6 +249,8 @@ func EvaluateExpression(expr any, ctx Context, values map[string]any) (any, erro
 	return evaluateExpressionLocked(expr, values)
 }
 
+// Evaluate needs values holding JSON-decoded types only (float64, []any,
+// map[string]any, string, bool, nil); jsonlogic rejects others.
 func Evaluate(def *Definition, values map[string]any, ctx Context) (State, error) {
 	registerOperations()
 	evalMu.Lock()

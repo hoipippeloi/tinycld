@@ -60,6 +60,22 @@ describe('definitionSchema', () => {
         ]
         expect(definitionSchema.safeParse({ ...bugDefinition, rules }).success).toBe(false)
     })
+    it('rejects contains with a non-text value', () => {
+        const rules = [
+            { ...bugDefinition.rules[0], when: [{ field: 'title', op: 'contains', value: 5 }] },
+        ]
+        const r = definitionSchema.safeParse({ ...bugDefinition, rules })
+        expect(r.success).toBe(false)
+        expect(r.error?.issues.map(i => i.message)).toContain('contains needs a text value')
+    })
+    it('rejects is_any_of without a list of text', () => {
+        const rules = [
+            { ...bugDefinition.rules[0], when: [{ field: 'kind', op: 'is_any_of', value: [] }] },
+        ]
+        const r = definitionSchema.safeParse({ ...bugDefinition, rules })
+        expect(r.success).toBe(false)
+        expect(r.error?.issues.map(i => i.message)).toContain('is_any_of needs a list')
+    })
     it('rejects a require action on a page', () => {
         const rules = [
             { ...bugDefinition.rules[0], actions: [{ action: 'require', page: 'repro' }] },

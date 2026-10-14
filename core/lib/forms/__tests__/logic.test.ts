@@ -55,14 +55,14 @@ describe('applyDefaults', () => {
 })
 
 describe('compileCondition', () => {
-    it('compiles is to ==', () => {
+    it('compiles is to hasValue', () => {
         expect(compileCondition({ field: 'kind', op: 'is', value: 'bug' })).toEqual({
-            '==': [{ var: 'kind' }, 'bug'],
+            hasValue: [{ var: 'kind' }, 'bug'],
         })
     })
-    it('compiles is_any_of to in', () => {
+    it('compiles is_any_of to anyOf', () => {
         expect(compileCondition({ field: 'kind', op: 'is_any_of', value: ['a', 'b'] })).toEqual({
-            in: [{ var: 'kind' }, ['a', 'b']],
+            anyOf: [{ var: 'kind' }, ['a', 'b']],
         })
     })
     it('guards lt against an empty value', () => {

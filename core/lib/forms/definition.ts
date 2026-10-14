@@ -231,6 +231,26 @@ export const definitionSchema = z
                         message: `${c.op} is not valid for a ${kind} field`,
                     })
                 }
+                const valuePath = ['rules', ri, 'when', ci, 'value']
+                if ((c.op === 'contains' || c.op === 'starts_with') && typeof c.value !== 'string')
+                    ctx.addIssue({
+                        code: 'custom',
+                        path: valuePath,
+                        message: `${c.op} needs a text value`,
+                    })
+                if (
+                    c.op === 'is_any_of' &&
+                    !(
+                        Array.isArray(c.value) &&
+                        c.value.length > 0 &&
+                        c.value.every(x => typeof x === 'string')
+                    )
+                )
+                    ctx.addIssue({
+                        code: 'custom',
+                        path: valuePath,
+                        message: 'is_any_of needs a list',
+                    })
             })
             r.actions.forEach((a, ai) => {
                 if ('field' in a && a.field)
