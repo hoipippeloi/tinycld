@@ -1,7 +1,8 @@
-// tinycld/core/server/forms/hooks_host_test.go
 package forms
 
 import (
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -17,6 +18,12 @@ const bugDef = `{"version":1,"pages":[{"key":"main","title":"Bug"},{"key":"repro
 {"key":"comments","kind":"builtin","page":"main","label":"Comments","width":"full","required":false,"hidden":false},
 {"key":"severity","kind":"select","page":"main","label":"Severity","width":"third","required":false,"hidden":false,"display":"dropdown","multiple":false,"options":[{"value":"low","label":"Low"},{"value":"high","label":"High"}]},
 {"key":"steps","kind":"textarea","page":"repro","label":"Steps","width":"full","required":false,"hidden":false},
+{"key":"nick","kind":"text","page":"main","label":"Nick","width":"full","required":false,"hidden":false,"maxLength":5},
+{"key":"tags","kind":"select","page":"main","label":"Tags","width":"full","required":false,"hidden":false,"display":"dropdown","multiple":true,"options":[{"value":"a","label":"A"}]},
+{"key":"assignee","kind":"user","page":"main","label":"Assignee","width":"full","required":false,"hidden":false},
+{"key":"flag","kind":"toggle","page":"main","label":"Flag","width":"full","required":false,"hidden":false},
+{"key":"todo","kind":"checklist","page":"main","label":"Todo","width":"full","required":false,"hidden":false},
+{"key":"body","kind":"markdown","page":"main","label":"Body","width":"full","required":false,"hidden":false,"collaborative":true,"maxLength":5},
 {"key":"count","kind":"number","page":"main","label":"Count","width":"full","required":false,"hidden":false,"min":0,"max":10}
 ],"rules":[{"key":"r","match":"all","when":[{"field":"severity","op":"is","value":"high"}],"actions":[{"action":"require","field":"steps"}]}],
 "defaults":{},"submit":{"required":[]}}`
@@ -61,7 +68,7 @@ func TestHostHook_RejectsAFormOfAnotherHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := e.widget(t, other.Id, "")
-	if err == nil || !strings.Contains(err.Error(), "form") {
+	if err == nil || !strings.Contains(err.Error(), "validation_unknown_form") && !strings.Contains(err.Error(), "form:") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -131,11 +138,79 @@ func TestHostHook_KeepsValuesOfAnotherFormAfterTypeChange(t *testing.T) {
 	}
 }
 
-func TestHostHook_SkipsCollaborativeAndRows(t *testing.T) {
+func TestHostHook_RejectsBuiltinKeysInJSON(t *testing.T) {
 	e := newTestEnv(t)
 	e.newForm(t, "widget", widgetDefault, true)
 	bug := e.newForm(t, "bug", bugDef, false)
-	if _, err := e.widget(t, bug.Id, `{"tasks":"anything","notes":"anything"}`); err == nil || !strings.Contains(err.Error(), "tasks") {
-		t.Fatalf("a rows builtin never travels in the json column, got %v", err)
+	for _, key := range []string{"tasks", "notes"} {
+		if _, err := e.widget(t, bug.Id, `{"`+key+`":"anything"}`); err == nil || !strings.Contains(err.Error(), key) {
+			t.Fatalf("builtin %s never travels in the json column, got %v", key, err)
+		}
+	}
+}
+
+func TestDefaultFormIDFrom(t *testing.T) {
+	if id, err := defaultFormIDFrom(nil, sql.ErrNoRows); id != "" || err != nil {
+		t.Fatalf("no rows must mean no default, got %q %v", id, err)
+	}
+	if _, err := defaultFormIDFrom(nil, errors.New("boom")); err == nil {
+		t.Fatal("a database error must propagate")
+	}
+}
+
+func TestHostHook_RejectsEmptyFormWhenNoDefaultButFormsExist(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "a", widgetDefault, false)
+	_, err := e.widget(t, "", "")
+	if err == nil || !strings.Contains(err.Error(), "form") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestHostHook_ChecksKindOfCollaborativeCustomField(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	if _, err := e.widget(t, bug.Id, `{"body":3}`); err == nil || !strings.Contains(err.Error(), "body") {
+		t.Fatalf("number in a text field, got %v", err)
+	}
+	if _, err := e.widget(t, bug.Id, `{"body":"ok"}`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHostHook_RuleMadeRequiredByAnUpdateIsEnforced(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"severity":"low"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Set("fields", []byte(`{"severity":"low","count":1}`))
+	if err := e.app.Save(w); err != nil {
+		t.Fatalf("unrelated update must pass, got %v", err)
+	}
+	w.Set("fields", []byte(`{"severity":"high"}`))
+	if err := e.app.Save(w); err == nil || !strings.Contains(err.Error(), "steps") {
+		t.Fatalf("becoming required must be enforced, got %v", err)
+	}
+}
+
+func TestHostHook_CheckKindBranches(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	cases := map[string]string{
+		"tags":     `{"tags":"a"}`,
+		"assignee": `{"assignee":5}`,
+		"flag":     `{"flag":"yes"}`,
+		"todo":     `{"todo":[{"title":"x"}]}`,
+		"nick":     `{"nick":"toolong"}`,
+	}
+	for key, fields := range cases {
+		if _, err := e.widget(t, bug.Id, fields); err == nil || !strings.Contains(err.Error(), key) {
+			t.Fatalf("%s: got %v", key, err)
+		}
 	}
 }
