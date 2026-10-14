@@ -62,6 +62,11 @@ export function addDays(isoDate: string, days: number): string {
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+/** JSON Logic stringifies null to "null" and coerces it to 0, so an empty field would match "nu" or "< 5". Guard so TS and Go agree. */
+function guarded(v: unknown, op: unknown): JsonLogicRule {
+    return { and: [{ '!': { isEmpty: [v] } }, op] } as unknown as JsonLogicRule
+}
+
 export function compileCondition(c: RuleCondition): JsonLogicRule {
     const v = { var: c.field }
     switch (c.op) {
@@ -72,11 +77,11 @@ export function compileCondition(c: RuleCondition): JsonLogicRule {
         case 'is_not':
             return { '!=': [v, c.value] } as JsonLogicRule
         case 'contains':
-            return { in: [c.value, v] } as JsonLogicRule
+            return guarded(v, { in: [c.value, v] })
         case 'starts_with':
-            return {
+            return guarded(v, {
                 '==': [{ substr: [v, 0, String(c.value ?? '').length] }, c.value],
-            } as JsonLogicRule
+            })
         case 'is_any_of':
             return { in: [v, c.value] } as JsonLogicRule
         case 'is_empty':
@@ -84,16 +89,16 @@ export function compileCondition(c: RuleCondition): JsonLogicRule {
         case 'not_empty':
             return { '!': { isEmpty: [v] } } as unknown as JsonLogicRule
         case 'gt':
-            return { '>': [v, c.value] } as JsonLogicRule
+            return guarded(v, { '>': [v, c.value] })
         case 'lt':
         case 'before':
-            return { '<': [v, c.value] } as JsonLogicRule
+            return guarded(v, { '<': [v, c.value] })
         case 'gte':
-            return { '>=': [v, c.value] } as JsonLogicRule
+            return guarded(v, { '>=': [v, c.value] })
         case 'lte':
-            return { '<=': [v, c.value] } as JsonLogicRule
+            return guarded(v, { '<=': [v, c.value] })
         case 'after':
-            return { '>': [v, c.value] } as JsonLogicRule
+            return guarded(v, { '>': [v, c.value] })
         case 'is_true':
             return { '==': [v, true] } as JsonLogicRule
         case 'is_false':

@@ -65,6 +65,11 @@ describe('compileCondition', () => {
             in: [{ var: 'kind' }, ['a', 'b']],
         })
     })
+    it('guards lt against an empty value', () => {
+        expect(compileCondition({ field: 'n', op: 'lt', value: 5 })).toEqual({
+            and: [{ '!': { isEmpty: [{ var: 'n' }] } }, { '<': [{ var: 'n' }, 5] }],
+        })
+    })
     it('compiles is_empty with the custom op', () => {
         expect(compileCondition({ field: 'kind', op: 'is_empty' })).toEqual({
             isEmpty: [{ var: 'kind' }],

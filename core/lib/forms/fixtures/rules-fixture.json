@@ -133,6 +133,18 @@
                 "match": "all",
                 "when": [{ "field": "when", "op": "before", "value": "2026-01-31" }],
                 "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "nu_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "starts_with", "value": "nu" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "low_sev_hides_note",
+                "match": "all",
+                "when": [{ "field": "severity", "op": "lt", "value": 5 }],
+                "actions": [{ "action": "hide", "field": "note" }]
             }
         ],
         "defaults": {
@@ -212,6 +224,22 @@
             "expect": {
                 "fields": { "kind": { "visible": true, "required": true } },
                 "activeRules": []
+            }
+        },
+        {
+            "name": "starts_with on an empty field is false",
+            "values": { "kind": "bug", "note": null },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "lt on an empty number is false",
+            "values": { "kind": "bug" },
+            "expect": {
+                "fields": { "note": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
             }
         }
     ],

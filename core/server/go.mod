@@ -19,6 +19,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/coder/websocket v1.8.14
+	github.com/diegoholiveira/jsonlogic/v3 v3.10.1
 	github.com/disintegration/imaging v1.6.2
 	github.com/emersion/go-ical v0.0.0-20250609112844-439c63cef608
 	github.com/emersion/go-imap/v2 v2.0.0-beta.8
