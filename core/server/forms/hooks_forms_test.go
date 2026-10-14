@@ -229,3 +229,21 @@ func TestFormsHook_RejectsBadIsAnyOfValue(t *testing.T) {
 		}
 	}
 }
+
+func TestFormsHook_SettlingSiblingFiresUpdateHook(t *testing.T) {
+	e := newTestEnv(t)
+	calls := 0
+	e.app.OnRecordUpdate("forms").BindFunc(func(ev *core.RecordEvent) error {
+		calls++
+		return ev.Next()
+	})
+	a := e.newForm(t, "a", widgetDefault, true)
+	e.newForm(t, "b", widgetDefault, true)
+	if calls < 1 {
+		t.Fatalf("sibling clear must fire the update hook, calls=%d", calls)
+	}
+	a, _ = e.app.FindRecordById("forms", a.Id)
+	if a.GetBool("is_default") {
+		t.Fatal("a must no longer be default")
+	}
+}

@@ -1,12 +1,20 @@
 package forms
 
 import (
+	"context"
+
 	"github.com/pocketbase/dbx"
 	validation "github.com/pocketbase/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/core"
 )
 
 const formsCollection = "forms"
+
+type ctxKey struct{}
+
+// settlingKey marks a save that clears a sibling's default flag, so the
+// update hook does not refuse it as "unsetting the only default".
+var settlingKey = ctxKey{}
 
 func fieldErr(field, code, msg string) validation.Errors {
 	return validation.Errors{field: validation.NewError(code, msg)}
@@ -44,7 +52,8 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		if err != nil {
 			return err
 		}
-		if orig.GetBool("is_default") && !e.Record.GetBool("is_default") {
+		settling := e.Context != nil && e.Context.Value(settlingKey) == true
+		if !settling && orig.GetBool("is_default") && !e.Record.GetBool("is_default") {
 			return fieldErr("is_default", "validation_default_required", "Set another form as the default first.")
 		}
 		if err := e.Next(); err != nil {
@@ -70,9 +79,8 @@ func bindFormsHooks(app core.App, defs *Defs) {
 }
 
 // settleDefault keeps exactly one default per host: a form saved as default
-// clears the flag on its siblings. It writes through the DB rather than
-// SaveNoValidate, which still fires the update hook and would trip the
-// "set another form as the default first" guard.
+// clears the flag on its siblings. The save goes through the normal hook path
+// so realtime and audit see it; settlingKey lets it past the guard.
 func settleDefault(app core.App, saved *core.Record) error {
 	if !saved.GetBool("is_default") {
 		return nil
@@ -83,7 +91,8 @@ func settleDefault(app core.App, saved *core.Record) error {
 		return err
 	}
 	for _, o := range others {
-		if _, err := app.DB().Update(formsCollection, dbx.Params{"is_default": false}, dbx.HashExp{"id": o.Id}).Execute(); err != nil {
+		o.Set("is_default", false)
+		if err := app.SaveWithContext(context.WithValue(context.Background(), settlingKey, true), o); err != nil {
 			return err
 		}
 	}
