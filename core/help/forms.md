@@ -48,3 +48,17 @@ again if the record returns to the old type or the new type gains that field.
 
 Admins manage forms under Settings. See [Automation rules](help://core:rules)
 for rules that run when records change, which are a different thing.
+
+## Managing forms
+
+An owner or admin opens **Settings → Forms**. With one record type the list opens directly; otherwise pick the record type first. The list shows every form of that type. Drag the handle to reorder the type selector, and use the menu on a row to rename, duplicate, make default, archive or delete a form. The default form cannot be deleted or archived; a form that records still use cannot be deleted, archive it instead.
+
+## Editing a form
+
+The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page. **Add field** at the end of a page adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+
+A field's key is set when it is created and never changes, so renaming a field keeps its stored values. Deleting a custom field keeps the stored values hidden and removes any rule, default or requirement that named it; the editor says what it removed.
+
+The **Rules** tab lists the form's rules. Each rule has conditions ("when all of" or "when any of") and actions. Pick a field, an operator and a value; then pick an action and its target. **Set options** is offered only for choice lists.
+
+**Preview** opens the draft as users will see it, with rules live. **Save** writes the form; the server checks it again and points at any field it refuses. Save before leaving the editor: the Back arrow asks when there are unsaved changes, but the browser's own navigation does not.
