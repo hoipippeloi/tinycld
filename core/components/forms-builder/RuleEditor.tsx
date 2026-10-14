@@ -1,6 +1,7 @@
 import { MatchPillPair } from '@tinycld/core/components/rules/MatchPillPair'
 import { RuleCard } from '@tinycld/core/components/rules/RuleCard'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
+import type { ReactNode } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { ActionEditor } from './ActionEditor'
@@ -13,6 +14,8 @@ type Editor = ReturnType<typeof useEditorForm>
 export interface RuleEditorProps {
     editor: Editor
     index: number
+    /** The affected-fields pane is beside the rules, so a rule can be chosen for it. */
+    isSelectable: boolean
     isSelected: boolean
     onSelect: () => void
     onRemove: () => void
@@ -31,6 +34,43 @@ function AddButton({
         <Button variant="ghost" size="sm" onPress={onPress} className="self-start" testID={testID}>
             <ButtonText>{label}</ButtonText>
         </Button>
+    )
+}
+
+interface ShellProps {
+    isSelectable: boolean
+    isSelected: boolean
+    onSelect: () => void
+    testID: string
+    children: ReactNode
+}
+
+/**
+ * Where the pane shows, a press anywhere in the card picks the rule, a press
+ * on a control inside it included (pointerdown and focus reach the shell
+ * before the control handles the press). The shell is not an accessible
+ * element itself: its controls are.
+ */
+function RuleShell({ isSelectable, isSelected, onSelect, testID, children }: ShellProps) {
+    if (!isSelectable)
+        return (
+            <View className="mb-3" testID={testID}>
+                {children}
+            </View>
+        )
+    // The same border tokens as a selected canvas cell; always present so selecting never shifts layout.
+    const border = isSelected ? 'border-primary' : 'border-transparent'
+    return (
+        <Pressable
+            onPress={onSelect}
+            onPointerDown={onSelect}
+            onFocus={onSelect}
+            accessible={false}
+            className={`rounded-xl border-2 mb-3 ${border}`}
+            testID={testID}
+        >
+            {children}
+        </Pressable>
     )
 }
 
@@ -58,7 +98,14 @@ function useRuleEditor(editor: Editor, index: number) {
     return { match, setMatch, when, actions, addCondition, addAction }
 }
 
-export function RuleEditor({ editor, index, isSelected, onSelect, onRemove }: RuleEditorProps) {
+export function RuleEditor({
+    editor,
+    index,
+    isSelectable,
+    isSelected,
+    onSelect,
+    onRemove,
+}: RuleEditorProps) {
     const rule = useRuleEditor(editor, index)
     const conditions = rule.when.fields.map((row, i) => (
         <ConditionEditor
@@ -85,12 +132,11 @@ export function RuleEditor({ editor, index, isSelected, onSelect, onRemove }: Ru
             testID={`form-rule-remove-${index}`}
         />
     )
-    // The same border tokens as a selected canvas cell; always present so selecting never shifts layout.
-    const border = isSelected ? 'border-primary' : 'border-transparent'
     return (
-        <Pressable
-            onPress={onSelect}
-            className={`rounded-xl border-2 mb-3 ${border}`}
+        <RuleShell
+            isSelectable={isSelectable}
+            isSelected={isSelected}
+            onSelect={onSelect}
             testID={`form-rule-${index}`}
         >
             <RuleCard title={`Rule ${index + 1}`} trailing={remove}>
@@ -113,6 +159,6 @@ export function RuleEditor({ editor, index, isSelected, onSelect, onRemove }: Ru
                     testID={`form-action-add-${index}`}
                 />
             </RuleCard>
-        </Pressable>
+        </RuleShell>
     )
 }

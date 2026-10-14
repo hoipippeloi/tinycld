@@ -1,5 +1,6 @@
 import type { DraftDefinition } from '@tinycld/core/lib/forms/builder'
 import type { SelectOption } from '@tinycld/core/lib/forms/definition'
+import { type FormHostDef, findBuiltin } from '@tinycld/core/lib/forms/host'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Menu } from '@tinycld/core/ui/menu'
 import { ChevronDown, X } from 'lucide-react-native'
@@ -16,6 +17,14 @@ export const RULE_INPUT_CLASS =
 export function optionsOf(draft: DraftDefinition, key: string): SelectOption[] {
     const field = draft.fields.find(f => f.key === key)
     return field && 'options' in field ? field.options : []
+}
+
+/** Whether the field holds a list of values (a multiple select or user field). */
+export function isMultipleField(draft: DraftDefinition, host: FormHostDef, key: string): boolean {
+    const field = draft.fields.find(f => f.key === key)
+    if (!field) return false
+    if (field.kind === 'builtin') return findBuiltin(host, key)?.multiple === true
+    return 'multiple' in field && field.multiple === true
 }
 
 export interface PickItem {

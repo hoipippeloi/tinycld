@@ -3,16 +3,20 @@ import { act, cleanup, fireEvent, render as renderBare } from '@testing-library/
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { newCustomField } from '../../../lib/forms/builder'
+import { type DraftDefinition, newCustomField } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { OverlayProvider } from '../../../ui/overlay'
-import { RulesTab } from '../RulesTab'
+import { RulesTab, selectionAfterRemoval } from '../RulesTab'
+import type { DraftRule } from '../rule-parts'
 import { useEditorForm } from '../use-editor-form'
 
 // The rule menus render through the overlay host.
 const render = (ui: ReactElement) => renderBare(<OverlayProvider>{ui}</OverlayProvider>)
 
-afterEach(cleanup)
+afterEach(() => {
+    cleanup()
+    screen.breakpoint = 'desktop'
+})
 const base = defaultDefinitionFor(widgetHost)
 const def = {
     ...base,
@@ -49,8 +53,9 @@ vi.mock('../../../lib/forms/use-forms-of-host', () => ({
     useFormsOfHost: () => ({ forms: [plain], defaultForm: plain, isReady: true }),
 }))
 vi.mock('../../../lib/forms/use-form-hosts', () => ({ useFormHost: () => host }))
+const screen = vi.hoisted(() => ({ breakpoint: 'desktop' }))
 vi.mock('@tinycld/core/components/workspace/useBreakpoint', () => ({
-    useBreakpoint: () => 'desktop',
+    useBreakpoint: () => screen.breakpoint,
 }))
 // RN stub hosts carry `testID`; Menu rows are DOM elements with `data-testid`
 // under the overlay host, outside the render container.
@@ -239,5 +244,142 @@ describe('RulesTab', () => {
             options: [{ value: 'option_1', label: 'Option 1' }],
         })
         expect(q(container, 'form-action-option-remove-0-0-1')).toBeNull()
+    })
+})
+
+type DraftRules = NonNullable<DraftDefinition['rules']>
+
+const multiSelect = {
+    ...newCustomField('select', 'Tags', 'main', new Set()),
+    multiple: true,
+    options: [
+        { value: 'a', label: 'A' },
+        { value: 'b', label: 'B' },
+    ],
+}
+const multiUser = { ...newCustomField('user', 'Watchers', 'main', new Set()), multiple: true }
+
+function seed(rules: DraftRules, extraFields: DraftDefinition['fields'] = []) {
+    act(() => editorRef?.apply(d => ({ ...d, fields: [...d.fields, ...extraFields], rules })))
+}
+const press = (id: string) => {
+    const el = q(document.body, id) as HTMLElement
+    fireEvent.pointerDown(el)
+    fireEvent.click(el)
+}
+const emptyRule = (key: string): DraftRule => ({ key, match: 'all', when: [], actions: [] })
+
+describe('RulesTab offers only what can be authored', () => {
+    it('leaves is_any_of out of a user field operator menu', () => {
+        render(<Harness />)
+        seed([{ ...emptyRule('r1'), when: [{ field: 'owner', op: 'is' }] }])
+        press('form-cond-op-0-0')
+        expect(q(document.body, 'form-cond-op-0-0-is')).toBeTruthy()
+        expect(q(document.body, 'form-cond-op-0-0-is_any_of')).toBeNull()
+    })
+    it('writes a list for set_value on a multiple select', () => {
+        render(<Harness />)
+        seed(
+            [
+                {
+                    ...emptyRule('r1'),
+                    actions: [{ action: 'set_value', field: 'tags', value: null }],
+                },
+            ],
+            [multiSelect]
+        )
+        press('form-action-value-0-0-a')
+        press('form-action-value-0-0-b')
+        expect(editorRef?.form.getValues('rules.0.actions.0')).toEqual({
+            action: 'set_value',
+            field: 'tags',
+            value: ['a', 'b'],
+        })
+    })
+    it('does not offer set_value for a multiple user target', () => {
+        render(<Harness />)
+        seed(
+            [{ ...emptyRule('r1'), actions: [{ action: 'show', field: 'watchers' }] }],
+            [multiUser]
+        )
+        press('form-action-kind-0-0')
+        expect(q(document.body, 'form-action-kind-0-0-require')).toBeTruthy()
+        expect(q(document.body, 'form-action-kind-0-0-set_value')).toBeNull()
+    })
+})
+
+describe('RulesTab keeps authored work', () => {
+    it('keeps set_options rows when the current target is picked again', () => {
+        render(<Harness />)
+        const options = [
+            { value: 'a', label: 'A' },
+            { value: 'b', label: 'B' },
+        ]
+        seed([
+            {
+                ...emptyRule('r1'),
+                actions: [{ action: 'set_options', field: 'severity', options }],
+            },
+        ])
+        press('form-action-target-0-0')
+        press('form-action-target-0-0-severity')
+        expect(editorRef?.form.getValues('rules.0.actions.0')).toEqual({
+            action: 'set_options',
+            field: 'severity',
+            options,
+        })
+        expect(q(document.body, 'form-action-option-remove-0-0-1')).toBeTruthy()
+    })
+    it('keeps the operator and value when the current field is picked again', () => {
+        render(<Harness />)
+        seed([
+            { ...emptyRule('r1'), when: [{ field: 'severity', op: 'is_not', value: 'option_1' }] },
+        ])
+        press('form-cond-field-0-0')
+        press('form-cond-field-0-0-severity')
+        expect(editorRef?.form.getValues('rules.0.when.0')).toEqual({
+            field: 'severity',
+            op: 'is_not',
+            value: 'option_1',
+        })
+    })
+})
+
+describe('RulesTab selection', () => {
+    const isSelected = (i: number) =>
+        (q(document.body, `form-rule-${i}`)?.getAttribute('class') ?? '').includes('border-primary')
+
+    it('is a plain view, not a pressable, where the affected pane does not show', () => {
+        screen.breakpoint = 'mobile'
+        render(<Harness />)
+        seed([emptyRule('r1')])
+        expect(q(document.body, 'form-rule-0')?.tagName.toLowerCase()).toBe('rn-view')
+        expect(q(document.body, 'form-rule-affected')).toBeNull()
+    })
+    it('selects a rule when a control inside it is pressed', () => {
+        render(<Harness />)
+        seed([emptyRule('r1'), emptyRule('r2')])
+        expect(q(document.body, 'form-rule-0')?.tagName.toLowerCase()).toBe('rn-pressable')
+        expect(isSelected(0)).toBe(true)
+        fireEvent.pointerDown(q(document.body, 'form-cond-add-1') as HTMLElement)
+        expect(isSelected(1)).toBe(true)
+        expect(isSelected(0)).toBe(false)
+    })
+    it('clears the selection and the pane when the selected rule is removed', () => {
+        render(<Harness />)
+        seed([emptyRule('r1'), emptyRule('r2'), emptyRule('r3')])
+        press('form-cond-add-2')
+        expect(isSelected(2)).toBe(true)
+        press('form-rule-remove-2')
+        expect(editorRef?.form.getValues('rules')).toHaveLength(2)
+        expect(isSelected(0) || isSelected(1)).toBe(false)
+        expect(q(document.body, 'form-rule-affected')).toBeNull()
+    })
+    // Pressing a rule's remove button selects that rule first, so the shift is reached through focus or a keyboard; checked directly.
+    it('moves the selection back when an earlier rule is removed', () => {
+        expect(selectionAfterRemoval(2, 0)).toBe(1)
+        expect(selectionAfterRemoval(1, 1)).toBeNull()
+        expect(selectionAfterRemoval(0, 2)).toBe(0)
+        expect(selectionAfterRemoval(null, 0)).toBeNull()
     })
 })

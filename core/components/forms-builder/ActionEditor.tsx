@@ -20,6 +20,7 @@ import {
     type Choice,
     ChoiceChips,
     type DraftAction,
+    isMultipleField,
     optionsOf,
     PickMenu,
     RemoveButton,
@@ -46,6 +47,18 @@ function targetOf(action: DraftAction): Target {
 function targetKindOf(draft: DraftDefinition, host: FormHostDef, target: Target): string {
     if ('page' in target) return 'page'
     return kindOf(draft, host, target.field) ?? 'text'
+}
+
+/**
+ * The verbs the builder can author for a target. A multiple user field holds
+ * a list of users, and the only user value it offers is the current user.
+ */
+function allowedActions(draft: DraftDefinition, host: FormHostDef, target: Target): ActionKind[] {
+    const kind = targetKindOf(draft, host, target)
+    const verbs = actionsFor(kind)
+    if (kind !== 'user' || !('field' in target)) return verbs
+    if (!isMultipleField(draft, host, target.field)) return verbs
+    return verbs.filter(verb => verb !== 'set_value')
 }
 
 /**
@@ -194,20 +207,50 @@ function toggleSelected(value: SetValue): string[] {
 
 const TEXT_KINDS = new Set(['text', 'textarea', 'markdown', 'richtext'])
 
-interface SetValueInputProps extends ValueInputProps {
-    kind: string
+interface SelectValueProps extends ValueInputProps {
     choices: Choice[]
+    isMultiple: boolean
 }
 
-/** The value set_value writes, entered the way its target's kind holds it. */
-function SetValueInput({ kind, choices, value, onChange, testID }: SetValueInputProps) {
-    const placeholder = useThemeColor('field-placeholder')
-    if (kind === 'select')
+/** One option, or for a multiple select a list of them. */
+function SelectValue({ choices, isMultiple, value, onChange, testID }: SelectValueProps) {
+    if (!isMultiple)
         return (
             <ChoiceChips
                 choices={choices}
                 selected={typeof value === 'string' ? [value] : []}
                 onToggle={onChange}
+                testID={testID}
+            />
+        )
+    const list = Array.isArray(value) ? value : []
+    const toggle = (id: string) =>
+        onChange(list.includes(id) ? list.filter(v => v !== id) : [...list, id])
+    return (
+        <ChoiceChips
+            choices={choices}
+            selected={list}
+            onToggle={toggle}
+            isMultiple
+            testID={testID}
+        />
+    )
+}
+
+interface SetValueInputProps extends SelectValueProps {
+    kind: string
+}
+
+/** The value set_value writes, entered the way its target's kind holds it. */
+function SetValueInput({ kind, choices, isMultiple, value, onChange, testID }: SetValueInputProps) {
+    const placeholder = useThemeColor('field-placeholder')
+    if (kind === 'select')
+        return (
+            <SelectValue
+                choices={choices}
+                isMultiple={isMultiple}
+                value={value}
+                onChange={onChange}
                 testID={testID}
             />
         )
@@ -334,10 +377,18 @@ interface ActionValueProps extends OptionsProps {
     action: DraftAction
     kind: string
     choices: Choice[]
+    isMultiple: boolean
     onChange: (action: DraftAction) => void
 }
 
-function ActionValue({ action, kind, choices, onChange, ...options }: ActionValueProps) {
+function ActionValue({
+    action,
+    kind,
+    choices,
+    isMultiple,
+    onChange,
+    ...options
+}: ActionValueProps) {
     // Keyed by target: a retarget replaces the options outside this field array.
     if (action.action === 'set_options') return <SetOptionsEditor key={action.field} {...options} />
     if (action.action !== 'set_value') return null
@@ -347,6 +398,7 @@ function ActionValue({ action, kind, choices, onChange, ...options }: ActionValu
             key={action.field}
             kind={kind}
             choices={choices}
+            isMultiple={isMultiple}
             value={action.value}
             onChange={value => onChange({ ...action, value })}
             testID={`form-action-value-${options.ruleIndex}-${options.index}`}
@@ -365,7 +417,7 @@ function useAction(editor: Editor, ruleIndex: number, index: number) {
     const write = (next: DraftAction) => editor.form.setValue(name, next, { shouldDirty: true })
     // A new target may not allow the current verb; it falls back to the first one it does.
     const retarget = (next: Target) => {
-        const allowed = actionsFor(targetKindOf(draft, host, next))
+        const allowed = allowedActions(draft, host, next)
         const verb = allowed.includes(action.action) ? action.action : allowed[0]
         write(buildAction(verb, next, draft))
     }
@@ -385,9 +437,12 @@ function useAction(editor: Editor, ruleIndex: number, index: number) {
         id: t.id,
         label: t.label,
         isSelected: isTarget(t.target),
-        onSelect: () => retarget(t.target),
+        // Re-picking the current target keeps what the action already holds.
+        onSelect: () => {
+            if (!isTarget(t.target)) retarget(t.target)
+        },
     }))
-    const verbItems = actionsFor(kind).map(verb => ({
+    const verbItems = allowedActions(draft, host, target).map(verb => ({
         id: verb,
         label: ACTION_LABELS[verb],
         isSelected: verb === action.action,
@@ -400,7 +455,8 @@ function useAction(editor: Editor, ruleIndex: number, index: number) {
         'field' in target
             ? optionsOf(draft, target.field).map(o => ({ id: o.value, label: o.label }))
             : []
-    return { action, kind, write, targetItems, verbItems, targetLabel, choices }
+    const isMultiple = 'field' in target && isMultipleField(draft, host, target.field)
+    return { action, kind, write, targetItems, verbItems, targetLabel, choices, isMultiple }
 }
 
 export function ActionEditor({ editor, ruleIndex, index, onRemove }: ActionEditorProps) {
@@ -425,6 +481,7 @@ export function ActionEditor({ editor, ruleIndex, index, onRemove }: ActionEdito
                 action={a.action}
                 kind={a.kind}
                 choices={a.choices}
+                isMultiple={a.isMultiple}
                 onChange={a.write}
                 control={editor.form.control}
                 ruleIndex={ruleIndex}

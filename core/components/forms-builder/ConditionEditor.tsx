@@ -37,8 +37,17 @@ export function conditionFields(draft: DraftDefinition, host: FormHostDef) {
     return draft.fields.filter(f => kindOf(draft, host, f.key) !== 'section')
 }
 
+/**
+ * The operators the builder can author for a kind. A user field has no
+ * options to pick a list from, so `is_any_of` on it could never be saved.
+ */
+export function builderOperators(kind: string) {
+    const ops = operatorsFor(kind)
+    return kind === 'user' ? ops.filter(op => op !== 'is_any_of') : ops
+}
+
 export function firstOperator(draft: DraftDefinition, host: FormHostDef, key: string) {
-    return operatorsFor(kindOf(draft, host, key) ?? 'text')[0]
+    return builderOperators(kindOf(draft, host, key) ?? 'text')[0]
 }
 
 interface ValueProps {
@@ -100,11 +109,13 @@ function useCondition(editor: Editor, ruleIndex: number, index: number) {
         id: f.key,
         label: f.label,
         isSelected: f.key === condition.field,
-        // A new field reads a new kind: its operators and value start over.
-        onSelect: () =>
-            set({ field: f.key, op: firstOperator(draft, host, f.key), value: undefined }),
+        // A new field reads a new kind: its operators and value start over. The same field changes nothing.
+        onSelect: () => {
+            if (f.key === condition.field) return
+            set({ field: f.key, op: firstOperator(draft, host, f.key), value: undefined })
+        },
     }))
-    const opItems = operatorsFor(kindOf(draft, host, condition.field) ?? 'text').map(op => ({
+    const opItems = builderOperators(kindOf(draft, host, condition.field) ?? 'text').map(op => ({
         id: op,
         label: OPERATOR_LABELS[op],
         isSelected: op === condition.op,

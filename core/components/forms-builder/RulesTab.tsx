@@ -23,19 +23,27 @@ function EmptyHint({ isVisible }: { isVisible: boolean }) {
     )
 }
 
+/** Where the selection lands when the rule at `removed` goes: it follows its rule, or clears with it. */
+export function selectionAfterRemoval(selected: number | null, removed: number): number | null {
+    if (selected === null || selected === removed) return null
+    return selected > removed ? selected - 1 : selected
+}
+
 function useRulesTab(editor: Editor) {
     // Which rule the affected-fields pane shows: local UI state.
-    const [selected, setSelected] = useState(0)
+    const [selected, setSelected] = useState<number | null>(0)
     const breakpoint = useBreakpoint()
     const count = editor.rules.fields.length
-    const current = Math.min(selected, Math.max(count - 1, 0))
+    const current = selected !== null && selected < count ? selected : null
     const add = () => {
         editor.apply(addRule)
         setSelected(count)
     }
     const removeAt = (index: number) => {
         const key = editor.form.getValues(`rules.${index}.key`)
-        if (key) editor.apply(def => removeRule(def, key))
+        if (!key) return
+        editor.apply(def => removeRule(def, key))
+        setSelected(prev => selectionAfterRemoval(prev, index))
     }
     // The pane needs the room of a desktop window and a pointer to read it beside the rules.
     const hasPane = breakpoint === 'desktop' && Platform.OS === 'web' && count > 0
@@ -50,6 +58,7 @@ export function RulesTab({ editor, isVisible }: RulesTabProps) {
             key={row.id}
             editor={editor}
             index={index}
+            isSelectable={tab.hasPane}
             isSelected={tab.hasPane && index === tab.selected}
             onSelect={() => tab.select(index)}
             onRemove={() => tab.removeAt(index)}
@@ -70,7 +79,11 @@ export function RulesTab({ editor, isVisible }: RulesTabProps) {
                     <ButtonText>Add rule</ButtonText>
                 </Button>
             </View>
-            <AffectedFields editor={editor} ruleIndex={tab.selected} isVisible={tab.hasPane} />
+            <AffectedFields
+                editor={editor}
+                ruleIndex={tab.selected ?? 0}
+                isVisible={tab.hasPane && tab.selected !== null}
+            />
         </View>
     )
 }

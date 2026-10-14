@@ -47,20 +47,26 @@ export function badgesFor(rule: DraftRule, definition: FormDefinition): Record<s
     return Object.fromEntries(entries)
 }
 
-/** The form, read-only, with the selected rule's inputs and effects marked. */
-export function AffectedFields({ editor, ruleIndex, isVisible }: AffectedFieldsProps) {
+interface PaneProps {
+    editor: Editor
+    host: NonNullable<Editor['host']>
+    ruleIndex: number
+}
+
+function AffectedPane({ editor, host, ruleIndex }: PaneProps) {
     const { definition } = useCanvasDefinition(editor.form.control)
     const rule = useWatch({ control: editor.form.control, name: `rules.${ruleIndex}` })
     // FormRenderer's inputs need a form instance; in design mode its values never matter.
     const inert = useForm<FormValues>({ defaultValues: {} })
-    if (!isVisible || !editor.host || !definition || !rule) return null
+    if (!definition || !rule) return null
+    // A picture of the rule beside its editor: the controls it shows are not for use.
     return (
-        <View className="w-[360px]" pointerEvents="none" testID="form-rule-affected">
+        <View className="w-[360px]" pointerEvents="none" aria-hidden testID="form-rule-affected">
             <Text className="text-sm font-semibold text-foreground mb-2">
                 Fields this rule uses
             </Text>
             <FormRenderer
-                host={editor.host}
+                host={host}
                 ui={null}
                 definition={definition}
                 layout="design"
@@ -70,4 +76,10 @@ export function AffectedFields({ editor, ruleIndex, isVisible }: AffectedFieldsP
             />
         </View>
     )
+}
+
+/** The form, read-only, with the selected rule's inputs and effects marked. */
+export function AffectedFields({ editor, ruleIndex, isVisible }: AffectedFieldsProps) {
+    if (!isVisible || !editor.host) return null
+    return <AffectedPane editor={editor} host={editor.host} ruleIndex={ruleIndex} />
 }
