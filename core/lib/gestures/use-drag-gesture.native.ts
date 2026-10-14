@@ -95,7 +95,18 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
                     stateRef.current = null
                     setIsDragging(false)
                 },
-                onPanResponderTerminate: () => {
+                onPanResponderTerminate: (
+                    e: GestureResponderEvent,
+                    g: PanResponderGestureState
+                ) => {
+                    const s = stateRef.current
+                    if (s?.engaged && !s.gestureRefused)
+                        optsRef.current.onDragCancel?.({
+                            pointer: pointerLikeFromGesture(e),
+                            deltaX: g.dx,
+                            deltaY: g.dy,
+                            startRect: s.startRect,
+                        })
                     stateRef.current = null
                     setIsDragging(false)
                 },

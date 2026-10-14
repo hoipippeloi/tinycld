@@ -95,4 +95,33 @@ describe('FormRenderer design extensions', () => {
         expect(onCellLayout).toHaveBeenCalledWith('severity', { x: 1, y: 2, width: 3, height: 4 })
         expect(onPageLayout).toHaveBeenCalledWith('repro', { x: 5, y: 6, width: 7, height: 8 })
     })
+
+    it('registers a re-measure thunk per cell and page once, and unregisters on unmount', async () => {
+        const unregisterCell = vi.fn()
+        const unregisterPage = vi.fn()
+        const onCellMeasure = vi.fn<(key: string, m: () => Promise<unknown>) => () => void>(
+            () => unregisterCell
+        )
+        const onPageMeasure = vi.fn<(key: string, m: () => Promise<unknown>) => () => void>(
+            () => unregisterPage
+        )
+        const { container, rerender, unmount } = render(
+            <Design design={{ onCellMeasure, onPageMeasure }} />
+        )
+        const cellKeys = def.fields.map(f => f.key)
+        expect(onCellMeasure.mock.calls.map(([key]) => key)).toEqual(cellKeys)
+        expect(onPageMeasure.mock.calls.map(([key]) => key)).toEqual(def.pages.map(p => p.key))
+        rerender(<Design design={{ onCellMeasure, onPageMeasure, selectedKey: 'severity' }} />)
+        expect(onCellMeasure).toHaveBeenCalledTimes(cellKeys.length)
+
+        const node = q(container, 'form-field-severity') as Measurable
+        node.measureInWindow = cb => cb(9, 8, 7, 6)
+        const measure = onCellMeasure.mock.calls.find(([key]) => key === 'severity')?.[1]
+        await expect(measure?.()).resolves.toEqual({ x: 9, y: 8, width: 7, height: 6 })
+
+        unmount()
+        expect(unregisterCell).toHaveBeenCalledTimes(cellKeys.length)
+        expect(unregisterPage).toHaveBeenCalledTimes(def.pages.length)
+        await expect(measure?.()).resolves.toBeNull()
+    })
 })

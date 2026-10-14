@@ -1,4 +1,6 @@
 import { useDragGesture } from '@tinycld/core/lib/gestures/use-drag-gesture'
+import { log } from '@tinycld/core/lib/logger'
+import type { MeasureRect } from '@tinycld/core/ui/forms/use-measure-rect'
 import { useRef, useState } from 'react'
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
 
@@ -17,14 +19,17 @@ export interface PageOrder {
     page: string
     keys: string[]
 }
-type CellRect = Rect & { page: string }
+export interface Position {
+    page: string
+    index: number
+}
 
 const inside = (p: Point, r: Rect) =>
     p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height
 
 export function findSlot(
     pointer: Point,
-    cells: Map<string, CellRect>,
+    cells: Map<string, Rect>,
     pages: Map<string, Rect>
 ): Slot | null {
     for (const [key, rect] of cells) {
@@ -44,11 +49,7 @@ export function shiftRects<R extends Rect>(map: Map<string, R>, offset: Point): 
     return out
 }
 
-export function slotToPosition(
-    slot: Slot,
-    order: PageOrder[],
-    dragging: string
-): { page: string; index: number } {
+export function slotToPosition(slot: Slot, order: PageOrder[], dragging: string): Position {
     if ('end' in slot) {
         const keys = order.find(o => o.page === slot.page)?.keys.filter(k => k !== dragging) ?? []
         return { page: slot.page, index: keys.length }
@@ -61,43 +62,97 @@ export function slotToPosition(
     return { page: order[0]?.page ?? '', index: 0 }
 }
 
+/** Where a field sits now, in the same terms as `slotToPosition`. */
+export function positionOf(key: string, order: PageOrder[]): Position | null {
+    for (const o of order) {
+        const index = o.keys.indexOf(key)
+        if (index >= 0) return { page: o.page, index }
+    }
+    return null
+}
+
+export function orderOf(def: {
+    pages: { key: string }[]
+    fields: { key: string; page: string }[]
+}): PageOrder[] {
+    return def.pages.map(p => ({
+        page: p.key,
+        keys: def.fields.filter(f => f.page === p.key).map(f => f.key),
+    }))
+}
+
 function onlyKeys<R>(map: Map<string, R>, keys: Set<string>): Map<string, R> {
     return new Map([...map].filter(([key]) => keys.has(key)))
 }
 
 export interface UseCanvasDragOptions {
-    order: PageOrder[]
+    /** Read at drop time, so a drag always lands against the current draft. */
+    getOrder: () => PageOrder[]
     onMove: (key: string, page: string, index: number) => void
 }
 
 /**
- * Measured-slot drag: cells and pages report their window rects; the pointer
- * picks the slot under it. Rects are stored in scroll-independent coordinates
- * (the scroll offset at measurement is added back), so a canvas that scrolled
- * after layout still hit-tests against where the cells are now.
+ * Measured-slot drag: cells and pages report their window rects on layout
+ * and register a thunk that re-measures them. Layout misses an element that
+ * only moved, so a drag re-measures everything before it accepts a hover.
+ * Rects are stored in scroll-independent coordinates (the scroll offset at
+ * measurement is added back), so a canvas that scrolled after measuring still
+ * hit-tests against where the cells are now.
  */
-export function useCanvasDrag({ order, onMove }: UseCanvasDragOptions) {
-    const cells = useRef(new Map<string, CellRect>())
+export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
+    const cells = useRef(new Map<string, Rect>())
     const pages = useRef(new Map<string, Rect>())
+    const cellMeasures = useRef(new Map<string, MeasureRect>())
+    const pageMeasures = useRef(new Map<string, MeasureRect>())
     const scroll = useRef<Point>({ x: 0, y: 0 })
+    // Bumped when a drag starts or ends, so a measurement or drop from an
+    // earlier drag cannot touch the current one.
+    const session = useRef(0)
+    const measuring = useRef<Promise<void> | null>(null)
     // Drag position is transient UI state.
     const [draggingKey, setDraggingKey] = useState<string | null>(null)
     const [dropTarget, setDropTarget] = useState<Slot | null>(null)
 
-    const unscrolled = <R extends Rect>(rect: R): R => ({
+    const unscrolled = (rect: Rect): Rect => ({
         ...rect,
         x: rect.x + scroll.current.x,
         y: rect.y + scroll.current.y,
     })
-    const cellLayout = (key: string, page: string, rect: Rect) =>
-        cells.current.set(key, unscrolled({ ...rect, page }))
+    const cellLayout = (key: string, rect: Rect) => cells.current.set(key, unscrolled(rect))
     const pageLayout = (key: string, rect: Rect) => pages.current.set(key, unscrolled(rect))
+    const register =
+        (measures: Map<string, MeasureRect>, rects: Map<string, Rect>) =>
+        (key: string, measure: MeasureRect) => {
+            measures.set(key, measure)
+            return () => {
+                if (measures.get(key) !== measure) return
+                measures.delete(key)
+                rects.delete(key)
+            }
+        }
+    const registerCell = register(cellMeasures.current, cells.current)
+    const registerPage = register(pageMeasures.current, pages.current)
     const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
         scroll.current = { ...e.nativeEvent.contentOffset }
     }
 
-    // A removed cell or page keeps its last rect in the maps; hit-test only what still exists.
+    const remeasure = async () => {
+        const read = (measures: Map<string, MeasureRect>, rects: Map<string, Rect>) =>
+            Promise.all(
+                [...measures].map(async ([key, measure]) => {
+                    const rect = await measure()
+                    if (rect) rects.set(key, unscrolled(rect))
+                })
+            )
+        await Promise.all([
+            read(cellMeasures.current, cells.current),
+            read(pageMeasures.current, pages.current),
+        ])
+    }
+
+    // A removed cell or page may keep its last rect; hit-test only what still exists.
     const slotAt = (pointer: Point) => {
+        const order = getOrder()
         const keys = new Set(order.flatMap(o => o.keys))
         const pageKeys = new Set(order.map(o => o.page))
         const back = { x: -scroll.current.x, y: -scroll.current.y }
@@ -110,22 +165,61 @@ export function useCanvasDrag({ order, onMove }: UseCanvasDragOptions) {
 
     const moveTo = (key: string, slot: Slot) => {
         if ('key' in slot && slot.key === key) return
-        const { page, index } = slotToPosition(slot, order, key)
-        onMove(key, page, index)
+        const order = getOrder()
+        const target = slotToPosition(slot, order, key)
+        const current = positionOf(key, order)
+        if (current?.page === target.page && current.index === target.index) return
+        onMove(key, target.page, target.index)
     }
 
-    const begin = (key: string) => setDraggingKey(key)
-    const hover = (pointer: Point) => setDropTarget(slotAt(pointer))
-    const drop = (key: string, pointer: Point) => {
-        const slot = slotAt(pointer)
-        if (slot) moveTo(key, slot)
+    const end = () => {
+        session.current += 1
+        measuring.current = null
         setDraggingKey(null)
         setDropTarget(null)
+    }
+
+    const begin = (key: string) => {
+        session.current += 1
+        const id = session.current
+        setDraggingKey(key)
+        setDropTarget(null)
+        const pending = remeasure()
+            .catch(error => {
+                // The rects from the last layout stay in place; the drag still works, less precisely.
+                log.warn('forms.canvas', 're-measure on drag start failed', {
+                    error: String(error),
+                })
+            })
+            .finally(() => {
+                if (session.current === id) measuring.current = null
+            })
+        measuring.current = pending
+    }
+
+    const hover = (pointer: Point) => {
+        if (measuring.current) return
+        setDropTarget(slotAt(pointer))
+    }
+
+    const drop = (key: string, pointer: Point) => {
+        const id = session.current
+        const finish = () => {
+            if (session.current !== id) return
+            const slot = slotAt(pointer)
+            if (slot) moveTo(key, slot)
+            end()
+        }
+        const pending = measuring.current
+        if (pending) void pending.then(finish)
+        else finish()
     }
 
     return {
         cellLayout,
         pageLayout,
+        registerCell,
+        registerPage,
         onScroll,
         draggingKey,
         dropTarget,
@@ -133,6 +227,7 @@ export function useCanvasDrag({ order, onMove }: UseCanvasDragOptions) {
         begin,
         hover,
         drop,
+        cancel: end,
     }
 }
 
@@ -147,5 +242,6 @@ export function useDragHandle(drag: CanvasDrag, key: string) {
         },
         onDragMove: ctx => drag.hover(ctx.pointer),
         onDragEnd: ctx => drag.drop(key, ctx.pointer),
+        onDragCancel: () => drag.cancel(),
     })
 }

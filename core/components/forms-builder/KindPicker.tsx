@@ -42,18 +42,15 @@ export interface KindPickerProps {
 }
 
 function KindSection({ group, onPick }: { group: KindGroup; onPick: KindPickerProps['onPick'] }) {
-    return (
-        <Menu.Section label={group.label}>
-            {group.kinds.map(k => (
-                <Menu.Item
-                    key={k.kind}
-                    label={k.label}
-                    onSelect={() => onPick(k.kind)}
-                    testID={`form-kind-${k.kind}`}
-                />
-            ))}
-        </Menu.Section>
-    )
+    const items = group.kinds.map(k => (
+        <Menu.Item
+            key={k.kind}
+            label={k.label}
+            onSelect={() => onPick(k.kind)}
+            testID={`form-kind-${k.kind}`}
+        />
+    ))
+    return <Menu.Section label={group.label}>{items}</Menu.Section>
 }
 
 export function KindPicker({ onPick, testID = 'form-add-field' }: KindPickerProps) {
@@ -62,11 +59,10 @@ export function KindPicker({ onPick, testID = 'form-add-field' }: KindPickerProp
             <ButtonText>Add field</ButtonText>
         </Button>
     )
+    const sections = GROUPS.map(g => <KindSection key={g.label} group={g} onPick={onPick} />)
     return (
         <Menu presentation="auto" title="Add a field" trigger={trigger}>
-            {GROUPS.map(g => (
-                <KindSection key={g.label} group={g} onPick={onPick} />
-            ))}
+            {sections}
         </Menu>
     )
 }

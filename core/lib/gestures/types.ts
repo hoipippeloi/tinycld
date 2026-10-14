@@ -40,6 +40,11 @@ export interface UseDragGestureOptions {
     onDragStart?: (ctx: DragContext) => boolean | undefined
     onDragMove?: (ctx: DragContext) => void
     onDragEnd?: (ctx: DragContext) => void
+    // Fires instead of onDragEnd when the platform takes the gesture away
+    // after it engaged (web pointercancel, native responder termination).
+    // Absent, web still ends a cancelled drag through onDragEnd and native
+    // drops it silently, as before.
+    onDragCancel?: (ctx: DragContext) => void
     // Movement threshold in px before onDragStart fires. Defaults to 3
     // (matches the existing calc drag-select threshold).
     threshold?: number

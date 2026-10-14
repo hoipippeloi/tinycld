@@ -1,7 +1,7 @@
 import type { FieldWidth } from '@tinycld/core/lib/forms/definition'
 import type { ReactNode } from 'react'
 import { Text, View } from 'react-native'
-import { type LayoutRect, useMeasuredRect } from './use-measure-rect'
+import { type LayoutRect, type RegisterMeasure, useMeasuredRect } from './use-measure-rect'
 import { effectiveWidth, widthClass } from './widths'
 
 export interface FieldCellProps {
@@ -24,6 +24,8 @@ export interface FieldCellProps {
     /** Which edge shows the drop bar while a field is dragged over this cell. */
     dropIndicator?: 'before' | 'after'
     onLayoutRect?: (rect: LayoutRect) => void
+    /** Hands the builder a thunk that re-measures this cell on demand. */
+    registerMeasure?: RegisterMeasure
 }
 
 // A border on both platforms; the border is always present so selecting a cell never shifts its layout.
@@ -93,9 +95,10 @@ export function FieldCell({
     badge,
     dropIndicator,
     onLayoutRect,
+    registerMeasure,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
-    const { ref, onLayout } = useMeasuredRect(onLayoutRect)
+    const { ref, onLayout } = useMeasuredRect(onLayoutRect, registerMeasure)
     const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
     return (
         <View

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { OverlayProvider } from '../../../ui/overlay'
-import { Canvas } from '../Canvas'
+import { Canvas, useEditorCanvasDrag } from '../Canvas'
 import { useEditorForm } from '../use-editor-form'
 
 // The kind picker's Menu renders through the overlay host the app mounts once.
@@ -48,9 +48,11 @@ const isDisabled = (el: HTMLElement | null) => Boolean(el?.hasAttribute('aria-di
 const ctx = { today: '2026-01-01', userId: 'u' }
 
 let editor: ReturnType<typeof useEditorForm> | null = null
+let drag: ReturnType<typeof useEditorCanvasDrag> | null = null
 function Harness() {
     editor = useEditorForm('f1')
-    return <Canvas editor={editor} context={ctx} />
+    drag = useEditorCanvasDrag(editor)
+    return <Canvas editor={editor} context={ctx} drag={drag} />
 }
 
 type Measurable = HTMLElement & { measureInWindow?: (cb: (...n: number[]) => void) => void }
@@ -61,14 +63,32 @@ function measureThenLayout(el: HTMLElement | null, rect: number[]) {
     fireEvent(node, new CustomEvent('rn-layout', { detail: { width: 1, height: 1, x: 0, y: 0 } }))
 }
 
+const builtinKeys = plain.definition.fields.map(f => f.key)
+
 /** Stacks the builtin cells 40px apart in one 400px-wide page. */
 function layOutCells(container: HTMLElement) {
-    const keys = plain.definition.fields.map(f => f.key)
-    measureThenLayout(q(container, 'form-page-main'), [0, 0, 400, keys.length * 40 + 80])
-    keys.forEach((key, i) => {
+    measureThenLayout(q(container, 'form-page-main'), [0, 0, 400, builtinKeys.length * 40 + 80])
+    builtinKeys.forEach((key, i) => {
         measureThenLayout(q(container, `form-field-${key}`), [0, i * 40, 400, 40])
     })
 }
+
+/** Moves the cells in `keys` order without a layout event, as a reorder does on web. */
+function moveCellsSilently(container: HTMLElement, keys: string[]) {
+    keys.forEach((key, i) => {
+        const node = q(container, `form-field-${key}`) as Measurable
+        node.measureInWindow = cb => cb(0, i * 40, 400, 40)
+    })
+}
+
+/** Drags a handle to (x, y), letting the drag-start re-measure settle before hovering. */
+async function dragTo(container: HTMLElement, key: string, x: number, y: number) {
+    pointer('pointerdown', q(container, `form-handle-${key}`) as HTMLElement, 10, 10)
+    await act(async () => pointer('pointermove', window, 20, 20))
+    await act(async () => pointer('pointermove', window, x, y))
+}
+
+const draftKeys = () => editor?.form.getValues('fields').map(f => f.key)
 
 function pointer(type: string, target: Element | Window, x: number, y: number) {
     fireEvent(
@@ -129,21 +149,53 @@ describe('Canvas', () => {
         expect(editor?.form.getValues('pages.0.title')).toBe('Basics')
     })
 
-    it('drags a cell to the slot under the pointer', () => {
+    it('drags a cell to the slot under the pointer', async () => {
         const { container } = render(<Harness />)
         layOutCells(container)
-        const keys = plain.definition.fields.map(f => f.key)
-        const last = keys.at(-1) as string
-        pointer('pointerdown', q(container, `form-handle-${last}`) as HTMLElement, 10, 10)
-        pointer('pointermove', window, 20, 20)
-        pointer('pointermove', window, 50, 20)
-        expect(q(container, `form-field-${keys[0]}-drop-before`)).toBeTruthy()
-        pointer('pointerup', window, 50, 20)
-        expect(editor?.form.getValues('fields').map(f => f.key)).toEqual([
-            last,
-            ...keys.slice(0, -1),
-        ])
-        expect(q(container, `form-field-${keys[0]}-drop-before`)).toBeNull()
+        const last = builtinKeys.at(-1) as string
+        await dragTo(container, last, 50, 20)
+        expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeTruthy()
+        await act(async () => pointer('pointerup', window, 50, 20))
+        expect(draftKeys()).toEqual([last, ...builtinKeys.slice(0, -1)])
+        expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
+    })
+
+    it('re-measures on drag start, so a second drag lands where the cells are now', async () => {
+        const { container } = render(<Harness />)
+        layOutCells(container)
+        const last = builtinKeys.at(-1) as string
+        await dragTo(container, last, 50, 20)
+        await act(async () => pointer('pointerup', window, 50, 20))
+        const afterFirst = [last, ...builtinKeys.slice(0, -1)]
+        expect(draftKeys()).toEqual(afterFirst)
+        // No layout event: the stale rects still put builtinKeys[0] at the top.
+        moveCellsSilently(container, afterFirst)
+        const moved = afterFirst.at(-1) as string
+        await dragTo(container, moved, 50, 20)
+        expect(q(container, `form-field-${last}-drop-before`)).toBeTruthy()
+        await act(async () => pointer('pointerup', window, 50, 20))
+        expect(draftKeys()).toEqual([moved, ...afterFirst.slice(0, -1)])
+    })
+
+    it('leaves the draft alone when a drag is cancelled', async () => {
+        const { container } = render(<Harness />)
+        layOutCells(container)
+        await dragTo(container, builtinKeys.at(-1) as string, 50, 20)
+        expect(drag?.draggingKey).toBe(builtinKeys.at(-1))
+        await act(async () => pointer('pointercancel', window, 50, 20))
+        expect(drag?.draggingKey).toBeNull()
+        expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
+        expect(draftKeys()).toEqual(builtinKeys)
+        expect(editor?.isDirty).toBe(false)
+    })
+
+    it('does not touch the draft when a cell is dropped where it already is', async () => {
+        const { container } = render(<Harness />)
+        layOutCells(container)
+        // The second cell dropped on the right half of the first: its own slot.
+        await dragTo(container, builtinKeys[1], 350, 20)
+        await act(async () => pointer('pointerup', window, 350, 20))
+        expect(draftKeys()).toEqual(builtinKeys)
     })
 
     it('keeps rendering the last valid canvas while a draft is invalid', () => {

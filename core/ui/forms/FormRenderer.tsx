@@ -12,7 +12,7 @@ import { FieldInput, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
-import { type LayoutRect, useMeasuredRect } from './use-measure-rect'
+import { type LayoutRect, type MeasureRect, useMeasuredRect } from './use-measure-rect'
 import type { FormSchema } from './use-schema-ref-resolver'
 import { WizardSteps } from './WizardSteps'
 
@@ -28,6 +28,13 @@ export interface DesignOptions {
     renderPageFooter?: (page: FormPage) => ReactNode
     onCellLayout?: (key: string, rect: LayoutRect) => void
     onPageLayout?: (pageKey: string, rect: LayoutRect) => void
+    /**
+     * Once per mounted cell: a thunk that re-measures it now. Returns the
+     * unregister function, called on unmount. `onCellLayout` misses a cell
+     * that moved without resizing, so the canvas re-measures at drag start.
+     */
+    onCellMeasure?: (key: string, measure: MeasureRect) => () => void
+    onPageMeasure?: (pageKey: string, measure: MeasureRect) => () => void
     dropTarget?: DropTarget | null
     badges?: Record<string, ReactNode>
     /** Cell error text keyed by field key, from the editor form. */
@@ -94,6 +101,7 @@ function visibleFieldsOf(
 function Cell(props: CellProps) {
     const { field, state, containerWidth, host, ui, form, mode, recordId, collab, design } = props
     const hideLabel = rendersOwnLabel(host, field, ui)
+    const onCellMeasure = design?.onCellMeasure
     const fieldState = state.fields[field.key]
     const formError = form.formState.errors[field.key]?.message
     const error =
@@ -113,6 +121,7 @@ function Cell(props: CellProps) {
             badge={design?.badges?.[field.key]}
             dropIndicator={dropSideFor(design?.dropTarget, field.key)}
             onLayoutRect={design?.onCellLayout && (rect => design.onCellLayout?.(field.key, rect))}
+            registerMeasure={onCellMeasure && (measure => onCellMeasure(field.key, measure))}
         >
             <FieldInput
                 host={host}
@@ -180,8 +189,10 @@ function PageDropBar({ page, target }: { page: FormPage; target?: DropTarget | n
 
 function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVisible: boolean }) {
     const { design } = props
+    const onPageMeasure = design?.onPageMeasure
     const { ref, onLayout } = useMeasuredRect(
-        design?.onPageLayout && (rect => design.onPageLayout?.(page.key, rect))
+        design?.onPageLayout && (rect => design.onPageLayout?.(page.key, rect)),
+        onPageMeasure && (measure => onPageMeasure(page.key, measure))
     )
     return (
         <View ref={ref} onLayout={onLayout} testID={`form-page-${page.key}`}>
