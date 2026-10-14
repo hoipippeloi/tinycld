@@ -10,6 +10,8 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useWatch } from '@tinycld/core/ui/form'
 import { Menu } from '@tinycld/core/ui/menu'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
+import { useState } from 'react'
+import { useFormState } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import type { useEditorForm } from './use-editor-form'
 
@@ -93,18 +95,33 @@ function LiteralInput({ pick, kind, onChange }: InputProps) {
     )
 }
 
-function DaysInput({ pick, onChange }: InputProps) {
-    if (pick.mode !== 'today_plus') return null
+function DaysField({ days, onChange }: { days: number; onChange: (pick: DefaultPick) => void }) {
+    // The typed text is local, so the field can be empty while the person retypes it.
+    const [text, setText] = useState(String(days))
+    const change = (value: string) => {
+        setText(value)
+        onChange({ mode: 'today_plus', days: Number.parseInt(value, 10) || 0 })
+    }
     return (
         <PlainInput
-            value={String(pick.days)}
+            value={text}
             keyboardType="number-pad"
-            onChangeText={v => onChange({ mode: 'today_plus', days: Number.parseInt(v, 10) || 0 })}
+            onChangeText={change}
             className={INPUT_CLASS}
             accessibilityLabel="Days from today"
             testID="form-default-days"
         />
     )
+}
+
+function DaysInput({ pick, onChange }: InputProps) {
+    if (pick.mode !== 'today_plus') return null
+    return <DaysField days={pick.days} onChange={onChange} />
+}
+
+function DefaultError({ message }: { message: string | undefined }) {
+    if (!message) return null
+    return <Text className="text-xs text-danger mt-1">{message}</Text>
 }
 
 function useDefaultPicker(editor: Editor, fieldKey: string, kind: string) {
@@ -117,11 +134,14 @@ function useDefaultPicker(editor: Editor, fieldKey: string, kind: string) {
             return { ...def, defaults: expr === undefined ? rest : { ...rest, [fieldKey]: expr } }
         })
     }
-    return { current, write, choices: choicesFor(kind), label: labelFor(current, kind) }
+    const name = `defaults.${fieldKey}` as const
+    const formState = useFormState({ control: editor.form.control, name })
+    const error = editor.form.getFieldState(name, formState).error?.message
+    return { current, write, error, choices: choicesFor(kind), label: labelFor(current, kind) }
 }
 
 export function DefaultPicker({ editor, fieldKey, kind }: DefaultPickerProps) {
-    const { current, write, choices, label } = useDefaultPicker(editor, fieldKey, kind)
+    const { current, write, error, choices, label } = useDefaultPicker(editor, fieldKey, kind)
     if (choices.length <= 1) return null
     const items = choices.map(choice => (
         <Menu.Item
@@ -135,7 +155,7 @@ export function DefaultPicker({ editor, fieldKey, kind }: DefaultPickerProps) {
     const trigger = (
         <Pressable
             className="border border-border rounded-md px-2 py-1 self-start"
-            accessibilityLabel="Default"
+            accessibilityLabel={`Default: ${label}`}
             testID="form-default-mode"
         >
             <Text className="text-foreground">{label}</Text>
@@ -148,7 +168,8 @@ export function DefaultPicker({ editor, fieldKey, kind }: DefaultPickerProps) {
                 {items}
             </Menu>
             <LiteralInput pick={current} kind={kind} onChange={write} />
-            <DaysInput pick={current} kind={kind} onChange={write} />
+            <DaysInput key={fieldKey} pick={current} kind={kind} onChange={write} />
+            <DefaultError message={error} />
         </View>
     )
 }

@@ -1,7 +1,7 @@
 import type { DraftDefinition } from '@tinycld/core/lib/forms/builder'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
-import { type Control, TextInput, useFieldArray } from '@tinycld/core/ui/form'
+import { type Control, TextInput, useFieldArray, useWatch } from '@tinycld/core/ui/form'
 import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import { Pressable, Text, View } from 'react-native'
@@ -97,6 +97,13 @@ function OptionRow({
     )
 }
 
+/** The lowest n whose `option_n` is not a value yet, so a new row never repeats one. */
+function firstFreeNumber(taken: Set<string>): number {
+    let n = 1
+    while (taken.has(`option_${n}`)) n += 1
+    return n
+}
+
 function useOptions(control: Control<DraftDefinition>, fieldIndex: number) {
     // The path exists only on a select field; this editor mounts only for one.
     const name = `fields.${fieldIndex}.options` as `fields.${number}.options`
@@ -110,7 +117,12 @@ function useOptions(control: Control<DraftDefinition>, fieldIndex: number) {
         canUp: index > 0,
         canDown: index < count - 1,
     })
-    const add = () => options.append({ value: `option_${count + 1}`, label: `Option ${count + 1}` })
+    // Watched, because typed values do not reach `options.fields`.
+    const current = useWatch({ control, name }) ?? []
+    const add = () => {
+        const n = firstFreeNumber(new Set(current.map(o => o.value)))
+        options.append({ value: `option_${n}`, label: `Option ${n}` })
+    }
     return { rows: options.fields, actionsFor, add }
 }
 

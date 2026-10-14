@@ -236,6 +236,18 @@ export const definitionSchema = z
                     message: `duplicate field key ${f.key}`,
                 })
             kinds.set(f.key, f.kind)
+            if (f.kind === 'select') {
+                const values = new Set<string>()
+                f.options.forEach((o, j) => {
+                    if (values.has(o.value))
+                        ctx.addIssue({
+                            code: 'custom',
+                            path: ['fields', i, 'options', j, 'value'],
+                            message: `duplicate option value ${o.value}`,
+                        })
+                    values.add(o.value)
+                })
+            }
             if (!pages.has(f.page))
                 ctx.addIssue({
                     code: 'custom',

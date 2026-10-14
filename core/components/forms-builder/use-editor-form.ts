@@ -1,9 +1,16 @@
-import type { DraftDefinition, Removed } from '@tinycld/core/lib/forms/builder'
 import {
+    coerceLiteral,
+    type DraftDefinition,
+    kindOf,
+    type Removed,
+} from '@tinycld/core/lib/forms/builder'
+import {
+    type DefinitionIssue,
     definitionSchema,
     type FormDefinition,
     validateDefinitionForHost,
 } from '@tinycld/core/lib/forms/definition'
+import type { FormHostDef } from '@tinycld/core/lib/forms/host'
 import { mapDefinitionErrors, useFormAdmin } from '@tinycld/core/lib/forms/use-form-admin'
 import { useFormHost } from '@tinycld/core/lib/forms/use-form-hosts'
 import { useFormRow } from '@tinycld/core/lib/forms/use-forms-of-host'
@@ -36,9 +43,33 @@ export function draftPath(path: string): string {
     return path.replace(/^(fields\.\d+)\.accept(\.\d+)?$/, '$1.acceptText')
 }
 
-export function fromDraft(draft: DraftDefinition): DraftDefinition {
+/**
+ * A typed-in default is text until it is saved; it is typed here by its
+ * field's kind. An empty one means no default.
+ */
+function typedDefaults(draft: DraftDefinition, host: FormHostDef): DraftDefinition['defaults'] {
+    const out: NonNullable<DraftDefinition['defaults']> = {}
+    for (const [key, expr] of Object.entries(draft.defaults ?? {})) {
+        if (typeof expr !== 'string') out[key] = expr
+        else if (expr.trim() !== '') out[key] = coerceLiteral(kindOf(draft, host, key) ?? '', expr)
+    }
+    return out
+}
+
+/** Defaults the schema cannot judge, because it does not know a builtin's kind. */
+export function defaultIssues(draft: DraftDefinition, host: FormHostDef): DefinitionIssue[] {
+    return Object.entries(draft.defaults ?? {}).flatMap(([key, expr]) => {
+        if (kindOf(draft, host, key) !== 'number') return []
+        if (typeof expr === 'number' && Number.isFinite(expr)) return []
+        const label = draft.fields.find(f => f.key === key)?.label ?? key
+        return [{ path: ['defaults', key], message: `${label} default must be a number` }]
+    })
+}
+
+export function fromDraft(draft: DraftDefinition, host: FormHostDef): DraftDefinition {
     return {
         ...draft,
+        defaults: typedDefaults(draft, host),
         fields: draft.fields.map(draftField => {
             const field = withoutCleared(draftField)
             if (field.kind !== 'file') return field
@@ -53,7 +84,8 @@ export function fromDraft(draft: DraftDefinition): DraftDefinition {
     }
 }
 
-function noticeFor(removed: Removed): string | null {
+/** What a removal takes with it, as list items: "2 rules", "its default". */
+export function removalParts(removed: Removed): string[] {
     const parts: string[] = []
     if (removed.rules.length)
         parts.push(`${removed.rules.length} rule${removed.rules.length > 1 ? 's' : ''}`)
@@ -61,6 +93,11 @@ function noticeFor(removed: Removed): string | null {
         parts.push(`${removed.actions} rule action${removed.actions > 1 ? 's' : ''}`)
     if (removed.defaults) parts.push('its default')
     if (removed.submitRequired) parts.push('its required-on-submit setting')
+    return parts
+}
+
+function noticeFor(removed: Removed): string | null {
+    const parts = removalParts(removed)
     return parts.length ? `Also removed ${parts.join(', ')}.` : null
 }
 
@@ -108,9 +145,12 @@ export function useEditorForm(formId: string) {
     const save = async (): Promise<boolean> => {
         if (!row || !host) return false
         form.clearErrors()
-        const parsed = definitionSchema.safeParse(fromDraft(form.getValues()))
-        if (!parsed.success) {
-            for (const issue of parsed.error.issues)
+        const draft = fromDraft(form.getValues(), host)
+        const parsed = definitionSchema.safeParse(draft)
+        const typeIssues = defaultIssues(draft, host)
+        if (!parsed.success || typeIssues.length) {
+            const schemaIssues = parsed.success ? [] : parsed.error.issues
+            for (const issue of [...schemaIssues, ...typeIssues])
                 setIssue(issue.path.join('.'), 'manual', issue.message)
             return false
         }

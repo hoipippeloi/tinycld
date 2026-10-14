@@ -97,6 +97,52 @@ describe('useEditorForm', () => {
             'bad type'
         )
     })
+    describe('typed defaults', () => {
+        const withCount = (defaults: Record<string, string>) =>
+            act(() =>
+                result().apply(def => ({
+                    ...def,
+                    fields: [...def.fields, newCustomField('number', 'Count', 'main', new Set())],
+                    defaults,
+                }))
+            )
+        let hook: ReturnType<typeof renderHook<ReturnType<typeof useEditorForm>, unknown>>
+        const result = () => hook.result.current
+        const saveIt = async () => {
+            let ok = false
+            await act(async () => {
+                ok = await result().save()
+            })
+            return ok
+        }
+        beforeEach(() => {
+            hook = renderHook(() => useEditorForm('f1'))
+        })
+        it('saves a number default typed as text as a number', async () => {
+            withCount({ count: '5' })
+            expect(await saveIt()).toBe(true)
+            expect(save).toHaveBeenCalledWith({
+                id: 'f1',
+                definition: expect.objectContaining({ defaults: { count: 5 } }),
+            })
+        })
+        it('refuses a number default that is not a number', async () => {
+            withCount({ count: 'abc' })
+            expect(await saveIt()).toBe(false)
+            expect(save).not.toHaveBeenCalled()
+            expect(result().form.getFieldState('defaults.count').error?.message).toBe(
+                'Count default must be a number'
+            )
+        })
+        it('drops an empty default', async () => {
+            withCount({ count: '' })
+            expect(await saveIt()).toBe(true)
+            expect(save).toHaveBeenCalledWith({
+                id: 'f1',
+                definition: expect.objectContaining({ defaults: {} }),
+            })
+        })
+    })
     it('refuses to save a definition that fails host validation', async () => {
         const { result } = renderHook(() => useEditorForm('f1'))
         act(() =>
@@ -146,7 +192,7 @@ describe('toDraft / fromDraft', () => {
     it('round-trips file accept', () => {
         const draft = toDraft(withFile(['image/*', 'application/pdf']))
         expect(draft.fields.at(-1)).toMatchObject({ acceptText: 'image/*, application/pdf' })
-        const back = fromDraft(draft).fields.at(-1)
+        const back = fromDraft(draft, widgetHost).fields.at(-1)
         expect(back).toMatchObject({ accept: ['image/*', 'application/pdf'] })
         expect(back).not.toHaveProperty('acceptText')
     })
@@ -154,14 +200,16 @@ describe('toDraft / fromDraft', () => {
         const draft = toDraft(withFile([]))
         const file = draft.fields.at(-1)
         if (file) file.acceptText = 'image/*, , x'
-        expect(fromDraft(draft).fields.at(-1)).toMatchObject({ accept: ['image/*', 'x'] })
+        expect(fromDraft(draft, widgetHost).fields.at(-1)).toMatchObject({
+            accept: ['image/*', 'x'],
+        })
     })
     it('drops optional props a cleared input left as an empty string', () => {
         const def = defaultDefinitionFor(widgetHost)
         const nick = { ...newCustomField('number', 'Nick', 'main', new Set()), min: 1 }
         const draft = toDraft({ ...def, fields: [...def.fields, nick] })
         const cleared = { ...draft, fields: draft.fields.map(f => ({ ...f, description: '' })) }
-        const out = fromDraft(cleared)
+        const out = fromDraft(cleared, widgetHost)
         expect(out.fields.at(-1)).toMatchObject({ min: 1 })
         expect(out.fields.some(f => 'description' in f)).toBe(false)
     })

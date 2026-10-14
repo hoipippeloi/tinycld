@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	validation "github.com/pocketbase/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 	"tinycld.org/core/rlstest"
@@ -123,6 +124,22 @@ func TestFormsHook_RejectsCustomKeyThatIsAColumn(t *testing.T) {
 	err := e.saveFormErr(t, "bad", def)
 	if err == nil || !strings.Contains(err.Error(), "position is a column") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestFormsHook_RejectsDuplicateOptionValue(t *testing.T) {
+	e := newTestEnv(t)
+	def := withField(widgetDefault, `{"key":"severity","kind":"select","page":"main","label":"Severity","width":"full","required":false,"hidden":false,"display":"dropdown","multiple":false,"options":[{"value":"low","label":"Low"},{"value":"low","label":"Also low"}]}`)
+	err := e.saveFormErr(t, "bad", def)
+	if err == nil || !strings.Contains(err.Error(), "duplicate option value low") {
+		t.Fatalf("want a duplicate option error, got %v", err)
+	}
+	var verrs validation.Errors
+	if !errors.As(err, &verrs) {
+		t.Fatalf("want validation errors, got %T", err)
+	}
+	if _, ok := verrs["definition.fields.5.options.1.value"]; !ok {
+		t.Fatalf("want the error at definition.fields.5.options.1.value, got %v", verrs)
 	}
 }
 

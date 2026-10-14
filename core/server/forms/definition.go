@@ -199,6 +199,13 @@ func ValidateDefinition(def *Definition, host *Host) validation.Errors {
 		if host.HasColumn(f.Key) {
 			return defErr(f.Key+" is a column of the record and cannot be a custom field", "fields", i, "key")
 		}
+		seenValues := map[string]bool{}
+		for oi, o := range f.Options {
+			if seenValues[o.Value] {
+				return defErr("duplicate option value "+o.Value, "fields", i, "options", oi, "value")
+			}
+			seenValues[o.Value] = true
+		}
 		if f.Collaborative && host.Collab == nil {
 			return defErr(host.Label+" does not support collaborative fields", "fields", i, "collaborative")
 		}

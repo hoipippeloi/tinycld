@@ -101,10 +101,46 @@ describe('FieldProperties', () => {
         expect(editorRef?.form.getValues('fields').some(f => f.key === 'severity')).toBe(false)
         expect(editorRef?.selectedKey).toBeNull()
     })
+    it('names what the delete also removes', () => {
+        const { container, getByText } = render(<Harness fieldKey="severity" />)
+        act(() =>
+            editorRef?.apply(def => ({
+                ...def,
+                defaults: { severity: 'option_1' },
+                rules: [
+                    {
+                        key: 'r1',
+                        match: 'all',
+                        when: [{ field: 'severity', op: 'is', value: 'option_1' }],
+                        actions: [{ action: 'hide', field: 'due' }],
+                    },
+                ],
+            }))
+        )
+        fireEvent.click(q(container, 'form-prop-delete') as HTMLElement)
+        expect(
+            getByText(
+                'Stored values stay in the records, hidden. This also removes 1 rule, its default.'
+            )
+        ).toBeTruthy()
+    })
     it('adds an option row', () => {
         const { container } = render(<Harness fieldKey="severity" />)
         fireEvent.click(q(container, 'form-option-add') as HTMLElement)
         expect(editorRef?.form.getValues('fields.6.options')).toHaveLength(2)
+    })
+    it('adds an option whose value is not taken yet', () => {
+        const { container } = render(<Harness fieldKey="severity" />)
+        fireEvent.input(q(container, 'fields.6.options.0.value') as HTMLElement, {
+            target: { value: 'option_2' },
+        })
+        fireEvent.click(q(container, 'form-option-add') as HTMLElement)
+        fireEvent.click(q(container, 'form-option-add') as HTMLElement)
+        expect(editorRef?.form.getValues('fields.6.options')?.map(o => o.value)).toEqual([
+            'option_2',
+            'option_1',
+            'option_3',
+        ])
     })
     it('moves an option down', () => {
         const { container } = render(<Harness fieldKey="severity" />)
@@ -143,6 +179,31 @@ describe('DefaultPicker', () => {
         expect(editorRef?.form.getValues('defaults')).toEqual({ count: '1.5' })
         fireEvent.blur(input)
         expect(editorRef?.form.getValues('defaults')).toEqual({ count: 1.5 })
+    })
+    it('lets the days field be cleared and retyped', () => {
+        const { container } = render(<Harness fieldKey="due" />)
+        pick(container, 'form-default-today_plus')
+        const days = q(container, 'form-default-days') as HTMLInputElement
+        fireEvent.input(days, { target: { value: '' } })
+        expect(days.value).toBe('')
+        expect(editorRef?.form.getValues('defaults')).toEqual({
+            due: { addDays: [{ today: [] }, 0] },
+        })
+        fireEvent.input(days, { target: { value: '3' } })
+        expect(editorRef?.form.getValues('defaults')).toEqual({
+            due: { addDays: [{ today: [] }, 3] },
+        })
+    })
+    it('shows a default error under the picker', async () => {
+        const { container, getByText } = render(<Harness fieldKey="count" />)
+        act(() => editorRef?.apply(def => ({ ...def, defaults: { count: 'abc' } })))
+        await act(async () => {
+            await editorRef?.save()
+        })
+        expect(getByText('Count default must be a number')).toBeTruthy()
+        expect(q(container, 'form-default-mode')?.getAttribute('accessibilityLabel')).toBe(
+            'Default: A value'
+        )
     })
     it('removes the default when No default is chosen', () => {
         const { container } = render(<Harness fieldKey="due" />)

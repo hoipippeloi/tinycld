@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { DefaultPicker } from './DefaultPicker'
 import { OptionsEditor } from './OptionsEditor'
-import type { useEditorForm } from './use-editor-form'
+import { removalParts, type useEditorForm } from './use-editor-form'
 
 type Editor = ReturnType<typeof useEditorForm>
 
@@ -91,7 +91,7 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
                         control={control}
                         name={`fields.${index}.step`}
                         label="Step"
-                        min={0}
+                        min={1}
                     />
                 </>
             )
@@ -163,10 +163,9 @@ function collaborativeHint(isSupported: boolean) {
 
 function removalMessage(refs: Removed | null) {
     const base = 'Stored values stay in the records, hidden.'
-    const hasRefs =
-        refs && (refs.rules.length || refs.actions || refs.defaults || refs.submitRequired)
-    if (!hasRefs) return base
-    return `${base} Rules, defaults and requirements that name it are removed too.`
+    const parts = refs ? removalParts(refs) : []
+    if (!parts.length) return base
+    return `${base} This also removes ${parts.join(', ')}.`
 }
 
 function useFieldProperties(editor: Editor, fieldKey: string) {

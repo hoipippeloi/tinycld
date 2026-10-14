@@ -79,7 +79,7 @@ function Notice({ text, onDismiss }: { text: string | null; onDismiss: () => voi
     return (
         <Pressable
             onPress={onDismiss}
-            accessibilityLabel="Dismiss"
+            accessibilityLabel={`Dismiss: ${text}`}
             className="bg-muted rounded-md px-3 py-2 mb-2"
             testID="form-notice"
         >

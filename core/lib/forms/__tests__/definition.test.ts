@@ -31,6 +31,24 @@ describe('definitionSchema', () => {
         expect(r.success).toBe(false)
         expect(JSON.stringify(r.error?.issues)).toContain('duplicate rule key r1')
     })
+    it('rejects a duplicate option value within a select field', () => {
+        const severity = {
+            ...bugDefinition.fields[1],
+            options: [
+                { value: 'low', label: 'Low' },
+                { value: 'low', label: 'Also low' },
+            ],
+        }
+        const fields = [bugDefinition.fields[0], severity, bugDefinition.fields[2]]
+        const r = definitionSchema.safeParse({ ...bugDefinition, fields })
+        expect(r.success).toBe(false)
+        expect(r.error?.issues).toContainEqual(
+            expect.objectContaining({
+                path: ['fields', 1, 'options', 1, 'value'],
+                message: 'duplicate option value low',
+            })
+        )
+    })
     it('rejects a key that is not a slug', () => {
         const bad = { ...bugDefinition.fields[1], key: 'Bad Key' }
         expect(
