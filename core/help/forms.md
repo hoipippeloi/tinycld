@@ -55,10 +55,12 @@ An owner or admin opens **Settings → Forms**. With one record type the list op
 
 ## Editing a form
 
-The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page. **Add field** at the end of a page adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page; on a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
 
 A field's key is set when it is created and never changes, so renaming a field keeps its stored values. Deleting a custom field keeps the stored values hidden and removes any rule, default or requirement that named it; the editor says what it removed.
 
-The **Rules** tab lists the form's rules. Each rule has conditions ("when all of" or "when any of") and actions. Pick a field, an operator and a value; then pick an action and its target. **Set options** is offered only for choice lists.
+The **Rules** tab lists the form's rules. Each rule has conditions ("when all of" or "when any of") and actions. Pick a field, an operator and a value; then pick an action and its target. **Set options** is offered only for choice lists. **Hide** is not offered for a field the record always needs, nor for the page that holds one. Write a date as YYYY-MM-DD. A problem with a rule shows in that rule's card.
 
-**Preview** opens the draft as users will see it, with rules live. **Save** writes the form; the server checks it again and points at any field it refuses. Save before leaving the editor: the Back arrow asks when there are unsaved changes, but the browser's own navigation does not.
+**Preview** opens the draft as users will see it, with rules live. **Save** writes the form; the server checks it again and points at any field it refuses. The list above the form names each problem by its field or rule.
+
+If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, and when you reload or close the browser tab. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.
