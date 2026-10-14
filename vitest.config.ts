@@ -177,6 +177,12 @@ export default defineConfig({
                 find: /^expo-file-system$/,
                 replacement: path.join(APP_DIR, 'tests', 'expo-file-system-stub.ts'),
             },
+            // react-native-marked ships Flow syntax Vite cannot parse; reached through
+            // core's MarkdownRenderer.
+            {
+                find: /^react-native-marked$/,
+                replacement: path.join(APP_DIR, 'tests', 'react-native-marked-stub.cjs'),
+            },
             // ~/* — package source. Resolved relative to the package's own dir
             // at invocation time via the test root, so we map it dynamically below.
         ],

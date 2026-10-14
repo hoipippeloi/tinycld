@@ -53,6 +53,8 @@ const knownIcons = {
     AlignJustify: Icon,
     Ban: Icon,
     Check: Icon,
+    Square: Icon,
+    CalendarDays: Icon,
     ChevronDown: Icon,
     ChevronUp: Icon,
     HelpCircle: Icon,
