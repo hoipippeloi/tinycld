@@ -93,6 +93,7 @@
         "expo-router": "~57.0.25",
         "expo-screen-orientation": "~57.0.2",
         "fractional-indexing": ">=3.2.0 <4",
+        "json-logic-js": ">=2.0.5 <3",
         "lib0": "^0.2.117",
         "lucide-react-native": "^1.52.0",
         "pbtsdb": ">=2.0.3 <3",

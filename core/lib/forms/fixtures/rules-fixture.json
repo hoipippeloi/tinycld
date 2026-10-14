@@ -1,0 +1,219 @@
+{
+    "context": { "today": "2026-01-31", "userId": "user_me" },
+    "definition": {
+        "version": 1,
+        "pages": [{ "key": "a", "title": "A" }, { "key": "b", "title": "B" }],
+        "fields": [
+            {
+                "key": "kind",
+                "kind": "select",
+                "page": "a",
+                "label": "Kind",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [
+                    { "value": "bug", "label": "Bug" },
+                    { "value": "task", "label": "Task" }
+                ]
+            },
+            {
+                "key": "severity",
+                "kind": "number",
+                "page": "a",
+                "label": "Severity",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "steps",
+                "kind": "textarea",
+                "page": "b",
+                "label": "Steps",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "tags",
+                "kind": "select",
+                "page": "b",
+                "label": "Tags",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "checkbox",
+                "multiple": true,
+                "options": [{ "value": "x", "label": "X" }]
+            },
+            {
+                "key": "done",
+                "kind": "toggle",
+                "page": "b",
+                "label": "Done",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "when",
+                "kind": "date",
+                "page": "b",
+                "label": "When",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "time": false
+            },
+            {
+                "key": "items",
+                "kind": "checklist",
+                "page": "b",
+                "label": "Items",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "note",
+                "kind": "text",
+                "page": "b",
+                "label": "Note",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            }
+        ],
+        "rules": [
+            {
+                "key": "bug_needs_steps",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "bug" }],
+                "actions": [{ "action": "require", "field": "steps" }]
+            },
+            {
+                "key": "task_hides_b",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "task" }],
+                "actions": [{ "action": "hide", "page": "b" }]
+            },
+            {
+                "key": "hidden_page_wins",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "task" }],
+                "actions": [{ "action": "require", "field": "steps" }]
+            },
+            {
+                "key": "high_sets_tags",
+                "match": "any",
+                "when": [
+                    { "field": "severity", "op": "gte", "value": 8 },
+                    { "field": "done", "op": "is_true" }
+                ],
+                "actions": [
+                    {
+                        "action": "set_options",
+                        "field": "tags",
+                        "options": [{ "value": "urgent", "label": "Urgent" }]
+                    },
+                    { "action": "set_value", "field": "note", "value": "escalated" }
+                ]
+            },
+            {
+                "key": "all_done_hides_note",
+                "match": "all",
+                "when": [{ "field": "items", "op": "all_done" }],
+                "actions": [{ "action": "hide", "field": "note" }]
+            },
+            {
+                "key": "late",
+                "match": "all",
+                "when": [{ "field": "when", "op": "before", "value": "2026-01-31" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            }
+        ],
+        "defaults": {
+            "when": { "addDays": [{ "today": [] }, 21] },
+            "note": "hello",
+            "kind": "task"
+        },
+        "submit": { "required": ["kind"] }
+    },
+    "cases": [
+        {
+            "name": "bug requires steps",
+            "values": { "kind": "bug" },
+            "expect": {
+                "fields": { "steps": { "visible": true, "required": true } },
+                "pages": { "b": { "visible": true } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "task hides page b and a hidden page is never required",
+            "values": { "kind": "task" },
+            "expect": {
+                "fields": { "steps": { "visible": false, "required": false } },
+                "pages": { "b": { "visible": false } },
+                "activeRules": ["task_hides_b", "hidden_page_wins"]
+            }
+        },
+        {
+            "name": "any-match with a number and set_options and set_value",
+            "values": { "kind": "bug", "severity": 9 },
+            "expect": {
+                "fields": {
+                    "tags": {
+                        "visible": true,
+                        "required": false,
+                        "options": [{ "value": "urgent", "label": "Urgent" }]
+                    }
+                },
+                "setValues": { "note": "escalated" },
+                "activeRules": ["bug_needs_steps", "high_sets_tags"]
+            }
+        },
+        {
+            "name": "all_done on a checklist",
+            "values": {
+                "kind": "bug",
+                "items": [
+                    { "id": "1", "text": "a", "done": true },
+                    { "id": "2", "text": "b", "done": true }
+                ]
+            },
+            "expect": {
+                "fields": { "note": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "all_done_hides_note"]
+            }
+        },
+        {
+            "name": "empty checklist is not all_done",
+            "values": { "kind": "bug", "items": [] },
+            "expect": {
+                "fields": { "note": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "date before",
+            "values": { "kind": "bug", "when": "2026-01-01" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "late"]
+            }
+        },
+        {
+            "name": "submit required always applies",
+            "values": {},
+            "expect": {
+                "fields": { "kind": { "visible": true, "required": true } },
+                "activeRules": []
+            }
+        }
+    ],
+    "defaults": { "when": "2026-02-21", "note": "hello", "kind": "task" }
+}
