@@ -23,6 +23,11 @@ function Icon({ children, ...props }) {
 // Seed target with all icon names that unit tests reference by value (not just render).
 // The Proxy's get-trap still handles any unknown name so JSX rendering always works.
 const knownIcons = {
+    // Forms list (core/components/forms-builder)
+    Archive: Icon,
+    ArchiveRestore: Icon,
+    GripVertical: Icon,
+    Star: Icon,
     // Toolbar icons (core/tests/unit/responsive-toolbar.test.tsx)
     Bold: Icon,
     EllipsisVertical: Icon,
