@@ -97,6 +97,82 @@
                 "display": "dropdown",
                 "multiple": false,
                 "options": [{ "value": "ui", "label": "UI" }, { "value": "api", "label": "API" }]
+            },
+            {
+                "key": "gate",
+                "kind": "toggle",
+                "page": "a",
+                "label": "Gate",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_flag",
+                "kind": "toggle",
+                "page": "a",
+                "label": "P Flag",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_date",
+                "kind": "date",
+                "page": "a",
+                "label": "P Date",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "time": false
+            },
+            {
+                "key": "p_num",
+                "kind": "number",
+                "page": "a",
+                "label": "P Num",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_text",
+                "kind": "text",
+                "page": "a",
+                "label": "P Text",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_sel",
+                "kind": "select",
+                "page": "a",
+                "label": "P Sel",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }]
+            },
+            {
+                "key": "p_list",
+                "kind": "checklist",
+                "page": "a",
+                "label": "P List",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_out",
+                "kind": "text",
+                "page": "a",
+                "label": "P Out",
+                "width": "full",
+                "required": false,
+                "hidden": false
             }
         ],
         "rules": [
@@ -181,6 +257,96 @@
                 "match": "all",
                 "when": [{ "field": "area", "op": "is_any_of", "value": ["ui", "api"] }],
                 "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "p_after",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_date", "op": "after", "value": "2026-01-15" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_gt",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "gt", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_gte",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "gte", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_lte",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "lte", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_neq",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "neq", "value": "x" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_not",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_sel", "op": "is_not", "value": "a" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_false",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_flag", "op": "is_false" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_any_open",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_list", "op": "any_open" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_empty",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "is_empty" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_not_empty",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "not_empty" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
             }
         ],
         "defaults": {
@@ -324,6 +490,45 @@
             "expect": {
                 "fields": { "done": { "visible": false, "required": false } },
                 "activeRules": ["bug_needs_steps", "area_any_hides_done"]
+            }
+        },
+        {
+            "name": "parity: empty fields under the gate",
+            "values": { "gate": true },
+            "expect": {
+                "fields": { "p_out": { "visible": false, "required": false } },
+                "activeRules": ["p_neq", "p_is_not", "p_is_false", "p_is_empty"]
+            }
+        },
+        {
+            "name": "parity: boundary values",
+            "values": {
+                "gate": true,
+                "p_date": "2026-01-20",
+                "p_num": 5,
+                "p_text": "x",
+                "p_sel": "a",
+                "p_flag": true,
+                "p_list": [
+                    { "id": "1", "text": "a", "done": false },
+                    { "id": "2", "text": "b", "done": true }
+                ]
+            },
+            "expect": { "activeRules": ["p_after", "p_gte", "p_lte", "p_any_open", "p_not_empty"] }
+        },
+        {
+            "name": "parity: the other side",
+            "values": {
+                "gate": true,
+                "p_date": "2026-01-10",
+                "p_num": 6,
+                "p_text": "y",
+                "p_sel": "b",
+                "p_flag": false,
+                "p_list": [{ "id": "1", "text": "a", "done": true }]
+            },
+            "expect": {
+                "activeRules": ["p_gt", "p_gte", "p_neq", "p_is_not", "p_is_false", "p_not_empty"]
             }
         }
     ],
