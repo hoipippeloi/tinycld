@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema } from '../../../lib/forms/definition'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
@@ -41,13 +41,14 @@ const bug = {
     }),
 }
 
-vi.mock('../../../lib/forms/use-forms-of-host', () => ({
-    useFormsOfHost: () => ({ forms: [plain, bug], defaultForm: plain, isReady: true }),
-}))
+const loaded = { forms: [plain, bug], defaultForm: plain, isReady: true }
+const formsOfHost = vi.hoisted(() => vi.fn())
+vi.mock('../../../lib/forms/use-forms-of-host', () => ({ useFormsOfHost: formsOfHost }))
 
 const ctx = { today: '2026-01-10', userId: 'me' }
 
 describe('useFormCreate', () => {
+    beforeEach(() => formsOfHost.mockReturnValue(loaded))
     it('seeds defaults for the chosen form and splits on submit', async () => {
         const { result } = renderHook(() => useFormCreate(host, 'f2', ctx))
         expect(result.current.form.getValues('severity')).toBe('low')
@@ -72,6 +73,14 @@ describe('useFormCreate', () => {
         act(() => result.current.switchForm('f2'))
         expect(result.current.formId).toBe('f2')
         expect(result.current.form.getValues('name')).toBe('Keep me')
+        expect(result.current.form.getValues('severity')).toBe('low')
+    })
+    it('seeds defaults when the forms resolve after first render', () => {
+        formsOfHost.mockReturnValue({ forms: [], defaultForm: undefined, isReady: false })
+        const { result, rerender } = renderHook(() => useFormCreate(host, 'f2', ctx))
+        expect(result.current.form.getValues('severity')).toBeUndefined()
+        formsOfHost.mockReturnValue(loaded)
+        rerender()
         expect(result.current.form.getValues('severity')).toBe('low')
     })
 })

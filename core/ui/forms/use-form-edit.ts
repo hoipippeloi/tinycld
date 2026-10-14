@@ -50,7 +50,10 @@ export function useFormEdit(
         let out: SplitValues | null = null
         await form.handleSubmit(next => {
             const changed: FormValues = {}
-            for (const key of Object.keys(form.formState.dirtyFields)) changed[key] = next[key]
+            const dirtyKeys = definition.fields
+                .map(f => f.key)
+                .filter(key => form.getFieldState(key).isDirty)
+            for (const key of dirtyKeys) changed[key] = next[key]
             out = splitValues(host, definition, changed)
         })()
         return out

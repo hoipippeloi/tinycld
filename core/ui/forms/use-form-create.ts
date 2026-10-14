@@ -8,7 +8,7 @@ import {
 import { useFormsOfHost } from '@tinycld/core/lib/forms/use-forms-of-host'
 import { buildSchema, type SplitValues, splitValues } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { EMPTY_DEFINITION, EMPTY_STATE } from './empty-schema'
 import { useSchemaRefResolver } from './use-schema-ref-resolver'
@@ -33,6 +33,16 @@ export function useFormCreate(
         mode: 'onSubmit',
     })
 
+    // The one effect here: the live query can resolve after first render, when
+    // defaultValues were already taken, so seed once per form id as it arrives.
+    const seededFormId = useRef<string | null>(null)
+    const resolvedId = row?.id
+    useEffect(() => {
+        if (!definition || !resolvedId || seededFormId.current === resolvedId) return
+        seededFormId.current = resolvedId
+        form.reset(applyDefaults(definition, context))
+    }, [definition, resolvedId, form, context])
+
     const switchForm = (nextId: string) => {
         const next = forms.find(f => f.id === nextId)
         if (!next) return
@@ -42,6 +52,7 @@ export function useFormCreate(
             if (current[f.key] !== undefined && current[f.key] !== '') kept[f.key] = current[f.key]
         }
         form.reset({ ...applyDefaults(next.definition, context), ...kept })
+        seededFormId.current = nextId
         setFormId(nextId)
     }
 
