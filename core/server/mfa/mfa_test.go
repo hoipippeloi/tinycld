@@ -364,28 +364,99 @@ func TestDisable_NeedsAValidCode(t *testing.T) {
 	}
 }
 
-func TestAdminReset(t *testing.T) {
+// The recovery reset is a collection delete under the rules: an owner or
+// admin may remove another member's factors, never their own (that needs a
+// code), and an admin never an owner's.
+func TestAdminReset_ThroughTheCollectionRules(t *testing.T) {
 	h := newHarness(t)
 	owner := h.user("owner@test.local", "owner")
 	admin := h.user("admin@test.local", "admin")
 	member := h.user("member@test.local", "member")
 	h.enroll(owner)
+	h.enroll(admin)
 	h.enroll(member)
 
-	if res := h.do(http.MethodPost, "/api/admin/users/"+member.Id+"/mfa/reset", nil, h.session(member)); res.status != http.StatusForbidden {
-		t.Fatalf("member reset: %d", res.status)
+	del := func(target *core.Record, actor *core.Record) int {
+		row, err := findTOTP(h.app, target.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h.do(http.MethodDelete, "/api/collections/mfa_totp/records/"+row.Id, nil, h.session(actor)).status
 	}
-	if res := h.do(http.MethodPost, "/api/admin/users/"+owner.Id+"/mfa/reset", nil, h.session(admin)); res.status != http.StatusForbidden {
-		t.Fatalf("admin reset an owner: %d", res.status)
+	if code := del(member, member); code == http.StatusNoContent {
+		t.Fatal("a member removed their own authenticator without a code")
 	}
-	if res := h.do(http.MethodPost, "/api/admin/users/"+member.Id+"/mfa/reset", nil, h.session(admin)); res.status != http.StatusNoContent {
-		t.Fatalf("admin reset a member: %d %v", res.status, res.body)
+	if code := del(admin, admin); code == http.StatusNoContent {
+		t.Fatal("an admin removed their own authenticator without a code")
+	}
+	if code := del(owner, admin); code == http.StatusNoContent {
+		t.Fatal("an admin removed an owner's authenticator")
+	}
+	if code := del(member, admin); code != http.StatusNoContent {
+		t.Fatalf("admin reset of a member: %d", code)
 	}
 	if authfactor.HasSecondFactor(h.app, member.Id) {
 		t.Fatal("member still has a factor after reset")
 	}
-	if !authfactor.HasSecondFactor(h.app, owner.Id) {
-		t.Fatal("owner lost a factor")
+	if code := del(admin, owner); code != http.StatusNoContent {
+		t.Fatalf("owner reset of an admin: %d", code)
+	}
+}
+
+// An admin-set temporary password opens only the "choose a new password"
+// step: no session, and the reset token it returns works once.
+func TestGate_TemporaryPasswordMustBeChanged(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	ada.Set(authfactor.MustChangePasswordField, true)
+	if err := h.app.Save(ada); err != nil {
+		t.Fatal(err)
+	}
+
+	first := h.passwordLogin("ada@test.local")
+	token := first.str("passwordResetToken")
+	if first.status != http.StatusUnauthorized || token == "" || first.str("token") != "" {
+		t.Fatalf("temporary password signed in: %d %v", first.status, first.body)
+	}
+
+	confirm := map[string]any{"token": token, "password": "ChosenByAda123!", "passwordConfirm": "ChosenByAda123!"}
+	if r := h.do(http.MethodPost, "/api/collections/users/confirm-password-reset", confirm, ""); r.status != http.StatusNoContent {
+		t.Fatalf("confirm: %d %v", r.status, r.body)
+	}
+	if r := h.do(http.MethodPost, "/api/collections/users/confirm-password-reset", confirm, ""); r.status == http.StatusNoContent {
+		t.Fatal("the reset token worked twice")
+	}
+	fresh, _ := h.app.FindRecordById("users", ada.Id)
+	if authfactor.MustChangePassword(fresh) {
+		t.Fatal("the flag survived the member's own password")
+	}
+	login := h.do(http.MethodPost, "/api/collections/users/auth-with-password",
+		map[string]any{"identity": "ada@test.local", "password": "ChosenByAda123!"}, "")
+	if login.status != http.StatusOK || login.str("token") == "" {
+		t.Fatalf("sign in with the new password: %d %v", login.status, login.body)
+	}
+}
+
+// With a second factor, the factor comes first: a temporary password alone
+// must not let its holder change the password.
+func TestGate_TemporaryPasswordAfterTheSecondStep(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+	fresh, _ := h.app.FindRecordById("users", ada.Id)
+	fresh.Set(authfactor.MustChangePasswordField, true)
+	if err := h.app.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	first := h.passwordLogin("ada@test.local")
+	if first.str("passwordResetToken") != "" || first.str("mfaToken") == "" {
+		t.Fatalf("password step skipped the second factor: %v", first.body)
+	}
+	verify := h.do(http.MethodPost, "/api/auth/mfa/verify",
+		map[string]any{"mfaToken": first.str("mfaToken"), "code": nextCode(t, secret)}, "")
+	if verify.status != http.StatusUnauthorized || verify.str("passwordResetToken") == "" || verify.str("token") != "" {
+		t.Fatalf("after the code: %d %v", verify.status, verify.body)
 	}
 }
 
@@ -393,7 +464,10 @@ func TestMFATOTPShippedRules(t *testing.T) {
 	app := rlstest.NewAssembledApp(t)
 	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "list", "user = @request.auth.id")
 	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "view", "user = @request.auth.id")
-	for _, kind := range []string{"create", "update", "delete"} {
+	// Only an owner or admin may delete, and never their own row.
+	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "delete", "user != @request.auth.id")
+	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "delete", `user.role != "owner"`)
+	for _, kind := range []string{"create", "update"} {
 		if rule, ok := rlstest.Rule(t, app, authfactor.TOTPCollection, kind); ok {
 			t.Fatalf("mfa_totp %s rule must be locked (nil), got %q", kind, rule)
 		}

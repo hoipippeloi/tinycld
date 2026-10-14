@@ -5,6 +5,7 @@ import { loginSchema, resetRequestSchema } from '@tinycld/core/components/worksp
 import { EnrollStep } from '@tinycld/core/components/workspace/sign-in/EnrollStep'
 import { MfaStep } from '@tinycld/core/components/workspace/sign-in/MfaStep'
 import { PasskeySignInButton } from '@tinycld/core/components/workspace/sign-in/PasskeySignInButton'
+import { PasswordStep } from '@tinycld/core/components/workspace/sign-in/PasswordStep'
 import { requestPasswordReset } from '@tinycld/core/lib/account-password'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { passkeys } from '@tinycld/core/lib/passkey'
@@ -98,16 +99,10 @@ function useLoginForm() {
         mode: 'onChange',
     })
 
-    const onSubmit = form.handleSubmit(async ({ identifier, password }) => {
+    const submitForm = form.handleSubmit(async ({ identifier, password }) => {
         const result = await login(identifier, password)
         if (result.error) {
             form.setError('root', { type: 'server', message: result.error })
-            return
-        }
-        // A second step (code, passkey or enrollment) now shows in place of
-        // this form. The password is cleared so it does not sit in the form.
-        if (result.step) {
-            form.reset({ identifier, password: '' })
             return
         }
         if (!result.user) return
@@ -123,6 +118,18 @@ function useLoginForm() {
         // signed-in user to the app root.
         router.replace(takePendingRoute() ?? '/')
     })
+
+    // A second step (code, passkey, enrollment, new password) now shows in
+    // place of this form. Reset it once the submit has finished: a reset
+    // inside the submit is overwritten by handleSubmit's own "succeeded"
+    // state, which would leave the form busy and read-only when the user
+    // comes back to it. The password is cleared so it does not sit there.
+    const onSubmit = async () => {
+        await submitForm()
+        if (useSignInStepStore.getState().step) {
+            form.reset({ identifier: form.getValues('identifier'), password: '' })
+        }
+    }
 
     const prefill = (identifier: string, password: string) => {
         form.setValue('identifier', identifier, { shouldValidate: true })
@@ -266,6 +273,7 @@ function LoginForm({
 function SignInStepView({ step }: { step: SignInStep | null }) {
     if (step?.kind === 'mfa') return <MfaStep step={step} />
     if (step?.kind === 'enroll') return <EnrollStep step={step} />
+    if (step?.kind === 'password') return <PasswordStep step={step} />
     return null
 }
 

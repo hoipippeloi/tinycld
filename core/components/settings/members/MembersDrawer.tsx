@@ -28,7 +28,7 @@ import { Pressable, Text, View } from 'react-native'
 import { InviteLinkPanel } from './InviteLinkPanel'
 import { PendingBadge, RoleBadge, YouBadge } from './MemberBadges'
 import { MemberGroupChips } from './MemberGroupChips'
-import { MemberMfaReset } from './MemberMfaReset'
+import { MemberSignInHelp } from './MemberSignInHelp'
 import { PackageAccessPanel } from './PackageAccessPanel'
 import { RemoveMemberFlow } from './RemoveMemberFlow'
 import {
@@ -121,8 +121,8 @@ function ViewMember({
     // but the control should not offer an action that always fails.
     const canChangeRole = !isSelf && !isLastOwner && (isCurrentUserOwner || member.role !== 'owner')
     const showPackageAccess = member.role === 'member' || member.role === 'guest'
-    // Only an owner may reset an owner (the server enforces it too).
-    const canResetMfa =
+    // Only an owner may help an owner sign in (the server enforces it too).
+    const canHelpSignIn =
         !isSelf && !member.isPending && (isCurrentUserOwner || member.role !== 'owner')
 
     const availableRoles: OrgRole[] = isCurrentUserOwner
@@ -275,10 +275,11 @@ function ViewMember({
 
                     <MemberGroupChips userId={member.userId} />
 
-                    <MemberMfaReset
-                        isVisible={canResetMfa}
+                    <MemberSignInHelp
+                        isVisible={canHelpSignIn}
                         userId={member.userId}
                         name={displayName}
+                        email={member.email}
                     />
                 </View>
             </DrawerBody>

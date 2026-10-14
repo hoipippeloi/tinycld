@@ -19,8 +19,11 @@ vi.mock('@tinycld/core/lib/auth', () => ({
 
 // The reset request is a network call; the form only needs to know it ran.
 const requestPasswordReset = vi.fn(async (_email: string) => {})
+const confirmPasswordReset = vi.fn(async (_token: string, _pw: string, _confirm: string) => {})
 vi.mock('@tinycld/core/lib/account-password', () => ({
     requestPasswordReset: (email: string) => requestPasswordReset(email),
+    confirmPasswordReset: (token: string, pw: string, confirm: string) =>
+        confirmPasswordReset(token, pw, confirm),
 }))
 
 // Pre-auth branding lookup — irrelevant to the notice behavior under test.
@@ -173,12 +176,53 @@ describe('LoginModal — second sign-in step', () => {
         expect(byTestId(container, 'mfa-recovery-code')).toBeTruthy()
     })
 
+    // handleSubmit marks the form "succeeded" after a step answer; the form
+    // must still be editable when the user comes back to it.
+    it('leaves the form editable after going back from a step', async () => {
+        login.mockImplementation(async () => {
+            const step = { kind: 'mfa' as const, token: 'tok', methods: ['totp' as const] }
+            useSignInStepStore.getState().setStep(step)
+            return { user: null, error: null, step }
+        })
+        const { container } = render(<LoginModal />, { wrapper: QueryWrapper })
+        await typeInto(byTestId(container, 'identifier'), 'alice')
+        await typeInto(byTestId(container, 'login-password'), 'pw')
+        await click(byTestId(container, 'login-submit'))
+        await vi.waitFor(() => expect(byTestId(container, 'mfa-step')).toBeTruthy())
+
+        await click(byTestId(container, 'mfa-back'))
+        const identifier = byTestId(container, 'identifier') as HTMLInputElement
+        // The stub renders `editable` as an attribute only while it is true.
+        expect(identifier.hasAttribute('editable')).toBe(true)
+        expect(identifier.value).toBe('alice')
+        expect((byTestId(container, 'login-password') as HTMLInputElement).value).toBe('')
+    })
+
     it('goes back to the password form', async () => {
         useSignInStepStore.getState().setStep({ kind: 'mfa', token: 'tok', methods: ['totp'] })
         const { container } = render(<LoginModal />, { wrapper: QueryWrapper })
         await click(byTestId(container, 'mfa-back'))
         expect(byTestId(container, 'login-submit')).toBeTruthy()
         expect(useSignInStepStore.getState().step).toBeNull()
+    })
+
+    it('asks for a new password after a temporary one, then returns to sign-in', async () => {
+        confirmPasswordReset.mockResolvedValue(undefined)
+        useSignInStepStore.getState().setStep({ kind: 'password', token: 'reset-tok' })
+        const { container } = render(<LoginModal />, { wrapper: QueryWrapper })
+        expect(byTestId(container, 'password-step')).toBeTruthy()
+
+        await typeInto(byTestId(container, 'new-password'), 'MyOwnPass123!')
+        await typeInto(byTestId(container, 'new-password-confirm'), 'MyOwnPass123!')
+        await click(byTestId(container, 'new-password-submit'))
+
+        await vi.waitFor(() => expect(byTestId(container, 'login-submit')).toBeTruthy())
+        expect(confirmPasswordReset).toHaveBeenCalledWith(
+            'reset-tok',
+            'MyOwnPass123!',
+            'MyOwnPass123!'
+        )
+        expect(byTestId(container, 'sign-in-notice')?.textContent).toContain('new password is set')
     })
 
     it('shows the enrollment step when the organization requires MFA', () => {

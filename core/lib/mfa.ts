@@ -60,7 +60,14 @@ export function createAppPassword(
     return pb.send('/api/account/app-passwords', { method: 'POST', body: { name } })
 }
 
-/** Owner/admin: remove every second factor from another account. */
-export function resetUserMfa(userId: string): Promise<void> {
-    return pb.send(`/api/admin/users/${userId}/mfa/reset`, { method: 'POST' })
+/**
+ * Owner/admin: email a password-reset link for another member, to their own
+ * address or (when given) another one the admin confirmed with them. An
+ * action that sends mail, so it is a route rather than a collection write.
+ */
+export function sendPasswordResetFor(userId: string, email?: string): Promise<{ sentTo: string }> {
+    return pb.send(`/api/admin/users/${userId}/password-reset/send`, {
+        method: 'POST',
+        body: { email: email ?? '' },
+    })
 }

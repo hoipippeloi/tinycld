@@ -438,6 +438,7 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterAuditHooks(app)
 	RegisterAccountDelete(app)
 	RegisterAppPasswords(app)
+	RegisterAdminPasswordReset(app)
 	RegisterAdminOffboard(app)
 	offboard.Register(app)
 	webhookin.RegisterRoutes(app)

@@ -92,3 +92,14 @@ func PasswordOnlyAllowed(app core.App, user *core.Record) bool {
 func RequiresEnrollment(app core.App, user *core.Record) bool {
 	return user.GetString("role") != guestRole && RequireMFA(app)
 }
+
+// MustChangePasswordField is set on a users record when an owner or admin
+// gave it a temporary password.
+const MustChangePasswordField = "must_change_password"
+
+// MustChangePassword reports whether user still has an admin-set temporary
+// password. Such a password only opens the "choose a new password" step: it
+// gives no session, no protocol login and no emailed-code session.
+func MustChangePassword(user *core.Record) bool {
+	return user.GetBool(MustChangePasswordField)
+}

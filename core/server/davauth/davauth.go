@@ -120,6 +120,11 @@ func passwordAccepted(app core.App, record *core.Record, password string) bool {
 	if !record.ValidatePassword(password) {
 		return false
 	}
+	// An admin-set temporary password opens only the "choose a new password"
+	// step in the app.
+	if authfactor.MustChangePassword(record) {
+		return false
+	}
 	return authfactor.PasswordOnlyAllowed(app, record)
 }
 

@@ -36,18 +36,56 @@ const (
 // (password, OTP, OAuth2) and has no authenticator app or passkey.
 func registerGate(app core.App) {
 	app.OnRecordAuthRequest(usersCollection).BindFunc(func(e *core.RecordAuthRequestEvent) error {
-		if e.Record == nil || passesGate(e.AuthMethod) {
+		if e.Record == nil {
 			return e.Next()
 		}
-
-		if authfactor.HasSecondFactor(e.App, e.Record.Id) {
-			return writePending(e, purposeVerify, map[string]any{"methods": availableMethods(e.App, e.Record.Id)})
+		if !passesGate(e.AuthMethod) {
+			if authfactor.HasSecondFactor(e.App, e.Record.Id) {
+				return writePending(e, purposeVerify, map[string]any{"methods": availableMethods(e.App, e.Record.Id)})
+			}
+			if authfactor.RequiresEnrollment(e.App, e.Record) {
+				return writePending(e, purposeEnroll, nil)
+			}
 		}
-		if authfactor.RequiresEnrollment(e.App, e.Record) {
-			return writePending(e, purposeEnroll, nil)
+		// Last, after the second step: a temporary password must not let its
+		// holder change the password before they prove the second factor.
+		if e.AuthMethod != "" && authfactor.MustChangePassword(e.Record) {
+			return writePasswordChange(e)
 		}
 		return e.Next()
 	})
+}
+
+// registerPasswordResetHook ends a temporary password when the member sets
+// their own through a reset token (the step writePasswordChange starts, or an
+// emailed link).
+func registerPasswordResetHook(app core.App) {
+	app.OnRecordConfirmPasswordResetRequest(usersCollection).BindFunc(func(e *core.RecordConfirmPasswordResetRequestEvent) error {
+		e.Record.Set(authfactor.MustChangePasswordField, false)
+		return e.Next()
+	})
+}
+
+// writePasswordChange answers a sign-in with an admin-set temporary password:
+// no session, only a PocketBase password-reset token. The client sends it to
+// the standard confirm-password-reset route with the member's new password,
+// then signs in again. The token is bound to the account's token key, so it
+// works once.
+func writePasswordChange(e *core.RecordAuthRequestEvent) error {
+	token, err := e.Record.NewPasswordResetToken()
+	if err != nil {
+		return e.InternalServerError("Could not start the password change.", err)
+	}
+	body := map[string]any{"passwordResetToken": token}
+	// A required enrollment that ends here still carries its one-time
+	// recovery codes; the client shows them before the password step.
+	if e.Meta != nil {
+		body["meta"] = e.Meta
+	}
+	if err := e.JSON(http.StatusUnauthorized, body); err != nil {
+		return err
+	}
+	return apis.ErrMFA
 }
 
 // passesGate: an empty method is a token refresh (the session already passed

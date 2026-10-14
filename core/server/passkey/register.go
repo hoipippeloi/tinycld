@@ -27,13 +27,16 @@ func registerCore(app core.App) {
 	registerDeleteGuard(app)
 }
 
-// registerDeleteGuard refuses to remove an account's last factor through the
-// collection API while the organization requires MFA. Without it, an account
+// registerDeleteGuard refuses to let a member remove their own last factor
+// through the collection API while the organization requires MFA. Without it, an account
 // could drop to no factor at all, and the account password would work alone
 // again. The authenticator app has the same floor in its disable route.
 func registerDeleteGuard(app core.App) {
 	app.OnRecordDeleteRequest(authfactor.PasskeysCollection).BindFunc(func(e *core.RecordRequestEvent) error {
-		if e.HasSuperuserAuth() {
+		// An owner or admin removing another member's passkeys is a recovery
+		// reset (the collection rule allows it); that member enrolls again at
+		// the next sign-in. The floor is for the member's own removals.
+		if e.HasSuperuserAuth() || e.Auth == nil || e.Auth.Id != e.Record.GetString("user") {
 			return e.Next()
 		}
 		user, err := e.App.FindRecordById(usersCollection, e.Record.GetString("user"))

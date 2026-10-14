@@ -11,6 +11,9 @@ export type MfaMethod = 'totp' | 'recovery' | 'passkey'
 export type SignInStep =
     | { kind: 'mfa'; token: string; methods: MfaMethod[] }
     | { kind: 'enroll'; token: string }
+    // An owner or admin set a temporary password: choose a new one. The token
+    // is a PocketBase password-reset token for confirmPasswordReset.
+    | { kind: 'password'; token: string }
 
 /** The body of every PocketBase auth response, and of the routes that end in one. */
 export type AuthResponse = {
@@ -26,15 +29,17 @@ function isMfaMethod(value: unknown): value is MfaMethod {
 }
 
 /**
- * Reads the second-step 401 the server sends instead of a session when the
- * account has MFA (`mfaToken`) or must enroll (`mfaEnrollToken`). Any other
- * error returns null and stays an ordinary sign-in failure.
+ * Reads the 401 the server sends instead of a session when the account has
+ * MFA (`mfaToken`), must enroll (`mfaEnrollToken`), or must replace an
+ * admin-set temporary password (`passwordResetToken`). Any other error
+ * returns null and stays an ordinary sign-in failure.
  */
 export function signInStepFromError(error: unknown): SignInStep | null {
     if (!(error instanceof ClientResponseError) || error.status !== 401) return null
     const body = error.response as {
         mfaToken?: unknown
         mfaEnrollToken?: unknown
+        passwordResetToken?: unknown
         methods?: unknown
     }
     if (typeof body.mfaToken === 'string' && body.mfaToken) {
@@ -43,6 +48,9 @@ export function signInStepFromError(error: unknown): SignInStep | null {
     }
     if (typeof body.mfaEnrollToken === 'string' && body.mfaEnrollToken) {
         return { kind: 'enroll', token: body.mfaEnrollToken }
+    }
+    if (typeof body.passwordResetToken === 'string' && body.passwordResetToken) {
+        return { kind: 'password', token: body.passwordResetToken }
     }
     return null
 }

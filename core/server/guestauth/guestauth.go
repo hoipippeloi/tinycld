@@ -265,7 +265,7 @@ var ErrFullSignInRequired = errors.New("guestauth: account needs a full sign-in"
 
 // FullSignInMessage is what a share-link page tells a visitor whose account
 // cannot be signed in with an emailed code.
-const FullSignInMessage = "This account signs in with two-step verification. Sign in to TinyCld, then open the link again."
+const FullSignInMessage = "This account must sign in to TinyCld first (it uses two-step verification, or needs a new password). Sign in, then open the link again."
 
 // NewSessionToken mints the session a redeemed email code grants.
 //
@@ -275,7 +275,7 @@ const FullSignInMessage = "This account signs in with two-step verification. Sig
 // there would let a mailbox alone skip the second step. Those accounts get
 // ErrFullSignInRequired and sign in through the normal form instead.
 func NewSessionToken(app core.App, user *core.Record) (string, error) {
-	if !authfactor.PasswordOnlyAllowed(app, user) {
+	if !authfactor.PasswordOnlyAllowed(app, user) || authfactor.MustChangePassword(user) {
 		return "", ErrFullSignInRequired
 	}
 	return user.NewAuthToken()

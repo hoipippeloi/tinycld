@@ -7,9 +7,10 @@ import { beginTotpSetup, confirmTotpEnrollment } from '@tinycld/core/lib/mfa'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { passkeys } from '@tinycld/core/lib/passkey'
 import { defaultPasskeyName } from '@tinycld/core/lib/passkey-types'
-import type { AuthResponse, SignInStep } from '@tinycld/core/lib/sign-in-step'
-import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
+import type { SignInStep } from '@tinycld/core/lib/sign-in-step'
+import { advanceSignInStep, useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
+import { ClientResponseError } from 'pocketbase'
 import { useState } from 'react'
 import { Platform, Pressable, Text, View } from 'react-native'
 
@@ -20,18 +21,36 @@ type EnrollSignInStep = Extract<SignInStep, { kind: 'enroll' }>
 // session arrives with the confirmation. With an authenticator app, the
 // recovery codes come with it and are shown before the session is adopted,
 // because adopting it leaves this screen.
+//
+// What comes after the codes is a session, or (with an admin-set temporary
+// password) the "choose a new password" step, which carries the codes too.
+type Enrolled = { codes: string[]; next: () => void }
+
+function recoveryCodesOf(error: unknown): string[] {
+    if (!(error instanceof ClientResponseError)) return []
+    const meta = (error.response as { meta?: { recoveryCodes?: unknown } }).meta
+    return Array.isArray(meta?.recoveryCodes) ? meta.recoveryCodes.map(String) : []
+}
+
 function useTotpEnrollment(enrollToken: string) {
     const finishSignIn = useFinishSignIn()
-    const [session, setSession] = useState<AuthResponse | null>(null)
+    const [enrolled, setEnrolled] = useState<Enrolled | null>(null)
     const begin = useMutation({
         mutationFn: () => beginTotpSetup(enrollToken),
         onError: () => {},
     })
     const confirm = async (code: string) => {
-        setSession(await confirmTotpEnrollment(enrollToken, code))
-    }
-    const finish = () => {
-        if (session) finishSignIn(session)
+        try {
+            const session = await confirmTotpEnrollment(enrollToken, code)
+            setEnrolled({
+                codes: session.meta?.recoveryCodes ?? [],
+                next: () => finishSignIn(session),
+            })
+        } catch (error) {
+            const codes = recoveryCodesOf(error)
+            if (codes.length === 0) throw error
+            setEnrolled({ codes, next: () => advanceSignInStep(error) })
+        }
     }
     return {
         start: () => begin.mutate(),
@@ -39,8 +58,8 @@ function useTotpEnrollment(enrollToken: string) {
         startError: begin.error ? errorToString(begin.error) : null,
         setup: begin.data ?? null,
         confirm,
-        recoveryCodes: session?.meta?.recoveryCodes ?? null,
-        finish,
+        recoveryCodes: enrolled?.codes ?? null,
+        finish: () => enrolled?.next(),
     }
 }
 

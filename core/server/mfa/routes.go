@@ -47,9 +47,6 @@ func registerRoutes(app core.App) {
 		e.Router.POST("/api/auth/mfa/verify", func(re *core.RequestEvent) error {
 			return handleVerify(app, re)
 		})
-		e.Router.POST("/api/admin/users/{id}/mfa/reset", func(re *core.RequestEvent) error {
-			return handleAdminReset(app, re)
-		})
 		return e.Next()
 	})
 }
@@ -266,52 +263,6 @@ func handleVerify(app core.App, re *core.RequestEvent) error {
 		return re.BadRequestError(msgBadCode, nil)
 	}
 	return apis.RecordAuthResponse(re, user, MethodTOTP, nil)
-}
-
-// handleAdminReset removes every second factor from an account, for a user
-// who lost their phone and their recovery codes. Only an owner may reset an
-// owner, so an admin cannot take over an owner account by resetting it.
-func handleAdminReset(app core.App, re *core.RequestEvent) error {
-	caller, err := sessionUser(re)
-	if err != nil {
-		return err
-	}
-	role := caller.GetString("role")
-	if caller.GetBool("disabled") || (role != "owner" && role != "admin") {
-		return re.ForbiddenError("Only an owner or admin can reset MFA", nil)
-	}
-	target, err := app.FindRecordById(usersCollection, re.Request.PathValue("id"))
-	if err != nil {
-		return re.NotFoundError("User not found", err)
-	}
-	if target.GetString("role") == "owner" && role != "owner" {
-		return re.ForbiddenError("Only an owner can reset another owner's MFA", nil)
-	}
-
-	// App passwords go too: whoever holds the account now (the user, or the
-	// person who took their phone) must not keep protocol access made before.
-	err = app.RunInTransaction(func(tx core.App) error {
-		if err := authfactor.RevokeAppPasswords(tx, target.Id); err != nil {
-			return err
-		}
-		for _, collection := range []string{authfactor.TOTPCollection, authfactor.PasskeysCollection} {
-			rows, err := tx.FindAllRecords(collection, userFilter(target.Id))
-			if err != nil {
-				return err
-			}
-			for _, row := range rows {
-				if err := tx.Delete(row); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return re.InternalServerError("Could not reset MFA", err)
-	}
-	logAudit(app, re, "mfa.reset", target, map[string]any{"by": caller.Id})
-	return re.NoContent(http.StatusNoContent)
 }
 
 // proveFactor accepts an authenticator code or a recovery code.

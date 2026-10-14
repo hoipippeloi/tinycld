@@ -10,17 +10,24 @@
 migrate(
     app => {
         const own = '@request.auth.id != "" && @request.auth.disabled != true && user = @request.auth.id'
+        // An owner or admin may see and remove another member's rows, for a
+        // member who lost their phone or recovery codes. Never their own (that
+        // goes through the routes that ask for a code), and an admin never an
+        // owner's, so an admin cannot take over an owner account.
+        const adminOver =
+            '@request.auth.id != "" && @request.auth.disabled != true && user != @request.auth.id && ' +
+            '(@request.auth.role = "owner" || (@request.auth.role = "admin" && user.role != "owner"))'
 
         const collection = new Collection({
             id: 'pbc_app_passwords_01',
             name: 'app_passwords',
             type: 'base',
             system: false,
-            listRule: own,
-            viewRule: own,
+            listRule: `(${own}) || (${adminOver})`,
+            viewRule: `(${own}) || (${adminOver})`,
             createRule: null,
             updateRule: null,
-            deleteRule: own,
+            deleteRule: `(${own}) || (${adminOver})`,
             fields: [
                 {
                     id: 'app_passwords_user',

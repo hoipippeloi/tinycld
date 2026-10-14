@@ -18,3 +18,14 @@ export const recoveryCodeSchema = z.object({
             z.string().regex(/^[a-zA-Z0-9]{10}$/, 'Enter one of your 10-character recovery codes')
         ),
 })
+
+// Matches the 8-character minimum of Settings → Security's password change.
+export const newPasswordSchema = z
+    .object({
+        password: z.string().min(8, 'Use at least 8 characters'),
+        passwordConfirm: z.string().min(1, 'Type the password again'),
+    })
+    .refine(v => v.password === v.passwordConfirm, {
+        path: ['passwordConfirm'],
+        message: 'Passwords do not match',
+    })

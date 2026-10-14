@@ -20,6 +20,11 @@ describe('signInStepFromError', () => {
         expect(signInStepFromError(err)).toEqual({ kind: 'enroll', token: 'e' })
     })
 
+    it('reads the new-password step after a temporary password', () => {
+        const err = new ClientResponseError({ status: 401, response: { passwordResetToken: 'r' } })
+        expect(signInStepFromError(err)).toEqual({ kind: 'password', token: 'r' })
+    })
+
     it('ignores other errors', () => {
         expect(signInStepFromError(new Error('x'))).toBeNull()
         expect(

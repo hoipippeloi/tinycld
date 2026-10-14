@@ -5,6 +5,8 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/audit"
+	"tinycld.org/core/authfactor"
 )
 
 // selfEditableUserFields lists the fields the record's own user is allowed
@@ -46,12 +48,30 @@ var selfEditableUserFields = map[string]bool{
 // reason as `is_demo`: a suspended user must not be able to lift their own
 // suspension. Self-disable goes through POST /api/account/disable, which
 // re-verifies identity by email confirmation.
+//
+// `password` lets an owner or admin give a member who lost theirs a temporary
+// one (users.manageRule already waives `oldPassword` for them). Only an owner
+// may set an owner's password, and the member must choose a new password at
+// their next sign-in (see markPasswordChange).
 var adminEditableUserFields = map[string]bool{
 	"name":     true,
 	"avatar":   true,
 	"is_demo":  true,
 	"role":     true,
 	"disabled": true,
+	"password": true,
+}
+
+// markPasswordChange keeps must_change_password in step with who set the
+// password: an admin-set password is temporary, and the member's own change
+// ends that. It runs after the allowlist walk, so a client cannot write the
+// flag itself.
+func markPasswordChange(record, original *core.Record, byAdmin bool) bool {
+	if reflect.DeepEqual(record.GetRaw("password"), original.GetRaw("password")) {
+		return false
+	}
+	record.Set(authfactor.MustChangePasswordField, byAdmin)
+	return true
 }
 
 // revokeSessionsOnDisable rotates the auth token key when an admin flips
@@ -199,6 +219,7 @@ func registerUsersFieldGuardCore(app core.App) {
 
 		// Self-edits don't need the admin check below.
 		if isSelf {
+			markPasswordChange(e.Record, original, false)
 			return e.Next()
 		}
 
@@ -208,9 +229,22 @@ func registerUsersFieldGuardCore(app core.App) {
 			return e.ForbiddenError("Org admin role required", nil)
 		}
 
+		passwordSet := markPasswordChange(e.Record, original, true)
+		if passwordSet && original.GetString("role") == "owner" && e.Auth.GetString("role") != "owner" {
+			return e.ForbiddenError("Only an owner can set another owner's password", nil)
+		}
+
 		// After the allowlist walk, not before: rotating the key changes
 		// `tokenKey`, which the walk would then reject as an unpermitted field.
 		revokeSessionsOnDisable(e.Record, original)
-		return e.Next()
+		if err := e.Next(); err != nil {
+			return err
+		}
+		if passwordSet {
+			if err := audit.Log(e.App, "password.set_by_admin", "users", e.Record.Id, e.Record.GetString("email"), e.RequestEvent, nil); err != nil {
+				srvLog.WarnContext(e.Request.Context(), "admin password audit write failed", "userID", e.Record.Id, "err", err)
+			}
+		}
+		return nil
 	})
 }

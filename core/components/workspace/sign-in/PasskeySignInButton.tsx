@@ -4,6 +4,7 @@ import { useMutation } from '@tinycld/core/lib/mutations'
 import { NativeAuthCancelled } from '@tinycld/core/lib/native-auth-errors'
 import { passkeys } from '@tinycld/core/lib/passkey'
 import type { AuthResponse } from '@tinycld/core/lib/sign-in-step'
+import { advanceSignInStep } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { Text, View } from 'react-native'
 
@@ -25,7 +26,15 @@ function isCancel(error: unknown): boolean {
 export function PasskeySignInButton({ isVisible, label, testID, run }: Props) {
     const finishSignIn = useFinishSignIn()
     const signIn = useMutation({
-        mutationFn: async () => finishSignIn(await run()),
+        mutationFn: async () => {
+            try {
+                await finishSignIn(await run())
+            } catch (error) {
+                // A temporary password still needs replacing after the passkey.
+                if (advanceSignInStep(error)) return
+                throw error
+            }
+        },
         // Shown below the button; the default toast would repeat it.
         onError: () => {},
     })

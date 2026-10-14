@@ -8,7 +8,7 @@ import { errorToString } from '@tinycld/core/lib/errors'
 import { verifyMfa } from '@tinycld/core/lib/mfa'
 import { passkeys } from '@tinycld/core/lib/passkey'
 import type { SignInStep } from '@tinycld/core/lib/sign-in-step'
-import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
+import { advanceSignInStep, useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
 import { TextInput, useForm, zodResolver } from '@tinycld/core/ui/form'
 import { useState } from 'react'
@@ -23,6 +23,7 @@ function useTotpForm(mfaToken: string) {
         try {
             await finishSignIn(await verifyMfa(mfaToken, { code }))
         } catch (error) {
+            if (advanceSignInStep(error)) return
             form.setError('root', { type: 'server', message: errorToString(error) })
         }
     })
@@ -39,6 +40,7 @@ function useRecoveryForm(mfaToken: string) {
         try {
             await finishSignIn(await verifyMfa(mfaToken, { recoveryCode }))
         } catch (error) {
+            if (advanceSignInStep(error)) return
             form.setError('root', { type: 'server', message: errorToString(error) })
         }
     })

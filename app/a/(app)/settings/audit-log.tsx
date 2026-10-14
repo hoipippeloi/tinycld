@@ -33,7 +33,8 @@ const ACTION_OPTIONS = [
     { label: 'MFA turned off', value: 'mfa.disabled' },
     { label: 'Recovery code used', value: 'mfa.recovery_used' },
     { label: 'Recovery codes replaced', value: 'mfa.recovery_regenerated' },
-    { label: 'MFA reset by admin', value: 'mfa.reset' },
+    { label: 'Password set by admin', value: 'password.set_by_admin' },
+    { label: 'Password reset emailed', value: 'password.reset_sent' },
     { label: 'Passkey added', value: 'passkey.added' },
 ] as const
 
@@ -56,6 +57,7 @@ const RESOURCE_TYPE_OPTIONS = [
     { label: 'Packages', value: 'pkg_registry' },
     { label: 'Passkeys', value: 'passkeys' },
     { label: 'App passwords', value: 'app_passwords' },
+    { label: 'Authenticator apps', value: 'mfa_totp' },
 ] as const
 
 // Each audit action maps to a semantic soft-status class pair so the badge
@@ -74,7 +76,8 @@ const ACTION_BADGE_CLASS = {
     'mfa.disabled': 'bg-danger-soft',
     'mfa.recovery_used': 'bg-accent',
     'mfa.recovery_regenerated': 'bg-accent',
-    'mfa.reset': 'bg-danger-soft',
+    'password.set_by_admin': 'bg-accent',
+    'password.reset_sent': 'bg-accent',
     'passkey.added': 'bg-success-soft',
 } as const
 const ACTION_TEXT_CLASS = {
@@ -90,7 +93,8 @@ const ACTION_TEXT_CLASS = {
     'mfa.disabled': 'text-danger-soft-foreground',
     'mfa.recovery_used': 'text-accent-foreground',
     'mfa.recovery_regenerated': 'text-accent-foreground',
-    'mfa.reset': 'text-danger-soft-foreground',
+    'password.set_by_admin': 'text-accent-foreground',
+    'password.reset_sent': 'text-accent-foreground',
     'passkey.added': 'text-success-soft-foreground',
 } as const
 

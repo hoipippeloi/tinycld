@@ -16,5 +16,6 @@ var log = logging.ForPackage("mfa")
 // the passkey and nativeauth tests can bind the real gate onto a test app.
 func Register(app core.App) {
 	registerGate(app)
+	registerPasswordResetHook(app)
 	registerRoutes(app)
 }

@@ -28,7 +28,7 @@ Each code works one time. If a code is refused, wait for the next one.
 
 On the code screen, select **Use a recovery code** and type one of your saved recovery codes. Each recovery code works one time. After you sign in, open **Settings → Security** and set up the app again on your new phone.
 
-If you have no recovery codes left, ask an owner or admin of your organization to reset your two-step verification. They can do this from **Settings → Members**.
+If you have no recovery codes left, ask an owner or admin of your organization to reset your two-step verification. They can do this from **Settings → Members**. See [Help a member sign in](help://core:member-sign-in-help).
 
 ## Make new recovery codes
 

@@ -45,6 +45,16 @@ export async function changeMyPassword(args: ChangePasswordArgs): Promise<void> 
     }
 }
 
+// An owner or admin gives a member who lost their password a temporary one.
+// The same per-site exception as changeMyPassword: pbtsdb would write the
+// cleartext password into the local record. users.manageRule waives
+// `oldPassword` for an admin, and the server's users guard marks the password
+// temporary (must_change_password), refuses it for an owner unless the caller
+// is an owner, ends the member's sessions and revokes their app passwords.
+export async function setTemporaryPassword(userId: string, password: string): Promise<void> {
+    await pb.collection('users').update(userId, { password, passwordConfirm: password })
+}
+
 /**
  * Request a password-reset email for the given address. Uses PocketBase's
  * built-in flow (PB mints the token and owns its lifecycle); the outbound email

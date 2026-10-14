@@ -24,4 +24,4 @@ Spaces in the app password are optional, and so are capital letters.
 
 In **Settings → Security**, select the bin next to the app password, then **Revoke**. The app stops signing in at once. Revoke an app password when you stop using the app or lose the device.
 
-All your app passwords are revoked when you change your password, and when an admin resets your two-step verification. Create new ones for your apps after that.
+All your app passwords are revoked when you change your password, when an admin sets a temporary password for you, and when an admin resets your two-step verification. Create new ones for your apps after that.

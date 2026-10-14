@@ -11,6 +11,13 @@
 migrate(
     app => {
         const own = '@request.auth.id != "" && @request.auth.disabled != true && user = @request.auth.id'
+        // An owner or admin may see and remove another member's rows, for a
+        // member who lost their phone or recovery codes. Never their own (that
+        // goes through the routes that ask for a code), and an admin never an
+        // owner's, so an admin cannot take over an owner account.
+        const adminOver =
+            '@request.auth.id != "" && @request.auth.disabled != true && user != @request.auth.id && ' +
+            '(@request.auth.role = "owner" || (@request.auth.role = "admin" && user.role != "owner"))'
         const renameOnly =
             `${own} && @request.body.user:isset = false && @request.body.credential:isset = false && ` +
             '@request.body.credential_id:isset = false && @request.body.last_used:isset = false'
@@ -20,11 +27,11 @@ migrate(
             name: 'passkeys',
             type: 'base',
             system: false,
-            listRule: own,
-            viewRule: own,
+            listRule: `(${own}) || (${adminOver})`,
+            viewRule: `(${own}) || (${adminOver})`,
             createRule: null,
             updateRule: renameOnly,
-            deleteRule: own,
+            deleteRule: `(${own}) || (${adminOver})`,
             fields: [
                 {
                     id: 'passkeys_user',
