@@ -87,7 +87,7 @@ describe('FormRenderer design extensions', () => {
         const cell = q(container, 'form-field-severity') as HTMLElement
         expect(cell.tagName.toLowerCase()).toBe('rn-pressable')
         expect(cell.getAttribute('class')).toContain('basis-')
-        expect(cell.getAttribute('accessibilityRole')).toBe('button')
+        expect(cell.getAttribute('accessibilityRole')).toBeNull()
         expect(cell.getAttribute('accessibilityLabel')).toBe('Select Severity')
         expect(cell.parentElement?.tagName.toLowerCase()).not.toBe('rn-pressable')
         fireEvent.click(cell)

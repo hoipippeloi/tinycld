@@ -128,12 +128,9 @@ export function FieldCell({
     )
     if (!onPress) return <View {...root}>{body}</View>
     return (
-        <Pressable
-            {...root}
-            onPress={onPress}
-            accessibilityRole="button"
-            accessibilityLabel={`Select ${label}`}
-        >
+        // No button role: the cell holds the drag handle and the field's inputs, and RNW
+        // renders a button element for that role, which cannot nest other buttons.
+        <Pressable {...root} onPress={onPress} accessibilityLabel={`Select ${label}`}>
             {body}
         </Pressable>
     )
