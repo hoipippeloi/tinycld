@@ -141,7 +141,6 @@ function useCondition(editor: Editor, ruleIndex: number, index: number) {
         // A typed date is checked as it is typed, so its form shows under the input.
         setValue: (value: ConditionValue) => {
             set({ value })
-            // A typed date is checked as it is typed, so its form shows under the input.
             if (catalog?.type === 'date') void editor.form.trigger(`${name}.value`)
         },
     }

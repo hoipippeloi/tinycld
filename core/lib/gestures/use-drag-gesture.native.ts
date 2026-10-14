@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
     type GestureResponderEvent,
     PanResponder,
@@ -36,6 +36,13 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
 
     const stateRef = useRef<GestureState | null>(null)
 
+    useEffect(
+        () => () => {
+            if (stateRef.current) clearPressTimer(stateRef.current)
+        },
+        []
+    )
+
     // PanResponder is memoized per-mount so its closure captures the
     // ref-driven opts (which always read through optsRef.current). This
     // lets the consumer pass fresh closures each render without re-
@@ -53,6 +60,9 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
             onStartShouldSetPanResponderCapture: () => !optsRef.current.disabled,
             onMoveShouldSetPanResponder: () => !optsRef.current.disabled,
             onMoveShouldSetPanResponderCapture: () => !optsRef.current.disabled,
+            // A long-press caller must let a swipe on the handle reach the
+            // ScrollView; the canvas disables scrolling itself once a drag engages.
+            onShouldBlockNativeResponder: () => optsRef.current.longPressMs === undefined,
             onPanResponderGrant: (e: GestureResponderEvent) => {
                 wasDraggedRef.current = false
                 const { pageX, pageY } = e.nativeEvent

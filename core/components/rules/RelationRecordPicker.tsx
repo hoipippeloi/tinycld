@@ -14,6 +14,7 @@ export interface RelationRecordPickerProps {
     displayField: string
     value: string
     onChange: (id: string) => void
+    accessibilityLabel?: string
 }
 
 function recordLabel(record: Record<string, unknown>, displayField: string): string {
@@ -157,7 +158,7 @@ function PickerResults({ target, displayField, value, onChange }: RelationRecord
 }
 
 export function RelationRecordPicker(props: RelationRecordPickerProps) {
-    const { target, displayField, value, onChange } = props
+    const { target, displayField, value, onChange, accessibilityLabel } = props
     const mutedColor = useThemeColor('muted-foreground')
     const isRegistered = Boolean(collectionByName(target))
     const selectedRecord = useSelectedRecord(target, value)
@@ -167,6 +168,7 @@ export function RelationRecordPicker(props: RelationRecordPickerProps) {
             <PlainInput
                 value={value}
                 onChangeText={onChange}
+                accessibilityLabel={accessibilityLabel}
                 placeholder={`record id — ${target} isn't installed here`}
                 className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
             />
@@ -181,7 +183,10 @@ export function RelationRecordPicker(props: RelationRecordPickerProps) {
     return (
         <Menu
             trigger={
-                <Pressable className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background">
+                <Pressable
+                    accessibilityLabel={accessibilityLabel}
+                    className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background"
+                >
                     <Text className="text-sm text-foreground" numberOfLines={1}>
                         {label}
                     </Text>

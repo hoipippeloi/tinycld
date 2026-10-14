@@ -103,4 +103,26 @@ describe('useDragGesture (native)', () => {
         expect(onDragStart).not.toHaveBeenCalled()
         expect(onDragCancel).not.toHaveBeenCalled()
     })
+
+    it('blocks the native responder only without longPressMs', () => {
+        const plain = renderHook(() => useDragGesture({}))
+        const held = renderHook(() => useDragGesture({ longPressMs: 250 }))
+        expect(handlersOf(plain.result).onShouldBlockNativeResponder(event(0, 0))).toBe(true)
+        expect(handlersOf(held.result).onShouldBlockNativeResponder(event(0, 0))).toBe(false)
+    })
+
+    it('clears the long-press timer on unmount', () => {
+        const onDragStart = vi.fn(() => true)
+        const { result, unmount } = renderHook(() =>
+            useDragGesture({ onDragStart, longPressMs: 250 })
+        )
+        act(() => {
+            handlersOf(result).onPanResponderGrant(event(10, 10))
+        })
+        unmount()
+        act(() => {
+            vi.advanceTimersByTime(500)
+        })
+        expect(onDragStart).not.toHaveBeenCalled()
+    })
 })

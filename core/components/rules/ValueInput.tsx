@@ -128,7 +128,10 @@ function SelectValueInput({
     return (
         <Menu
             trigger={
-                <Pressable className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background">
+                <Pressable
+                    accessibilityLabel="Condition value"
+                    className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background"
+                >
                     <Text className="text-sm text-foreground" numberOfLines={1}>
                         {selectedLabel}
                     </Text>
@@ -166,6 +169,7 @@ export function ValueInput({ field, op, value, onChange, accessibilityLabel }: V
                 displayField={field.displayField ?? 'id'}
                 value={typeof value === 'string' ? value : ''}
                 onChange={onChange}
+                accessibilityLabel="Condition value"
             />
         )
     }
