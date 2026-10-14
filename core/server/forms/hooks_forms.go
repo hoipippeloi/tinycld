@@ -2,6 +2,9 @@ package forms
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/pocketbase/dbx"
 	validation "github.com/pocketbase/ozzo-validation/v4"
@@ -42,7 +45,7 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return settleDefault(e.App, e.Record)
+		return settleDefault(e.Context, e.App, e.Record)
 	})
 	app.OnRecordUpdate(formsCollection).BindFunc(func(e *core.RecordEvent) error {
 		if err := validate(e); err != nil {
@@ -59,7 +62,7 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		return settleDefault(e.App, e.Record)
+		return settleDefault(e.Context, e.App, e.Record)
 	})
 	app.OnRecordDelete(formsCollection).BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetBool("is_default") {
@@ -67,10 +70,15 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		}
 		host := defs.Host(e.Record.GetString("host"))
 		if host != nil {
-			if _, err := e.App.FindCollectionByNameOrId(host.Collection); err == nil {
-				inUse, err := e.App.FindFirstRecordByFilter(host.Collection, host.FormColumn+" = {:id}", dbx.Params{"id": e.Record.Id})
-				if err == nil && inUse != nil {
+			if _, err := e.App.FindCollectionByNameOrId(host.Collection); err != nil {
+				log.DebugContext(e.Context, "host collection absent, skipping in-use check", "collection", host.Collection)
+			} else {
+				_, err := e.App.FindFirstRecordByFilter(host.Collection, host.FormColumn+" = {:id}", dbx.Params{"id": e.Record.Id})
+				if err == nil {
 					return fieldErr("id", "validation_form_in_use", "This form is in use. Archive it instead.")
+				}
+				if !errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("forms: check form use: %w", err)
 				}
 			}
 		}
@@ -81,7 +89,7 @@ func bindFormsHooks(app core.App, defs *Defs) {
 // settleDefault keeps exactly one default per host: a form saved as default
 // clears the flag on its siblings. The save goes through the normal hook path
 // so realtime and audit see it; settlingKey lets it past the guard.
-func settleDefault(app core.App, saved *core.Record) error {
+func settleDefault(ctx context.Context, app core.App, saved *core.Record) error {
 	if !saved.GetBool("is_default") {
 		return nil
 	}
@@ -92,7 +100,7 @@ func settleDefault(app core.App, saved *core.Record) error {
 	}
 	for _, o := range others {
 		o.Set("is_default", false)
-		if err := app.SaveWithContext(context.WithValue(context.Background(), settlingKey, true), o); err != nil {
+		if err := app.SaveWithContext(context.WithValue(ctx, settlingKey, true), o); err != nil {
 			return err
 		}
 	}

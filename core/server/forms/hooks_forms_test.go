@@ -247,3 +247,20 @@ func TestFormsHook_SettlingSiblingFiresUpdateHook(t *testing.T) {
 		t.Fatal("a must no longer be default")
 	}
 }
+
+func TestFormsHook_DeleteToleratesAbsentHostCollection(t *testing.T) {
+	e := newTestEnv(t)
+	col, _ := e.app.FindCollectionByNameOrId("forms")
+	r := core.NewRecord(col)
+	r.Set("host", "gizmos:other")
+	r.Set("name", "o")
+	r.Set("slug", "o")
+	r.Set("definition", []byte(`{"version":1,"pages":[{"key":"main","title":"M"}],"fields":[{"key":"name","kind":"builtin","page":"main","label":"Name","width":"full","required":true,"hidden":false}],"rules":[],"defaults":{},"submit":{"required":[]}}`))
+	r.Set("order", 1)
+	if err := e.app.Save(r); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.app.Delete(r); err != nil {
+		t.Fatalf("delete with absent host collection: %v", err)
+	}
+}
