@@ -5,7 +5,7 @@ tags: [forms, fields, rules, types]
 order: 45
 ---
 
-Some records, such as a card in Boards, carry a **form**. The form decides
+Some records, such as a task or a ticket, carry a **form**. The form decides
 which fields the record shows, in what order, on which page, and which rules
 apply. A record type is a form: a board can have a Card form and a Bug form,
 and each card uses one of them.
@@ -41,7 +41,7 @@ from today, or the current user.
 
 ## Changing a record's type
 
-To change a record's type, open its actions menu and choose **Change type**.
+Where the feature that owns the record offers it, open the record's actions menu and choose **Change type**.
 Values for fields the new type does not have are kept but hidden; they show
 again if the record returns to the old type or the new type gains that field.
 
