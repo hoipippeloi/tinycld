@@ -5,6 +5,7 @@ import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { newCustomField } from '../../../lib/forms/builder'
+import { definitionSchema } from '../../../lib/forms/definition'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { OverlayProvider } from '../../../ui/overlay'
 import { PreviewDialog } from '../PreviewDialog'
@@ -18,7 +19,7 @@ const render = (ui: ReactElement) =>
         </QueryClientProvider>
     )
 const base = defaultDefinitionFor(widgetHost)
-const def = {
+const def = definitionSchema.parse({
     ...base,
     pages: [
         { key: 'main', title: 'Widget' },
@@ -44,7 +45,7 @@ const def = {
         },
     ],
     defaults: { severity: 'low' },
-}
+})
 const plain = {
     id: 'f1',
     host: 'gizmos:widget',
@@ -81,7 +82,7 @@ const q = (c: HTMLElement, id: string) => c.querySelector(`[testID="${id}"]`) as
 const ctx = { today: '2026-01-01', userId: 'u1' }
 
 function Harness() {
-    const editor = useEditorForm('f1')
+    const editor = useEditorForm(plain, admin.host)
     return <PreviewDialog editor={editor} context={ctx} isOpen onClose={() => {}} />
 }
 

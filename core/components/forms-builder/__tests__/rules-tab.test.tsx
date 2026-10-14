@@ -64,7 +64,7 @@ const q = (_c: ParentNode, id: string) =>
 
 let editorRef: ReturnType<typeof useEditorForm> | null = null
 function Harness() {
-    const editor = useEditorForm('f1')
+    const editor = useEditorForm(plain, host)
     editorRef = editor
     return <RulesTab editor={editor} isVisible />
 }

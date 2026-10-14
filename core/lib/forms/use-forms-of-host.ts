@@ -3,13 +3,18 @@ import { useLiveQuery } from '@tanstack/react-db'
 import { log } from '@tinycld/core/lib/logger'
 import { useStore } from '@tinycld/core/lib/pocketbase'
 import { useMemo } from 'react'
-import { definitionSchema } from './definition'
+import { definitionSchema, type FormDefinition } from './definition'
 
 /** Rows already reported, so a bad definition logs once, not on every render. */
 const warnedInvalid = new Set<string>()
 
+/** A row whose definition parsed. The stored column is untyped JSON, so the parsed type replaces it. */
+export type ParsedFormRow<T> = Omit<T, 'definition'> & { definition: FormDefinition }
+
 /** Parses each row's definition, dropping (and reporting once) the ones that do not parse. */
-export function parseFormRows<T extends { id: string; definition: unknown }>(rows: T[]) {
+export function parseFormRows<T extends { id: string; definition: unknown }>(
+    rows: T[]
+): ParsedFormRow<T>[] {
     return rows.flatMap(row => {
         const parsed = definitionSchema.safeParse(row.definition)
         if (!parsed.success) {

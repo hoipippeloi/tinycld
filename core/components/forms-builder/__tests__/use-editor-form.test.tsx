@@ -2,9 +2,9 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { newCustomField, removeField } from '../../../lib/forms/builder'
+import { moveField, newCustomField, removeField } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
-import { draftPath, fromDraft, toDraft, useEditorForm } from '../use-editor-form'
+import { dateIssues, draftPath, fromDraft, toDraft, useEditorForm } from '../use-editor-form'
 
 const plain = {
     id: 'f1',
@@ -39,8 +39,7 @@ beforeEach(() => save.mockClear())
 
 describe('useEditorForm', () => {
     it('loads the row into the form and applies draft operations', () => {
-        const { result } = renderHook(() => useEditorForm('f1'))
-        expect(result.current.isReady).toBe(true)
+        const { result } = renderHook(() => useEditorForm(plain, host))
         expect(result.current.form.getValues('pages')).toEqual([{ key: 'main', title: 'Widget' }])
         act(() =>
             result.current.apply(def => ({
@@ -56,7 +55,7 @@ describe('useEditorForm', () => {
         expect(result.current.isDirty).toBe(true)
     })
     it('saves a valid definition and returns true', async () => {
-        const { result } = renderHook(() => useEditorForm('f1'))
+        const { result } = renderHook(() => useEditorForm(plain, host))
         let ok = false
         await act(async () => {
             ok = await result.current.save()
@@ -71,7 +70,7 @@ describe('useEditorForm', () => {
         save.mockRejectedValueOnce({
             response: { data: { 'definition.fields.0.label': { message: 'bad label' } } },
         })
-        const { result } = renderHook(() => useEditorForm('f1'))
+        const { result } = renderHook(() => useEditorForm(plain, host))
         let ok = true
         await act(async () => {
             ok = await result.current.save()
@@ -83,7 +82,7 @@ describe('useEditorForm', () => {
         save.mockRejectedValueOnce({
             response: { data: { 'definition.fields.6.accept.0': { message: 'bad type' } } },
         })
-        const { result } = renderHook(() => useEditorForm('f1'))
+        const { result } = renderHook(() => useEditorForm(plain, host))
         act(() =>
             result.current.apply(def => ({
                 ...def,
@@ -116,7 +115,7 @@ describe('useEditorForm', () => {
             return ok
         }
         beforeEach(() => {
-            hook = renderHook(() => useEditorForm('f1'))
+            hook = renderHook(() => useEditorForm(plain, host))
         })
         it('saves a number default typed as text as a number', async () => {
             withCount({ count: '5' })
@@ -144,7 +143,7 @@ describe('useEditorForm', () => {
         })
     })
     it('refuses to save a definition that fails host validation', async () => {
-        const { result } = renderHook(() => useEditorForm('f1'))
+        const { result } = renderHook(() => useEditorForm(plain, host))
         act(() =>
             result.current.apply(def => ({
                 ...def,
@@ -162,7 +161,7 @@ describe('useEditorForm', () => {
         expect(save).not.toHaveBeenCalled()
     })
     it('applyRemoval reports what was dropped as a notice', () => {
-        const { result } = renderHook(() => useEditorForm('f1'))
+        const { result } = renderHook(() => useEditorForm(plain, host))
         act(() =>
             result.current.apply(def => ({
                 ...def,
@@ -175,6 +174,196 @@ describe('useEditorForm', () => {
         })
         expect(result.current.notice).toMatch(/default/)
         expect(result.current.form.getValues('fields').some(f => f.key === 'nick')).toBe(false)
+    })
+})
+
+describe('useEditorForm reads the row once', () => {
+    const nick = newCustomField('text', 'Nick', 'main', new Set())
+    const withNick = {
+        ...plain,
+        definition: { ...plain.definition, fields: [...plain.definition.fields, nick] },
+    }
+    it('keeps the draft and the server error through an optimistic write and its rollback', async () => {
+        const hook = renderHook(({ row }) => useEditorForm(row, host), {
+            initialProps: { row: withNick },
+        })
+        act(() => {
+            hook.result.current.applyRemoval(def => removeField(def, 'nick'))
+        })
+        const draft = hook.result.current.form.getValues()
+        save.mockImplementationOnce(async () => {
+            // pbtsdb applies the write to the live row, then rolls it back when the server refuses.
+            hook.rerender({ row: { ...withNick, definition: { ...plain.definition } } })
+            hook.rerender({ row: withNick })
+            throw { response: { data: { 'definition.fields.0.label': { message: 'bad label' } } } }
+        })
+        let ok = true
+        await act(async () => {
+            ok = await hook.result.current.save()
+        })
+        expect(ok).toBe(false)
+        expect(hook.result.current.form.getValues()).toEqual(draft)
+        expect(hook.result.current.form.getValues('fields').some(f => f.key === 'nick')).toBe(false)
+        expect(hook.result.current.form.getFieldState('fields.0.label').error?.message).toBe(
+            'bad label'
+        )
+        expect(hook.result.current.isChangedElsewhere).toBe(false)
+    })
+    it('reports a change made elsewhere and reloads it on request', () => {
+        const hook = renderHook(({ row }) => useEditorForm(row, host), {
+            initialProps: { row: plain },
+        })
+        expect(hook.result.current.isChangedElsewhere).toBe(false)
+        hook.rerender({ row: withNick })
+        expect(hook.result.current.isChangedElsewhere).toBe(true)
+        expect(hook.result.current.form.getValues('fields').some(f => f.key === 'nick')).toBe(false)
+        act(() => hook.result.current.reload())
+        expect(hook.result.current.isChangedElsewhere).toBe(false)
+        expect(hook.result.current.form.getValues('fields').some(f => f.key === 'nick')).toBe(true)
+        expect(hook.result.current.isDirty).toBe(false)
+    })
+    it('is clean after a save and does not report its own save as a change elsewhere', async () => {
+        const hook = renderHook(({ row }) => useEditorForm(row, host), {
+            initialProps: { row: plain },
+        })
+        act(() => hook.result.current.apply(def => ({ ...def, fields: [...def.fields, nick] })))
+        expect(hook.result.current.isDirty).toBe(true)
+        await act(async () => {
+            await hook.result.current.save()
+        })
+        expect(hook.result.current.isDirty).toBe(false)
+        hook.rerender({ row: withNick })
+        expect(hook.result.current.isChangedElsewhere).toBe(false)
+    })
+})
+
+describe('useEditorForm errors', () => {
+    it('puts a server error on a key that is not part of the definition on the form', async () => {
+        save.mockRejectedValueOnce({ response: { data: { name: { message: 'name taken' } } } })
+        const { result } = renderHook(() => useEditorForm(plain, host))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [...def.fields, newCustomField('text', 'Nick', 'main', new Set())],
+            }))
+        )
+        await act(async () => {
+            await result.current.save()
+        })
+        expect(result.current.form.formState.errors.root?.message).toBe('name taken')
+    })
+    it('keeps a field error on its field when a move shifts the field indexes', async () => {
+        save.mockRejectedValueOnce({
+            response: { data: { 'definition.fields.2.label': { message: 'bad label' } } },
+        })
+        const { result } = renderHook(() => useEditorForm(plain, host))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [...def.fields, newCustomField('text', 'Nick', 'main', new Set())],
+            }))
+        )
+        await act(async () => {
+            await result.current.save()
+        })
+        expect(result.current.form.getValues('fields.2.key')).toBe('due')
+        act(() => result.current.apply(def => moveField(def, 'due', 'main', 0)))
+        expect(result.current.form.getValues('fields.0.key')).toBe('due')
+        expect(result.current.form.getFieldState('fields.0.label').error?.message).toBe('bad label')
+        expect(result.current.form.getFieldState('fields.2.label').error).toBeUndefined()
+    })
+    it('clears the selection when the selected field is removed', () => {
+        const { result } = renderHook(() => useEditorForm(plain, host))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [...def.fields, newCustomField('text', 'Nick', 'main', new Set())],
+            }))
+        )
+        act(() => result.current.select('nick'))
+        act(() => {
+            result.current.applyRemoval(def => removeField(def, 'nick'))
+        })
+        expect(result.current.selectedKey).toBeNull()
+    })
+    it('keeps the selection when another field is removed', () => {
+        const { result } = renderHook(() => useEditorForm(plain, host))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [...def.fields, newCustomField('text', 'Nick', 'main', new Set())],
+            }))
+        )
+        act(() => result.current.select('due'))
+        act(() => {
+            result.current.applyRemoval(def => removeField(def, 'nick'))
+        })
+        expect(result.current.selectedKey).toBe('due')
+    })
+    it('refuses to save a field with no label and shows it on the label', async () => {
+        const { result } = renderHook(() => useEditorForm(plain, host))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [
+                    ...def.fields,
+                    { ...newCustomField('file', 'Doc', 'main', new Set()), label: '' },
+                ],
+            }))
+        )
+        await act(async () => {
+            await result.current.save()
+        })
+        expect(save).not.toHaveBeenCalled()
+        expect(result.current.form.getFieldState('fields.6.label').error).toBeTruthy()
+    })
+})
+
+describe('dateIssues', () => {
+    const def = (patch: object) => ({ ...plain.definition, ...patch })
+    it('flags a date default, set_value and before/after value that is not YYYY-MM-DD', () => {
+        const issues = dateIssues(
+            def({
+                defaults: { due: 'soon' },
+                rules: [
+                    {
+                        key: 'r',
+                        match: 'all' as const,
+                        when: [
+                            { field: 'due', op: 'before' as const, value: '2026-13' },
+                            { field: 'due', op: 'after' as const, value: '2026-01-31' },
+                        ],
+                        actions: [{ action: 'set_value' as const, field: 'due', value: 'later' }],
+                    },
+                ],
+            }),
+            widgetHost
+        )
+        expect(issues.map(i => i.path.join('.'))).toEqual([
+            'defaults.due',
+            'rules.0.when.0.value',
+            'rules.0.actions.0.value',
+        ])
+        expect(issues[0].message).toBe('Use YYYY-MM-DD')
+    })
+    it('accepts a day, a day and a time, and the date expressions', () => {
+        const issues = dateIssues(
+            def({
+                defaults: { due: '2026-01-31T09:30' },
+                rules: [
+                    {
+                        key: 'r',
+                        match: 'all' as const,
+                        when: [{ field: 'due', op: 'before' as const, value: '2026-01-31' }],
+                        actions: [
+                            { action: 'set_value' as const, field: 'due', value: { today: [] } },
+                        ],
+                    },
+                ],
+            }),
+            widgetHost
+        )
+        expect(issues).toEqual([])
     })
 })
 

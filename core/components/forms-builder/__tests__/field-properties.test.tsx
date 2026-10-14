@@ -61,7 +61,7 @@ const isDisabled = (el: HTMLElement | null) => {
 
 let editorRef: ReturnType<typeof useEditorForm> | null = null
 function Harness({ fieldKey }: { fieldKey: string }) {
-    const editor = useEditorForm('f1')
+    const editor = useEditorForm(plain, host)
     editorRef = editor
     return <FieldProperties editor={editor} fieldKey={fieldKey} />
 }

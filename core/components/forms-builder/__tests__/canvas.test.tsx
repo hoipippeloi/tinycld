@@ -50,7 +50,7 @@ const ctx = { today: '2026-01-01', userId: 'u' }
 let editor: ReturnType<typeof useEditorForm> | null = null
 let drag: ReturnType<typeof useEditorCanvasDrag> | null = null
 function Harness() {
-    editor = useEditorForm('f1')
+    editor = useEditorForm(plain, host)
     drag = useEditorCanvasDrag(editor)
     return <Canvas editor={editor} context={ctx} drag={drag} />
 }

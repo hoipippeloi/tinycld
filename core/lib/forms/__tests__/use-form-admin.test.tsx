@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
+import { notify } from '../../notify/dispatcher'
 import { defaultDefinitionFor } from '../host'
 import { mapDefinitionErrors, slugFor, useFormAdmin } from '../use-form-admin'
 import { widgetHost } from './fixtures'
@@ -11,7 +12,12 @@ import { widgetHost } from './fixtures'
 const inserted: unknown[] = []
 const updated: { id: string; patch: Record<string, unknown> }[] = []
 const deleted: string[] = []
-const tx = () => ({ when: () => Promise.resolve() })
+const failing = { next: null as Error | null }
+const tx = () => {
+    const error = failing.next
+    failing.next = null
+    return { when: () => (error ? Promise.reject(error) : Promise.resolve()) }
+}
 vi.mock('@tinycld/core/lib/pocketbase', () => ({
     useStore: () => [
         {
@@ -116,6 +122,22 @@ describe('useFormAdmin', () => {
             ['f2', { definition: bug.definition }],
         ])
         expect(deleted).toEqual(['f2'])
+    })
+    it('leaves a refused save to the editor: no default toast', async () => {
+        const emit = vi.spyOn(notify, 'emit')
+        const { result } = renderHook(() => useFormAdmin('gizmos:widget'), { wrapper })
+        failing.next = new Error('refused')
+        let caught: unknown = null
+        await act(async () => {
+            await result.current.saveDefinition
+                .mutateAsync({ id: 'f2', definition: bug.definition })
+                .catch(error => {
+                    caught = error
+                })
+        })
+        expect(caught).toBeInstanceOf(Error)
+        expect(emit).not.toHaveBeenCalled()
+        emit.mockRestore()
     })
 })
 

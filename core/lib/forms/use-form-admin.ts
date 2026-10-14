@@ -100,6 +100,10 @@ export function useFormAdmin(hostKey: string | undefined) {
                 d.definition = definition
             })
         }),
+        // The editor owns the error path: a refused field shows on that field,
+        // and an error no field explains is reported and shown there once.
+        // The default toast and report would say it a second time.
+        onError: () => {},
     })
     const remove = useMutation<void, Error, string>({
         mutationFn: mutation(function* (id) {
