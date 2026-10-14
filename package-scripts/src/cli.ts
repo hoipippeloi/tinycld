@@ -1,7 +1,5 @@
 #!/usr/bin/env tsx
-import * as fs from 'node:fs'
-import * as path from 'node:path'
-import { type CurrentPackage, discover, isAppShellName } from './discovery'
+import { type CurrentPackage, discover } from './discovery'
 import { runAll } from './orchestrator'
 import {
     buildCheckCommands,
@@ -11,8 +9,7 @@ import {
     type Command,
 } from './runners'
 import { runCommand } from './spawn'
-
-type Verb = 'typecheck' | 'test' | 'test:e2e' | 'check'
+import { allTargets, type Verb } from './targets'
 
 function commandsFor(
     verb: Verb,
@@ -34,36 +31,6 @@ function commandsFor(
                 `Unknown verb '${verb}'. Use one of: typecheck | test | test:e2e | check`
             )
     }
-}
-
-// Build the "all" target list for a verb: features (+ app shell and core for
-// non-e2e). Read the workspace member dirs directly to avoid importing app code.
-function allTargets(workspaceRoot: string, appDir: string, verb: Verb): CurrentPackage[] {
-    const targets: CurrentPackage[] = []
-    for (const entry of fs.readdirSync(workspaceRoot)) {
-        const dir = path.join(workspaceRoot, entry)
-        let pj: { name?: string }
-        try {
-            pj = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
-        } catch {
-            continue
-        }
-        const hasManifest =
-            fs.existsSync(path.join(dir, 'manifest.ts')) ||
-            fs.existsSync(path.join(dir, 'manifest.js'))
-        if (hasManifest && pj.name) targets.push({ dir, name: pj.name, kind: 'feature' })
-        else if (dir === appDir && isAppShellName(pj.name) && verb !== 'test:e2e')
-            targets.push({ dir, name: pj.name, kind: 'app' })
-        // core: shared lib, no manifest, no e2e — but typecheck/test/check it.
-        else if (pj.name === '@tinycld/core' && verb !== 'test:e2e')
-            targets.push({ dir, name: '@tinycld/core', kind: 'core' })
-    }
-    // Skip targets that have nothing to run for the verb.
-    return targets.filter(t => {
-        if (verb === 'test:e2e') return fs.existsSync(path.join(t.dir, 'playwright.config.ts'))
-        if (verb === 'test') return fs.existsSync(path.join(t.dir, 'vitest.config.ts'))
-        return fs.existsSync(path.join(t.dir, 'tsconfig.json'))
-    })
 }
 
 async function runForPackage(
