@@ -57,7 +57,7 @@ function useFormEditor(row: FormRow, host: FormHost) {
         // A dirty editor is held back by the leave guard, which asks first.
         back: navigateBack,
         save: () => {
-            void editor.save()
+            void editor.saveSafely()
         },
     }
 }

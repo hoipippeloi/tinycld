@@ -93,13 +93,24 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
         case 'number':
             return (
                 <>
-                    <NumberInput control={control} name={`fields.${index}.min`} label="Minimum" />
-                    <NumberInput control={control} name={`fields.${index}.max`} label="Maximum" />
+                    <NumberInput
+                        control={control}
+                        name={`fields.${index}.min`}
+                        label="Minimum"
+                        allowDecimal
+                    />
+                    <NumberInput
+                        control={control}
+                        name={`fields.${index}.max`}
+                        label="Maximum"
+                        allowDecimal
+                    />
                     <NumberInput
                         control={control}
                         name={`fields.${index}.step`}
                         label="Step"
-                        min={1}
+                        min={0}
+                        allowDecimal
                     />
                 </>
             )

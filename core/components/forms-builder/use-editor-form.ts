@@ -206,6 +206,12 @@ function carryFieldErrors(form: EditorForm, prev: DraftField[], next: DraftField
     })
 }
 
+function sameRules(a: DraftDefinition['rules'], b: DraftDefinition['rules']) {
+    const prev = a ?? []
+    const next = b ?? []
+    return prev.length === next.length && prev.every((r, i) => r.key === next[i]?.key)
+}
+
 /** Stable JSON: the server may store a definition's keys in another order. */
 function canonical(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
@@ -258,6 +264,8 @@ export function useEditorForm(row: EditorRow, host: FormHost) {
         form.setValue('defaults', next.defaults ?? {}, { shouldDirty: true })
         form.setValue('submit', next.submit ?? { required: [] }, { shouldDirty: true })
         carryFieldErrors(form, prev.fields, next.fields)
+        // Rule errors are indexed by position, so after a removal or move they would sit on the wrong card.
+        if (!sameRules(prev.rules, next.rules)) form.clearErrors('rules')
     }
     const applyRemoval = (
         op: (def: DraftDefinition) => { definition: DraftDefinition; removed: Removed }
@@ -297,6 +305,13 @@ export function useEditorForm(row: EditorRow, host: FormHost) {
         return isSaved
     }
 
+    /** Save for a button: a failure outside the server-error path is logged and shown, never left unhandled. */
+    const saveSafely = () =>
+        save().catch(error => {
+            log.error('forms.builder.save', error, { formId: row.id })
+            form.setError('root', { type: 'manual', message: 'Saving failed. Try again.' })
+        })
+
     /** Drops the draft for the definition as it is stored now. */
     const reload = () => {
         form.reset(toDraft(row.definition))
@@ -317,6 +332,7 @@ export function useEditorForm(row: EditorRow, host: FormHost) {
         apply,
         applyRemoval,
         save,
+        saveSafely,
         isSaving,
         isDirty: form.formState.isDirty,
         isChangedElsewhere: !isSaving && !sameDefinition(row.definition, base),

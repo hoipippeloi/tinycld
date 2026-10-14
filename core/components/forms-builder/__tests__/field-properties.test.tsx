@@ -299,3 +299,17 @@ describe('DefaultPicker', () => {
         expect(editorRef?.form.getValues('defaults')).toEqual({})
     })
 })
+
+describe('FieldProperties number bounds', () => {
+    it('takes decimal min, max and step', () => {
+        const { container } = render(<Harness fieldKey="count" />)
+        const type = (id: string, value: string) =>
+            fireEvent.input(q(container, id) as HTMLElement, { target: { value } })
+        type('fields.8.min', '0.5')
+        type('fields.8.max', '9.75')
+        type('fields.8.step', '0.25')
+        expect(editorRef?.form.getValues('fields.8.min')).toBe(0.5)
+        expect(editorRef?.form.getValues('fields.8.max')).toBe(9.75)
+        expect(editorRef?.form.getValues('fields.8.step')).toBe(0.25)
+    })
+})

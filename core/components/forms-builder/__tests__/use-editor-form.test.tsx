@@ -2,8 +2,9 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { moveField, newCustomField, removeField } from '../../../lib/forms/builder'
+import { moveField, newCustomField, removeField, removeRule } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
+import { log } from '../../../lib/logger'
 import { dateIssues, draftPath, fromDraft, toDraft, useEditorForm } from '../use-editor-form'
 
 const plain = {
@@ -316,6 +317,60 @@ describe('useEditorForm errors', () => {
         })
         expect(save).not.toHaveBeenCalled()
         expect(result.current.form.getFieldState('fields.6.label').error).toBeTruthy()
+    })
+})
+
+describe('useEditorForm saving and rules', () => {
+    const rule = (key: string) => ({
+        key,
+        match: 'all' as const,
+        when: [{ field: 'due', op: 'before' as const, value: '2026-01-31' }],
+        actions: [{ action: 'set_value' as const, field: 'due', value: '2026-01-01' }],
+    })
+    const twoRules = {
+        ...plain,
+        definition: { ...plain.definition, rules: [rule('a'), rule('b'), rule('c')] },
+    }
+
+    it('shows a root message and does not throw when the save itself rejects', async () => {
+        const logError = vi.spyOn(log, 'error').mockImplementation(() => {})
+        const { result } = renderHook(() => {
+            const editor = useEditorForm(plain, host)
+            // Reading the errors during render subscribes the hook to them.
+            return { editor, root: editor.form.formState.errors.root?.message }
+        })
+        const error = new Error('boom')
+        vi.spyOn(result.current.editor.form, 'handleSubmit').mockReturnValue(() =>
+            Promise.reject(error)
+        )
+        await act(async () => {
+            await result.current.editor.saveSafely()
+        })
+        expect(result.current.root).toBe('Saving failed. Try again.')
+        expect(logError).toHaveBeenCalledWith('forms.builder.save', error, { formId: 'f1' })
+        logError.mockRestore()
+    })
+
+    it('clears rule errors when a rule is removed, so none sit on the wrong card', () => {
+        const { result } = renderHook(() => useEditorForm(twoRules, host))
+        act(() => {
+            result.current.form.setError('rules.1.when', { type: 'manual', message: 'bad' })
+        })
+        expect(result.current.form.getFieldState('rules.1.when').error).toBeTruthy()
+        act(() => result.current.apply(def => removeRule(def, 'a')))
+        expect(result.current.form.getValues('rules')).toHaveLength(2)
+        expect(result.current.form.getFieldState('rules.0').error).toBeUndefined()
+        expect(result.current.form.getFieldState('rules.0.when').error).toBeUndefined()
+        expect(result.current.form.getFieldState('rules.1.when').error).toBeUndefined()
+    })
+
+    it('keeps rule errors when the rules did not change', () => {
+        const { result } = renderHook(() => useEditorForm(twoRules, host))
+        act(() => {
+            result.current.form.setError('rules.1.when', { type: 'manual', message: 'bad' })
+        })
+        act(() => result.current.apply(def => ({ ...def, defaults: { ...def.defaults } })))
+        expect(result.current.form.getFieldState('rules.1.when').error).toBeTruthy()
     })
 })
 
