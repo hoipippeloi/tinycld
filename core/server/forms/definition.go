@@ -3,6 +3,9 @@ package forms
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+
+	validation "github.com/pocketbase/ozzo-validation/v4"
 )
 
 // Wire mirror of core/lib/forms/definition.ts. Only what the server reads;
@@ -84,4 +87,179 @@ func (d *Definition) Field(key string) *Field {
 		}
 	}
 	return nil
+}
+
+var keyRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
+// Mirror of core/lib/forms/definition.ts OPERATORS_BY_KIND.
+var operatorsByKind = map[string][]string{
+	"text":      {"eq", "neq", "contains", "starts_with", "is_empty", "not_empty"},
+	"textarea":  {"eq", "neq", "contains", "starts_with", "is_empty", "not_empty"},
+	"richtext":  {"is_empty", "not_empty"},
+	"markdown":  {"is_empty", "not_empty"},
+	"number":    {"eq", "neq", "gt", "lt", "gte", "lte", "is_empty", "not_empty"},
+	"date":      {"before", "after", "is_empty", "not_empty"},
+	"toggle":    {"is_true", "is_false"},
+	"select":    {"is", "is_not", "is_any_of", "is_empty", "not_empty"},
+	"user":      {"is", "is_not", "is_any_of", "is_empty", "not_empty"},
+	"checklist": {"all_done", "any_open", "is_empty"},
+	"file":      {"is_empty", "not_empty"},
+	"custom":    {"is_empty", "not_empty"},
+	"section":   {},
+}
+
+func opAllowed(kind, op string) bool {
+	for _, o := range operatorsByKind[kind] {
+		if o == op {
+			return true
+		}
+	}
+	return false
+}
+
+const invalidDefinition = "validation_invalid_definition"
+
+func defErr(msg string) validation.Errors {
+	return validation.Errors{"definition": validation.NewError(invalidDefinition, msg)}
+}
+
+// ValidateDefinition mirrors definitionSchema + validateDefinitionForHost in
+// core/lib/forms. It returns the first problem as a field error on
+// `definition`, so the builder shows it on the form.
+func ValidateDefinition(def *Definition, host *Host) validation.Errors {
+	if def.Version != 1 {
+		return defErr("unsupported definition version")
+	}
+	if len(def.Pages) == 0 {
+		return defErr("a form needs at least one page")
+	}
+	pages := map[string]bool{}
+	for _, p := range def.Pages {
+		if !keyRe.MatchString(p.Key) {
+			return defErr("invalid page key " + p.Key)
+		}
+		if pages[p.Key] {
+			return defErr("duplicate page key " + p.Key)
+		}
+		pages[p.Key] = true
+	}
+	kinds := map[string]string{}
+	seenBuiltin := map[string]bool{}
+	for _, f := range def.Fields {
+		if !keyRe.MatchString(f.Key) {
+			return defErr("invalid field key " + f.Key)
+		}
+		if _, dup := kinds[f.Key]; dup {
+			return defErr("duplicate field key " + f.Key)
+		}
+		if !pages[f.Page] {
+			return defErr("unknown page " + f.Page)
+		}
+		if f.Kind == "builtin" {
+			b := host.Builtin(f.Key)
+			if b == nil {
+				return defErr(f.Key + " is not a built-in field of " + host.Label)
+			}
+			if b.Required && f.Hidden {
+				return defErr(f.Key + " is required by the record and cannot be hidden")
+			}
+			kinds[f.Key] = b.Kind
+			seenBuiltin[f.Key] = true
+			continue
+		}
+		if _, ok := operatorsByKind[f.Kind]; !ok || f.Kind == "custom" || f.Kind == "section" {
+			return defErr("unknown field kind " + f.Kind)
+		}
+		if host.Builtin(f.Key) != nil {
+			return defErr(f.Key + " is a built-in field and cannot be a custom field")
+		}
+		if host.HasColumn(f.Key) {
+			return defErr(f.Key + " is a column of the record and cannot be a custom field")
+		}
+		if f.Collaborative && host.Collab == nil {
+			return defErr(host.Label + " does not support collaborative fields")
+		}
+		kinds[f.Key] = f.Kind
+	}
+	for _, b := range host.Builtins {
+		if !seenBuiltin[b.Key] {
+			return defErr("missing built-in field " + b.Key)
+		}
+	}
+	ruleKeys := map[string]bool{}
+	for _, r := range def.Rules {
+		if !keyRe.MatchString(r.Key) {
+			return defErr("invalid rule key " + r.Key)
+		}
+		if ruleKeys[r.Key] {
+			return defErr("duplicate rule key " + r.Key)
+		}
+		ruleKeys[r.Key] = true
+		if len(r.When) == 0 || len(r.Actions) == 0 {
+			return defErr("rule " + r.Key + " needs a condition and an action")
+		}
+		for _, c := range r.When {
+			kind, ok := kinds[c.Field]
+			if !ok {
+				return defErr("unknown field " + c.Field)
+			}
+			if !opAllowed(kind, c.Op) {
+				return defErr(c.Op + " is not valid for a " + kind + " field")
+			}
+			if msg := conditionValueError(c); msg != "" {
+				return defErr(msg)
+			}
+		}
+		for _, a := range r.Actions {
+			switch a.Action {
+			case "show", "hide":
+				if a.Page != "" && !pages[a.Page] {
+					return defErr("unknown page " + a.Page)
+				}
+				if a.Page == "" {
+					if _, ok := kinds[a.Field]; !ok {
+						return defErr("unknown field " + a.Field)
+					}
+				}
+			case "require", "set_options", "set_value":
+				if _, ok := kinds[a.Field]; !ok {
+					return defErr("unknown field " + a.Field)
+				}
+			default:
+				return defErr("unknown action " + a.Action)
+			}
+		}
+	}
+	for k := range def.Defaults {
+		if _, ok := kinds[k]; !ok {
+			return defErr("unknown field " + k)
+		}
+	}
+	for _, k := range def.Submit.Required {
+		if _, ok := kinds[k]; !ok {
+			return defErr("unknown field " + k)
+		}
+	}
+	return nil
+}
+
+// conditionValueError checks the value shapes the engine cannot coerce.
+func conditionValueError(c Condition) string {
+	switch c.Op {
+	case "contains", "starts_with":
+		if _, ok := c.Value.(string); !ok {
+			return c.Op + " needs a text value"
+		}
+	case "is_any_of":
+		list, ok := c.Value.([]any)
+		if !ok || len(list) == 0 {
+			return "is_any_of needs a list"
+		}
+		for _, v := range list {
+			if _, ok := v.(string); !ok {
+				return "is_any_of needs a list"
+			}
+		}
+	}
+	return ""
 }
