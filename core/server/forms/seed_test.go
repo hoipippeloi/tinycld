@@ -1,7 +1,12 @@
-// tinycld/core/server/forms/seed_test.go
 package forms
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/dbx"
@@ -57,5 +62,117 @@ func TestSeedDefaults_SkipsAHostWhoseCollectionIsAbsent(t *testing.T) {
 	present, _ := e.app.FindRecordsByFilter("forms", "host = {:host}", "", 0, 0, dbx.Params{"host": "gizmos:widget"})
 	if len(present) != 1 {
 		t.Fatalf("widget default forms = %d", len(present))
+	}
+}
+
+// The client parses this same file with definitionSchema
+// (core/lib/forms/__tests__/seeded-definition.test.ts), so a Go change that
+// writes a shape the client rejects fails one of the two suites.
+const seededFixturePath = "../../lib/forms/fixtures/seeded-definition.json"
+
+func TestDefaultDefinition_MatchesTheSeededFixture(t *testing.T) {
+	defs, err := LoadHosts(filepath.Join("testdata", "form_hosts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.Marshal(defaultDefinition(defs.Host("gizmos:widget")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(seededFixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	if err := json.Compact(&want, raw); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want.Bytes()) {
+		t.Fatalf("seeded definition drifted from the fixture\n got: %s\nwant: %s", got, want.Bytes())
+	}
+}
+
+func TestSeedDefaults_ReconcilesBuiltinsWithTheHost(t *testing.T) {
+	e := newTestEnv(t)
+	var older []Builtin
+	for _, b := range e.host.Builtins {
+		if b.Key != "owner" {
+			older = append(older, b)
+		}
+	}
+	older = append(older, Builtin{Key: "legacy", Label: "Legacy", Kind: "text", Storage: "column"})
+	var form *core.Record
+	e.withBuiltins(t, older, func() {
+		def := strings.Replace(widgetDefault, `{"key":"owner","kind":"builtin","page":"main","label":"Owner","width":"full","required":false,"hidden":false},`,
+			`{"key":"legacy","kind":"builtin","page":"main","label":"Legacy","width":"half","required":false,"hidden":false},`, 1)
+		def = strings.Replace(def, `"rules":[]`, `"rules":[`+
+			`{"key":"reads_legacy","match":"all","when":[{"field":"legacy","op":"is_empty"}],"actions":[{"action":"hide","field":"due"}]},`+
+			`{"key":"targets_legacy","match":"all","when":[{"field":"due","op":"is_empty"}],"actions":[{"action":"hide","field":"legacy"},{"action":"hide","field":"notes"}]}]`, 1)
+		def = strings.Replace(def, `"defaults":{}`, `"defaults":{"legacy":"x"}`, 1)
+		def = strings.Replace(def, `"submit":{"required":[]}`, `"submit":{"required":["legacy","due"]}`, 1)
+		form = e.newForm(t, "widget", def, true)
+	})
+	if err := SeedDefaults(e.app, e.defs); err != nil {
+		t.Fatal(err)
+	}
+	form, _ = e.app.FindRecordById("forms", form.Id)
+	def, err := ParseDefinition([]byte(form.GetString("definition")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Field("legacy") != nil {
+		t.Fatal("a built-in the host no longer declares must go")
+	}
+	owner := def.Field("owner")
+	if owner == nil || owner.Kind != "builtin" || owner.Page != "main" || owner.Label != "Owner" {
+		t.Fatalf("a built-in the host now declares must be added, got %+v", owner)
+	}
+	if len(def.Rules) != 1 || def.Rules[0].Key != "targets_legacy" || len(def.Rules[0].Actions) != 1 || def.Rules[0].Actions[0].Field != "notes" {
+		t.Fatalf("rules = %+v", def.Rules)
+	}
+	if _, ok := def.Defaults["legacy"]; ok {
+		t.Fatal("the default of a removed built-in must go")
+	}
+	if !reflect.DeepEqual(def.Submit.Required, []string{"due"}) {
+		t.Fatalf("submit.required = %v", def.Submit.Required)
+	}
+	if !strings.Contains(form.GetString("definition"), `"width":"full"`) {
+		t.Fatal("properties the server does not model must survive")
+	}
+	if errs := ValidateDefinition(def, e.host); errs != nil {
+		t.Fatalf("a reconciled form must be valid: %v", errs)
+	}
+}
+
+func TestSeedDefaults_ContinuesPastAFailingHost(t *testing.T) {
+	e := newTestEnv(t)
+	// Not registered with the hooks, so its default form is refused.
+	broken := Host{Key: "gizmos:broken", Label: "Broken", Collection: "gizmos_widgets", FormColumn: "form", FieldsColumn: "fields",
+		Builtins: []Builtin{{Key: "name", Label: "Name", Kind: "text", Storage: "column", Required: true}}}
+	defs := &Defs{Hosts: []Host{broken, *e.host}}
+	err := SeedDefaults(e.app, defs)
+	if err == nil || !strings.Contains(err.Error(), "gizmos:broken") {
+		t.Fatalf("the failing host's error must be returned, got %v", err)
+	}
+	widgetForms, _ := e.app.FindRecordsByFilter("forms", "host = {:host}", "", 0, 0, dbx.Params{"host": "gizmos:widget"})
+	if len(widgetForms) != 1 {
+		t.Fatalf("a later host must still be seeded, got %d forms", len(widgetForms))
+	}
+}
+
+func TestSeedDefaults_PromotesANonArchivedForm(t *testing.T) {
+	e := newTestEnv(t)
+	a := e.newForm(t, "a", widgetDefault, false)
+	a.Set("archived", true)
+	if err := e.app.Save(a); err != nil {
+		t.Fatal(err)
+	}
+	b := e.newForm(t, "b", widgetDefault, false)
+	if err := SeedDefaults(e.app, e.defs); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = e.app.FindRecordById("forms", b.Id)
+	if !b.GetBool("is_default") {
+		t.Fatal("the non-archived form must be promoted")
 	}
 }
