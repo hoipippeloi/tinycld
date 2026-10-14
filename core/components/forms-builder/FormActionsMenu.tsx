@@ -14,7 +14,8 @@ import { Pressable } from 'react-native'
 
 export interface FormActionsMenuProps {
     form: FormRow
-    canDelete: boolean
+    /** Why the form cannot be deleted, shown on the item; null when it can be. */
+    deleteBlockedBy: string | null
     onRename: () => void
     onDuplicate: () => void
     onSetDefault: () => void
@@ -22,9 +23,29 @@ export interface FormActionsMenuProps {
     onDelete: () => void
 }
 
+/** A disabled item says why in its own label, which a screen reader reads too. */
+function withReason(label: string, reason: string | null) {
+    return reason ? `${label} (${reason})` : label
+}
+
+function defaultBlockedBy(form: FormRow) {
+    if (form.is_default) return 'already the default'
+    if (form.archived) return 'archived'
+    return null
+}
+
+export function menuLabels(form: FormRow, deleteBlockedBy: string | null) {
+    const archive = form.archived ? 'Unarchive' : 'Archive'
+    return {
+        makeDefault: withReason('Make default', defaultBlockedBy(form)),
+        archive: withReason(archive, form.is_default ? 'default form' : null),
+        remove: withReason('Delete…', deleteBlockedBy),
+    }
+}
+
 export function FormActionsMenu({
     form,
-    canDelete,
+    deleteBlockedBy,
     onRename,
     onDuplicate,
     onSetDefault,
@@ -32,6 +53,7 @@ export function FormActionsMenu({
     onDelete,
 }: FormActionsMenuProps) {
     const fg = useThemeColor('foreground')
+    const labels = menuLabels(form, deleteBlockedBy)
     return (
         <Menu
             presentation="popover"
@@ -59,24 +81,24 @@ export function FormActionsMenu({
                 testID={`forms-duplicate-${form.id}`}
             />
             <Menu.Item
-                label="Make default"
+                label={labels.makeDefault}
                 icon={Star}
                 isDisabled={form.is_default || form.archived}
                 onSelect={onSetDefault}
                 testID={`forms-default-${form.id}`}
             />
             <Menu.Item
-                label={form.archived ? 'Unarchive' : 'Archive'}
+                label={labels.archive}
                 icon={form.archived ? ArchiveRestore : Archive}
                 isDisabled={form.is_default}
                 onSelect={onArchive}
                 testID={`forms-archive-${form.id}`}
             />
             <Menu.Item
-                label="Delete…"
+                label={labels.remove}
                 icon={Trash2}
                 isDestructive
-                isDisabled={!canDelete}
+                isDisabled={deleteBlockedBy !== null}
                 onSelect={onDelete}
                 testID={`forms-delete-${form.id}`}
             />

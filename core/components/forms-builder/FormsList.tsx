@@ -1,5 +1,6 @@
 import { SortableDragHandle, SortableList } from '@tinycld/core/components/SortableList'
 import { useFormAdmin } from '@tinycld/core/lib/forms/use-form-admin'
+import { useFormHost, useFormHosts } from '@tinycld/core/lib/forms/use-form-hosts'
 import type { FormRow } from '@tinycld/core/lib/forms/use-forms-of-host'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
@@ -28,12 +29,12 @@ function Badge({ label, isVisible }: { label: string; isVisible: boolean }) {
 
 interface RowProps {
     form: FormRow
-    canDelete: boolean
+    deleteBlockedBy: string | null
     onOpen: () => void
     onAction: (kind: ActionKind) => void
 }
 
-function Row({ form, canDelete, onOpen, onAction }: RowProps) {
+function Row({ form, deleteBlockedBy, onOpen, onAction }: RowProps) {
     return (
         <View
             className="flex-row items-center py-2 border-b border-border"
@@ -52,7 +53,7 @@ function Row({ form, canDelete, onOpen, onAction }: RowProps) {
             </Pressable>
             <FormActionsMenu
                 form={form}
-                canDelete={canDelete}
+                deleteBlockedBy={deleteBlockedBy}
                 onRename={() => onAction('rename')}
                 onDuplicate={() => onAction('duplicate')}
                 onSetDefault={() => onAction('default')}
@@ -87,14 +88,34 @@ function useFormsListActions(hostKey: string, onOpen: (id: string) => void) {
     return { admin, pending, setPending, run, act }
 }
 
+/** The host's name over its forms, where the admin picked it from several. */
+function HostHeading({ hostKey }: { hostKey: string }) {
+    const hosts = useFormHosts()
+    const host = useFormHost(hostKey)
+    if (hosts.length <= 1 || !host) return null
+    return (
+        <Text className="text-foreground text-lg font-semibold mb-2" testID="forms-host-heading">
+            {host.label}
+        </Text>
+    )
+}
+
+const DELETE_MESSAGE =
+    'Records using this form must change type first; the server refuses to delete a form in use.'
+
 export function FormsList({ hostKey, onOpen }: FormsListProps) {
     const { admin, pending, setPending, run, act } = useFormsListActions(hostKey, onOpen)
     const close = () => setPending(null)
-    const canDelete = (form: FormRow) => !form.is_default && admin.forms.length > 1
+    const deleteBlockedBy = (form: FormRow) => {
+        if (form.is_default) return 'default form'
+        if (admin.forms.length <= 1) return 'only form'
+        return null
+    }
     const renaming = pending?.kind === 'rename' ? pending.form : null
     const deleting = pending?.kind === 'delete' ? pending.form : null
     return (
         <View>
+            <HostHeading hostKey={hostKey} />
             <SortableList
                 data={admin.forms}
                 keyExtractor={f => f.id}
@@ -102,7 +123,7 @@ export function FormsList({ hostKey, onOpen }: FormsListProps) {
                 renderItem={({ item }) => (
                     <Row
                         form={item}
-                        canDelete={canDelete(item)}
+                        deleteBlockedBy={deleteBlockedBy(item)}
                         onOpen={() => onOpen(item.id)}
                         onAction={kind => act(item, kind)}
                     />
@@ -138,7 +159,7 @@ export function FormsList({ hostKey, onOpen }: FormsListProps) {
                 isOpen={deleting !== null}
                 onClose={close}
                 title="Delete form"
-                message="Records using this form keep their values but lose their type. This cannot be undone."
+                message={DELETE_MESSAGE}
                 confirmLabel="Delete"
                 isDestructive
                 isSubmitting={admin.remove.isPending}

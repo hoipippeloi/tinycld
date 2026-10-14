@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { OverlayProvider } from '../../../ui/overlay'
+import { FormsHostList } from '../FormsHostList'
 import { FormsList } from '../FormsList'
 
 // Menu and the dialogs render through the overlay host the app mounts once.
@@ -38,6 +39,16 @@ const admin = {
     remove: { mutateAsync: vi.fn(async () => {}), isPending: false },
 }
 vi.mock('../../../lib/forms/use-form-admin', () => ({ useFormAdmin: () => admin }))
+const hosts = vi.hoisted(() => ({
+    list: [] as { key: string; label: string; pkgSlug?: string }[],
+}))
+vi.mock('@tinycld/core/lib/packages/use-packages', () => ({
+    usePackages: () => [{ slug: 'gizmos', name: 'Gizmos' }],
+}))
+vi.mock('../../../lib/forms/use-form-hosts', () => ({
+    useFormHosts: () => hosts.list,
+    useFormHost: (key: string) => hosts.list.find(h => h.key === key),
+}))
 
 const q = (c: HTMLElement, id: string) => c.querySelector(`[testID="${id}"]`) as HTMLElement | null
 
@@ -62,6 +73,42 @@ describe('FormsList', () => {
         fireEvent.click(q(container, 'forms-menu-f2') as HTMLElement)
         expect(getByTestId('forms-delete-f2').getAttribute('aria-disabled')).not.toBe('true')
     })
+    it('says why a menu item is disabled in its label', () => {
+        const { container, getByTestId } = render(
+            <FormsList hostKey="gizmos:widget" onOpen={() => {}} />
+        )
+        fireEvent.click(q(container, 'forms-menu-f1') as HTMLElement)
+        expect(getByTestId('forms-delete-f1').textContent).toContain('Delete… (default form)')
+        expect(getByTestId('forms-archive-f1').textContent).toContain('Archive (default form)')
+        expect(getByTestId('forms-default-f1').textContent).toContain(
+            'Make default (already the default)'
+        )
+    })
+    it('says the server refuses to delete a form in use', () => {
+        const { container, getByTestId, getByText } = render(
+            <FormsList hostKey="gizmos:widget" onOpen={() => {}} />
+        )
+        fireEvent.click(q(container, 'forms-menu-f2') as HTMLElement)
+        fireEvent.click(getByTestId('forms-delete-f2'))
+        expect(
+            getByText(
+                'Records using this form must change type first; the server refuses to delete a form in use.'
+            )
+        ).toBeTruthy()
+    })
+    it('names the host over its forms only when there are several hosts', () => {
+        hosts.list = [{ key: 'gizmos:widget', label: 'Widget' }]
+        const one = render(<FormsList hostKey="gizmos:widget" onOpen={() => {}} />)
+        expect(q(one.container, 'forms-host-heading')).toBeNull()
+        cleanup()
+        hosts.list = [
+            { key: 'gizmos:widget', label: 'Widgets' },
+            { key: 'gizmos:gadget', label: 'Gadgets' },
+        ]
+        const several = render(<FormsList hostKey="gizmos:widget" onOpen={() => {}} />)
+        expect(q(several.container, 'forms-host-heading')?.textContent).toBe('Widgets')
+        hosts.list = []
+    })
     it('creates a form from the New form dialog', async () => {
         const { container, getByText } = render(
             <FormsList hostKey="gizmos:widget" onOpen={() => {}} />
@@ -75,5 +122,21 @@ describe('FormsList', () => {
             fireEvent.click(getByText('Create'))
         })
         await waitFor(() => expect(admin.create.mutateAsync).toHaveBeenCalledWith('Feature'))
+    })
+})
+
+describe('FormsHostList', () => {
+    it('lists each host with its package and picks one', () => {
+        hosts.list = [
+            { key: 'gizmos:widget', label: 'Widgets', pkgSlug: 'gizmos' },
+            { key: 'gizmos:gadget', label: 'Gadgets', pkgSlug: 'other' },
+        ]
+        const onPick = vi.fn()
+        const { container } = render(<FormsHostList onPick={onPick} />)
+        expect(q(container, 'forms-host-gizmos:widget')?.textContent).toBe('WidgetsGizmos')
+        expect(q(container, 'forms-host-gizmos:gadget')?.textContent).toBe('Gadgetsother')
+        fireEvent.click(q(container, 'forms-host-gizmos:gadget') as HTMLElement)
+        expect(onPick).toHaveBeenCalledWith('gizmos:gadget')
+        hosts.list = []
     })
 })
