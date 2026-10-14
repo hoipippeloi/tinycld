@@ -14,6 +14,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/crypto/bcrypt"
+	"tinycld.org/core/authfactor"
 )
 
 // ErrUnauthorized is returned when credentials are missing, the identifier
@@ -58,7 +59,8 @@ var verifyCredentials = VerifyCredentials
 // DAV Basic auth here, and mail's IMAP LOGIN / SMTP AUTH, which authenticate
 // against the record directly (PocketBase's auth hooks never run for them).
 // Single-sourcing it is what keeps the identifier contract ("username or
-// email") and the disabled cutoff identical across protocols.
+// email"), the disabled cutoff and the app-password rule identical across
+// protocols.
 //
 // The identifier may be a bare username or a full email (the discriminator is
 // '@'), mirroring PocketBase's identityFields for `users`. Returns
@@ -88,7 +90,7 @@ func VerifyCredentials(app core.App, identifier, password string) (*core.Record,
 		return nil, ErrUnauthorized
 	}
 
-	if !record.ValidatePassword(password) {
+	if !passwordAccepted(app, record, password) {
 		return nil, ErrUnauthorized
 	}
 
@@ -100,6 +102,25 @@ func VerifyCredentials(app core.App, identifier, password string) (*core.Record,
 	}
 
 	return record, nil
+}
+
+// passwordAccepted reports whether password signs record in over a protocol.
+//
+// An app password always works. The account password works only while a
+// single factor is enough for this account (no second factor, and MFA not
+// required of it): these clients cannot answer a code or passkey prompt, so
+// accepting the account password would let anyone who learned it skip MFA.
+// bcrypt runs before the factor lookup so that a correct and a wrong account
+// password cost the same and the response time does not say whether the
+// account has MFA on.
+func passwordAccepted(app core.App, record *core.Record, password string) bool {
+	if authfactor.MatchAppPassword(app, record.Id, password) {
+		return true
+	}
+	if !record.ValidatePassword(password) {
+		return false
+	}
+	return authfactor.PasswordOnlyAllowed(app, record)
 }
 
 // cacheKey is the context key under which a completed authentication is

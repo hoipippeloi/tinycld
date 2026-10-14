@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { ClientResponseError } from 'pocketbase'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock PocketBase so login() runs without a live server. authWithPassword's
@@ -109,6 +110,59 @@ describe('auth-store login()', () => {
         expect(res.error).toBe('Failed to authenticate.')
         // login() clears the session once at the start of every attempt.
         expect(mockAuthStoreClear).toHaveBeenCalledTimes(1)
+    })
+
+    // With MFA on, the server answers a correct password with a 401 that
+    // carries a step token instead of a session. That is not a failure: the
+    // login overlay must show the second step, so the step reaches both the
+    // caller and the step store, and no error string is shown.
+    it('returns the second step when the server asks for one', async () => {
+        mockAuthWithPassword.mockRejectedValue(
+            new ClientResponseError({
+                status: 401,
+                response: { mfaToken: 'pending', methods: ['totp', 'recovery', 'bogus'] },
+            })
+        )
+        const res = await login('owner@example.com', 'pw')
+        expect(res.user).toBeNull()
+        expect(res.error).toBeNull()
+        expect(res.step).toEqual({ kind: 'mfa', token: 'pending', methods: ['totp', 'recovery'] })
+
+        const { useSignInStepStore } = await import('../sign-in-step-store')
+        expect(useSignInStepStore.getState().step).toEqual(res.step)
+    })
+
+    it('returns the enroll step when the organization requires MFA', async () => {
+        mockAuthWithPassword.mockRejectedValue(
+            new ClientResponseError({ status: 401, response: { mfaEnrollToken: 'enroll' } })
+        )
+        const res = await login('owner@example.com', 'pw')
+        expect(res.error).toBeNull()
+        expect(res.step).toEqual({ kind: 'enroll', token: 'enroll' })
+    })
+
+    it('keeps an ordinary 401 an error', async () => {
+        mockAuthWithPassword.mockRejectedValue(
+            new ClientResponseError({
+                status: 401,
+                response: { message: 'Failed to authenticate.' },
+            })
+        )
+        const res = await login('owner@example.com', 'wrong')
+        expect(res.step).toBeUndefined()
+        expect(res.error).toBe('Failed to authenticate.')
+    })
+
+    it('adopts a session from a second-step route and clears the step', async () => {
+        const mod = await import('../auth-store')
+        const { useSignInStepStore } = await import('../sign-in-step-store')
+        useSignInStepStore.getState().setStep({ kind: 'mfa', token: 't', methods: ['totp'] })
+
+        const res = await mod.useAuthStore
+            .getState()
+            .adoptAuthResponse({ token: 'session', record: REGULAR_USER.record as never })
+        expect(res.user?.id).toBe('u1')
+        expect(useSignInStepStore.getState().step).toBeNull()
     })
 
     // The gate opens as soon as the user is set, and the caller navigates to

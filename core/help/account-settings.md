@@ -12,14 +12,16 @@ save automatically when you move out of a field.
 
 ## Changing your password
 
-In **Settings → Profile**, select **Change password**:
+In **Settings → Security**, select **Change password**:
 
 1. Enter your **current password**.
 2. Enter a **new password** (at least 8 characters).
 3. Re-enter it to **confirm**.
 4. Select **Save**.
 
-You stay signed in after the change — there's no need to log back in. If you mistype
+You stay signed in after the change — there's no need to log back in. If
+[two-step verification](help://core:security-mfa) is on, type a code from your
+authenticator app to finish. If you mistype
 your current password, you'll see an error and your password won't be changed.
 
 ## Disabling your account

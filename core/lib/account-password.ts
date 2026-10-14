@@ -1,5 +1,7 @@
 import { captureException } from '@tinycld/core/lib/errors'
 import { pb } from '@tinycld/core/lib/pocketbase'
+import { signInStepFromError } from '@tinycld/core/lib/sign-in-step'
+import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 
 interface ChangePasswordArgs {
     email: string
@@ -27,9 +29,17 @@ export async function changeMyPassword(args: ChangePasswordArgs): Promise<void> 
 
     // PB invalidates the current token on a password change, so re-auth right
     // after to keep the session alive instead of forcing the user to sign in.
+    // With MFA on, the re-auth stops at the second step. The old session is
+    // already dead, so drop it: the login overlay then opens on the code step.
     try {
         await pb.collection('users').authWithPassword(args.email, args.newPassword)
     } catch (err) {
+        const step = signInStepFromError(err)
+        if (step) {
+            useSignInStepStore.getState().setStep(step)
+            pb.authStore.clear()
+            return
+        }
         captureException('account.changePassword.reauth', err)
         throw err
     }

@@ -15,7 +15,13 @@ import {
 import { restartRealtime, stopRealtime } from '@tinycld/core/lib/realtime-enabled'
 import { getResolvedAddress } from '@tinycld/core/lib/server-address'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
+import {
+    type AuthResponse,
+    type SignInStep,
+    signInStepFromError,
+} from '@tinycld/core/lib/sign-in-step'
 import { create } from '@tinycld/core/lib/store'
+import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import type { UserSession } from '@tinycld/core/lib/types'
 import { resetExpoPushRegistration } from '@tinycld/core/lib/use-expo-push-registration'
@@ -28,6 +34,20 @@ type AuthenticatedUser = UserSession
 type LoginResult = {
     user: AuthenticatedUser | null
     error: string | null
+    // Set when the password was right but the server wants a second step
+    // first; the step is also put in useSignInStepStore for the login overlay.
+    step?: SignInStep
+}
+
+function toAuthenticatedUser(record: Users): AuthenticatedUser {
+    const metadata = (record as Users & { metadata?: Record<string, unknown> }).metadata
+    return {
+        id: record.id,
+        name: record.name,
+        email: record.email,
+        isDemo: !!(record as Users & { is_demo?: boolean }).is_demo,
+        isBetaTester: !!metadata?.isBetaTester,
+    }
 }
 
 // Every sign-in path's first step once `pb.authStore` holds the new session:
@@ -99,6 +119,9 @@ interface AuthStoreState {
 
     initAuth: () => () => void
     login: (identifier: string, password: string) => Promise<LoginResult>
+    // Adopt the session a sign-in route returned (a second step, a passkey,
+    // the native hand-off) and finish the sign-in.
+    adoptAuthResponse: (response: AuthResponse) => Promise<LoginResult>
     logout: () => void
     refreshUser: () => Promise<void>
     // `slug` names the package whose public share-link API to call, forming
@@ -171,30 +194,31 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
 
     login: async (identifier, password) => {
         pb.authStore.clear()
+        useSignInStepStore.getState().clear()
         try {
             const authData = await pb
                 .collection('users')
                 .authWithPassword<Users>(identifier, password)
-
-            const metadata = (authData.record as Users & { metadata?: Record<string, unknown> })
-                .metadata
-            const authenticatedUser: AuthenticatedUser = {
-                id: authData.record.id,
-                name: authData.record.name,
-                email: authData.record.email,
-                isDemo: !!(authData.record as Users & { is_demo?: boolean }).is_demo,
-                isBetaTester: !!metadata?.isBetaTester,
-            }
-
-            await beginSession(authData.record)
-            set({ user: authenticatedUser })
-            warmStores()
-
-            return { user: authenticatedUser, error: null }
+            return get().adoptAuthResponse(authData)
         } catch (error) {
+            const step = signInStepFromError(error)
+            if (step) {
+                useSignInStepStore.getState().setStep(step)
+                return { user: null, error: null, step }
+            }
             const message = error instanceof Error ? error.message : 'Failed to sign in'
             return { user: null, error: message }
         }
+    },
+
+    adoptAuthResponse: async ({ token, record }) => {
+        pb.authStore.save(token, record as never)
+        const authenticatedUser = toAuthenticatedUser(record)
+        await beginSession(record)
+        set({ user: authenticatedUser })
+        useSignInStepStore.getState().clear()
+        warmStores()
+        return { user: authenticatedUser, error: null }
     },
 
     logout: () => {
@@ -226,6 +250,7 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
         // Same reason: a route recorded for the signed-out user must not become
         // the next user's post-sign-in destination.
         clearPendingRoute()
+        useSignInStepStore.getState().clear()
         // Drop per-session in-memory caches (pbtsdb stores + React Query,
         // incl. the pb file token) so the next user signing in on this SPA
         // instance can't read the previous user's rows or reuse their token.
@@ -278,8 +303,11 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
             if (!res.ok) {
                 let errorMsg: string
                 try {
-                    const body = (await res.json()) as { error?: string }
-                    errorMsg = body.error ?? res.statusText
+                    // Package handlers answer with `error`; a PocketBase
+                    // ApiError (such as "this account needs a full sign-in")
+                    // carries `message`.
+                    const body = (await res.json()) as { error?: string; message?: string }
+                    errorMsg = body.error ?? body.message ?? res.statusText
                 } catch {
                     errorMsg = res.statusText
                 }

@@ -26,6 +26,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"tinycld.org/core/authfactor"
 	"tinycld.org/core/coreserver"
 	"tinycld.org/core/mailer"
 )
@@ -256,4 +257,26 @@ func ConsumeOTP(app core.App, otpID, code, email string) (*core.OTP, error) {
 		return nil, ErrBadCode
 	}
 	return otp, nil
+}
+
+// ErrFullSignInRequired is returned by NewSessionToken when an emailed code
+// is not enough to sign this account in. Show FullSignInMessage to the user.
+var ErrFullSignInRequired = errors.New("guestauth: account needs a full sign-in")
+
+// FullSignInMessage is what a share-link page tells a visitor whose account
+// cannot be signed in with an emailed code.
+const FullSignInMessage = "This account signs in with two-step verification. Sign in to TinyCld, then open the link again."
+
+// NewSessionToken mints the session a redeemed email code grants.
+//
+// An email code proves only that the visitor reads that mailbox. That is the
+// whole sign-in for a guest, but not for an account that has a second factor,
+// and not for a member while the organization requires one: issuing a session
+// there would let a mailbox alone skip the second step. Those accounts get
+// ErrFullSignInRequired and sign in through the normal form instead.
+func NewSessionToken(app core.App, user *core.Record) (string, error) {
+	if !authfactor.PasswordOnlyAllowed(app, user) {
+		return "", ErrFullSignInRequired
+	}
+	return user.NewAuthToken()
 }

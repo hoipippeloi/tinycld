@@ -29,6 +29,12 @@ const ACTION_OPTIONS = [
     { label: 'Restore started', value: 'restore.started' },
     { label: 'Restore succeeded', value: 'restore.succeeded' },
     { label: 'Restore failed', value: 'restore.failed' },
+    { label: 'MFA turned on', value: 'mfa.enabled' },
+    { label: 'MFA turned off', value: 'mfa.disabled' },
+    { label: 'Recovery code used', value: 'mfa.recovery_used' },
+    { label: 'Recovery codes replaced', value: 'mfa.recovery_regenerated' },
+    { label: 'MFA reset by admin', value: 'mfa.reset' },
+    { label: 'Passkey added', value: 'passkey.added' },
 ] as const
 
 const RESOURCE_TYPE_OPTIONS = [
@@ -48,6 +54,8 @@ const RESOURCE_TYPE_OPTIONS = [
     { label: 'Labels', value: 'labels' },
     { label: 'Settings', value: 'settings' },
     { label: 'Packages', value: 'pkg_registry' },
+    { label: 'Passkeys', value: 'passkeys' },
+    { label: 'App passwords', value: 'app_passwords' },
 ] as const
 
 // Each audit action maps to a semantic soft-status class pair so the badge
@@ -62,6 +70,12 @@ const ACTION_BADGE_CLASS = {
     'restore.started': 'bg-accent',
     'restore.succeeded': 'bg-success-soft',
     'restore.failed': 'bg-danger-soft',
+    'mfa.enabled': 'bg-success-soft',
+    'mfa.disabled': 'bg-danger-soft',
+    'mfa.recovery_used': 'bg-accent',
+    'mfa.recovery_regenerated': 'bg-accent',
+    'mfa.reset': 'bg-danger-soft',
+    'passkey.added': 'bg-success-soft',
 } as const
 const ACTION_TEXT_CLASS = {
     created: 'text-success-soft-foreground',
@@ -72,6 +86,12 @@ const ACTION_TEXT_CLASS = {
     'restore.started': 'text-accent-foreground',
     'restore.succeeded': 'text-success-soft-foreground',
     'restore.failed': 'text-danger-soft-foreground',
+    'mfa.enabled': 'text-success-soft-foreground',
+    'mfa.disabled': 'text-danger-soft-foreground',
+    'mfa.recovery_used': 'text-accent-foreground',
+    'mfa.recovery_regenerated': 'text-accent-foreground',
+    'mfa.reset': 'text-danger-soft-foreground',
+    'passkey.added': 'text-success-soft-foreground',
 } as const
 
 type AuditAction = keyof typeof ACTION_BADGE_CLASS

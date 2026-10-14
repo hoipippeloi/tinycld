@@ -68,19 +68,19 @@ var hostHookCounts = map[string]int{
 	"OnRecordAfterDeleteSuccess":      3,
 	"OnRecordAfterUpdateError":        1,
 	"OnRecordAfterUpdateSuccess":      3,
-	"OnRecordAuthRequest":             1,
+	"OnRecordAuthRequest":             2, // the disabled-user guard and the MFA gate
 	"OnRecordAuthWithPasswordRequest": 1,
 	"OnRecordCreate":                  3,
 	"OnRecordCreateExecute":           2,
-	"OnRecordCreateRequest":           9,
+	"OnRecordCreateRequest":           11,
 	"OnRecordDelete":                  4,
 	"OnRecordDeleteExecute":           5,
-	"OnRecordDeleteRequest":           10,
-	"OnRecordUpdate":                  6,
+	"OnRecordDeleteRequest":           13,
+	"OnRecordUpdate":                  7, // incl. app passwords revoked on a tokenKey change
 	"OnRecordUpdateExecute":           4,
-	"OnRecordUpdateRequest":           12,
+	"OnRecordUpdateRequest":           14,
 	"OnRecordValidate":                6,
-	"OnServe":                         30,
+	"OnServe":                         34,
 	"OnSettingsReload":                1,
 	"OnTerminate":                     6, // readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document
 }

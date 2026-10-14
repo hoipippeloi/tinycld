@@ -43,6 +43,13 @@ var redactedFields = map[string]bool{
 	"keys":            true,
 }
 
+// isRedacted reports whether a field's value must stay out of the audit log.
+// A hidden field (an app password hash, a TOTP secret, a passkey public key)
+// is one the API never returns, so the audit log must not return it either.
+func isRedacted(field core.Field) bool {
+	return redactedFields[field.GetName()] || field.GetHidden()
+}
+
 // System fields to skip in diffs.
 var systemFields = map[string]bool{
 	"id":      true,
@@ -276,7 +283,7 @@ func ComputeDiff(original *core.Record, current *core.Record) map[string]any {
 		if systemFields[fieldName] {
 			continue
 		}
-		if redactedFields[fieldName] {
+		if isRedacted(field) {
 			oldVal := original.Get(fieldName)
 			newVal := current.Get(fieldName)
 			if fieldToString(oldVal) != fieldToString(newVal) {
@@ -308,7 +315,7 @@ func BuildSnapshot(record *core.Record) map[string]any {
 		if systemFields[fieldName] {
 			continue
 		}
-		if redactedFields[fieldName] {
+		if isRedacted(field) {
 			snapshot[fieldName] = "[redacted]"
 			continue
 		}

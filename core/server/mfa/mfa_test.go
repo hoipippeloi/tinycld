@@ -1,0 +1,493 @@
+package mfa
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pquerna/otp/totp"
+
+	"tinycld.org/core/authfactor"
+	"tinycld.org/core/rlstest"
+)
+
+const testPassword = "Password123!"
+
+// harness serves the app's real router, with this package's hooks and routes
+// bound, so a test drives sign-in exactly as a client does.
+type harness struct {
+	t   *testing.T
+	app *tests.TestApp
+	mux http.Handler
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	codeLimiter.Reset()
+	app := rlstest.NewAssembledApp(t)
+	Register(app)
+
+	router, err := apis.NewRouter(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &harness{t: t, app: app}
+	ev := &core.ServeEvent{App: app, Router: router}
+	err = app.OnServe().Trigger(ev, func(e *core.ServeEvent) error {
+		mux, err := e.Router.BuildMux()
+		h.mux = mux
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+type response struct {
+	status int
+	body   map[string]any
+}
+
+func (r response) str(key string) string {
+	s, _ := r.body[key].(string)
+	return s
+}
+
+func (h *harness) do(method, url string, body any, token string) response {
+	h.t.Helper()
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(method, url, strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+	rec := httptest.NewRecorder()
+	h.mux.ServeHTTP(rec, req)
+	out := response{status: rec.Code, body: map[string]any{}}
+	_ = json.Unmarshal(rec.Body.Bytes(), &out.body)
+	return out
+}
+
+func (h *harness) user(email, role string) *core.Record {
+	h.t.Helper()
+	users, err := h.app.FindCollectionByNameOrId("users")
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	u := core.NewRecord(users)
+	u.Set("email", email)
+	u.Set("username", strings.Split(email, "@")[0])
+	u.Set("name", "Test")
+	u.Set("role", role)
+	u.Set("password", testPassword)
+	if err := h.app.Save(u); err != nil {
+		h.t.Fatalf("save user: %v", err)
+	}
+	return u
+}
+
+func (h *harness) session(u *core.Record) string {
+	h.t.Helper()
+	token, err := u.NewAuthToken()
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return token
+}
+
+func (h *harness) passwordLogin(email string) response {
+	return h.do(http.MethodPost, "/api/collections/users/auth-with-password",
+		map[string]any{"identity": email, "password": testPassword}, "")
+}
+
+// enroll turns on TOTP for u through the routes and returns the secret and
+// the recovery codes.
+func (h *harness) enroll(u *core.Record) (string, []string) {
+	h.t.Helper()
+	token := h.session(u)
+	begin := h.do(http.MethodPost, "/api/account/mfa/totp/begin", nil, token)
+	if begin.status != http.StatusOK {
+		h.t.Fatalf("begin: %d %v", begin.status, begin.body)
+	}
+	secret := begin.str("secret")
+	confirm := h.do(http.MethodPost, "/api/account/mfa/totp/confirm",
+		map[string]any{"code": codeAt(h.t, secret, time.Now())}, token)
+	if confirm.status != http.StatusOK {
+		h.t.Fatalf("confirm: %d %v", confirm.status, confirm.body)
+	}
+	return secret, toStrings(confirm.body["recoveryCodes"])
+}
+
+func codeAt(t *testing.T, secret string, at time.Time) string {
+	t.Helper()
+	code, err := totp.GenerateCode(secret, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code
+}
+
+// nextCode is the code for the following step. The step enrollment used is
+// spent (replay protection), so a sign-in right after enrolling uses the
+// next one, which the skew window still accepts.
+func nextCode(t *testing.T, secret string) string {
+	return codeAt(t, secret, time.Now().Add(totpPeriod*time.Second))
+}
+
+func toStrings(v any) []string {
+	items, _ := v.([]any)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		s, _ := item.(string)
+		out = append(out, s)
+	}
+	return out
+}
+
+func TestMatchStep_SkewAndLength(t *testing.T) {
+	key, err := newTOTPKey("example.com", "a@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, offset := range []time.Duration{-30 * time.Second, 0, 30 * time.Second} {
+		if _, ok := matchStep(key.Secret(), codeAt(t, key.Secret(), now.Add(offset)), now); !ok {
+			t.Errorf("code at offset %v refused", offset)
+		}
+	}
+	if _, ok := matchStep(key.Secret(), codeAt(t, key.Secret(), now.Add(-90*time.Second)), now); ok {
+		t.Error("code three steps old accepted")
+	}
+	if _, ok := matchStep(key.Secret(), "12345", now); ok {
+		t.Error("five-digit code accepted")
+	}
+}
+
+func TestGate_NoFactorSignsInWithPassword(t *testing.T) {
+	h := newHarness(t)
+	h.user("ada@test.local", "member")
+
+	res := h.passwordLogin("ada@test.local")
+	if res.status != http.StatusOK || res.str("token") == "" {
+		t.Fatalf("password sign-in without MFA: %d %v", res.status, res.body)
+	}
+}
+
+func TestGate_TOTPRequiresSecondStep(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+
+	first := h.passwordLogin("ada@test.local")
+	if first.status != http.StatusUnauthorized || first.str("token") != "" {
+		t.Fatalf("password alone must not sign in: %d %v", first.status, first.body)
+	}
+	mfaToken := first.str("mfaToken")
+	if mfaToken == "" {
+		t.Fatalf("no mfaToken: %v", first.body)
+	}
+	if got := toStrings(first.body["methods"]); strings.Join(got, ",") != "totp,recovery" {
+		t.Fatalf("methods = %v", got)
+	}
+
+	// The pending token is not a session.
+	if res := h.do(http.MethodPost, "/api/collections/users/auth-refresh", nil, mfaToken); res.status == http.StatusOK {
+		t.Fatal("a pending token refreshed into a session")
+	}
+
+	code := nextCode(t, secret)
+	wrong := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": "000000"}, "")
+	if wrong.status != http.StatusBadRequest {
+		t.Fatalf("wrong code: %d %v", wrong.status, wrong.body)
+	}
+	ok := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": code}, "")
+	if ok.status != http.StatusOK || ok.str("token") == "" {
+		t.Fatalf("verify: %d %v", ok.status, ok.body)
+	}
+
+	replay := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": code}, "")
+	if replay.status != http.StatusBadRequest {
+		t.Fatalf("a used code was accepted again: %d", replay.status)
+	}
+
+	// A session from the second step refreshes without being asked again.
+	refreshed := h.do(http.MethodPost, "/api/collections/users/auth-refresh", nil, ok.str("token"))
+	if refreshed.status != http.StatusOK {
+		t.Fatalf("refresh after MFA: %d %v", refreshed.status, refreshed.body)
+	}
+}
+
+func TestVerify_RecoveryCodeIsSingleUse(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	_, codes := h.enroll(ada)
+	if len(codes) != recoveryCodeCount {
+		t.Fatalf("got %d recovery codes", len(codes))
+	}
+
+	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+	typed := strings.ToUpper(strings.ReplaceAll(codes[3], "-", ""))
+	ok := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "recoveryCode": typed}, "")
+	if ok.status != http.StatusOK || ok.str("token") == "" {
+		t.Fatalf("recovery sign-in: %d %v", ok.status, ok.body)
+	}
+	again := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "recoveryCode": codes[3]}, "")
+	if again.status != http.StatusBadRequest {
+		t.Fatalf("a used recovery code was accepted again: %d", again.status)
+	}
+
+	row, err := findTOTP(h.app, ada.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := row.GetInt("recovery_remaining"); got != recoveryCodeCount-1 {
+		t.Fatalf("recovery_remaining = %d", got)
+	}
+}
+
+func TestVerify_PendingTokenDiesWithTokenKey(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+
+	fresh, err := h.app.FindRecordById("users", ada.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.RefreshTokenKey()
+	if err := h.app.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+
+	res := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": nextCode(t, secret)}, "")
+	if res.status != http.StatusUnauthorized {
+		t.Fatalf("pending token survived sign-out everywhere: %d", res.status)
+	}
+}
+
+func TestVerify_RateLimited(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+	codeLimiter.Reset()
+	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+
+	for i := 0; i < 10; i++ {
+		h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": "000000"}, "")
+	}
+	res := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": nextCode(t, secret)}, "")
+	if res.status != http.StatusTooManyRequests {
+		t.Fatalf("eleventh attempt: %d", res.status)
+	}
+}
+
+func TestRequireMFA_EnrollsDuringSignIn(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	setRequireMFA(t, h.app, "true")
+
+	first := h.passwordLogin("ada@test.local")
+	enrollToken := first.str("mfaEnrollToken")
+	if first.status != http.StatusUnauthorized || enrollToken == "" || first.str("token") != "" {
+		t.Fatalf("expected an enroll step: %d %v", first.status, first.body)
+	}
+
+	// The enroll token reaches only the enrollment routes.
+	if res := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": enrollToken, "code": "000000"}, ""); res.status != http.StatusUnauthorized {
+		t.Fatalf("enroll token accepted as a verify token: %d", res.status)
+	}
+	if res := h.do(http.MethodPost, "/api/account/mfa/totp/disable", map[string]any{"code": "000000"}, enrollToken); res.status != http.StatusUnauthorized {
+		t.Fatalf("enroll token accepted as a session: %d", res.status)
+	}
+
+	begin := h.do(http.MethodPost, "/api/account/mfa/totp/begin", map[string]any{"mfaEnrollToken": enrollToken}, "")
+	if begin.status != http.StatusOK {
+		t.Fatalf("begin with enroll token: %d %v", begin.status, begin.body)
+	}
+	confirm := h.do(http.MethodPost, "/api/account/mfa/totp/confirm", map[string]any{
+		"mfaEnrollToken": enrollToken,
+		"code":           codeAt(t, begin.str("secret"), time.Now()),
+	}, "")
+	if confirm.status != http.StatusOK || confirm.str("token") == "" {
+		t.Fatalf("confirm with enroll token must sign in: %d %v", confirm.status, confirm.body)
+	}
+	meta, _ := confirm.body["meta"].(map[string]any)
+	if len(toStrings(meta["recoveryCodes"])) != recoveryCodeCount {
+		t.Fatalf("recovery codes missing from the sign-in response: %v", confirm.body)
+	}
+	if !authfactor.HasSecondFactor(h.app, ada.Id) {
+		t.Fatal("enrollment did not record a factor")
+	}
+}
+
+func TestDisable_RefusedWhenRequiredAndNoOtherFactor(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+	setRequireMFA(t, h.app, "true")
+
+	res := h.do(http.MethodPost, "/api/account/mfa/totp/disable", map[string]any{"code": nextCode(t, secret)}, h.session(ada))
+	if res.status != http.StatusBadRequest {
+		t.Fatalf("disable under require-MFA with no passkey: %d", res.status)
+	}
+	if !authfactor.HasSecondFactor(h.app, ada.Id) {
+		t.Fatal("factor removed")
+	}
+}
+
+func TestDisable_NeedsAValidCode(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, _ := h.enroll(ada)
+	token := h.session(ada)
+
+	if res := h.do(http.MethodPost, "/api/account/mfa/totp/disable", map[string]any{"code": "000000"}, token); res.status != http.StatusBadRequest {
+		t.Fatalf("disable with a wrong code: %d", res.status)
+	}
+	if res := h.do(http.MethodPost, "/api/account/mfa/totp/disable", map[string]any{"code": nextCode(t, secret)}, token); res.status != http.StatusOK {
+		t.Fatalf("disable: %d %v", res.status, res.body)
+	}
+	if authfactor.HasSecondFactor(h.app, ada.Id) {
+		t.Fatal("factor still present")
+	}
+	if res := h.passwordLogin("ada@test.local"); res.status != http.StatusOK {
+		t.Fatalf("password sign-in after disable: %d", res.status)
+	}
+}
+
+func TestAdminReset(t *testing.T) {
+	h := newHarness(t)
+	owner := h.user("owner@test.local", "owner")
+	admin := h.user("admin@test.local", "admin")
+	member := h.user("member@test.local", "member")
+	h.enroll(owner)
+	h.enroll(member)
+
+	if res := h.do(http.MethodPost, "/api/admin/users/"+member.Id+"/mfa/reset", nil, h.session(member)); res.status != http.StatusForbidden {
+		t.Fatalf("member reset: %d", res.status)
+	}
+	if res := h.do(http.MethodPost, "/api/admin/users/"+owner.Id+"/mfa/reset", nil, h.session(admin)); res.status != http.StatusForbidden {
+		t.Fatalf("admin reset an owner: %d", res.status)
+	}
+	if res := h.do(http.MethodPost, "/api/admin/users/"+member.Id+"/mfa/reset", nil, h.session(admin)); res.status != http.StatusNoContent {
+		t.Fatalf("admin reset a member: %d %v", res.status, res.body)
+	}
+	if authfactor.HasSecondFactor(h.app, member.Id) {
+		t.Fatal("member still has a factor after reset")
+	}
+	if !authfactor.HasSecondFactor(h.app, owner.Id) {
+		t.Fatal("owner lost a factor")
+	}
+}
+
+func TestMFATOTPShippedRules(t *testing.T) {
+	app := rlstest.NewAssembledApp(t)
+	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "list", "user = @request.auth.id")
+	rlstest.RequireRuleContains(t, app, authfactor.TOTPCollection, "view", "user = @request.auth.id")
+	for _, kind := range []string{"create", "update", "delete"} {
+		if rule, ok := rlstest.Rule(t, app, authfactor.TOTPCollection, kind); ok {
+			t.Fatalf("mfa_totp %s rule must be locked (nil), got %q", kind, rule)
+		}
+	}
+	col, err := app.FindCollectionByNameOrId(authfactor.TOTPCollection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"secret", "recovery_codes", "last_step"} {
+		if f := col.Fields.GetByName(name); f == nil || !f.GetHidden() {
+			t.Errorf("mfa_totp.%s must be hidden", name)
+		}
+	}
+}
+
+func setRequireMFA(t *testing.T, app core.App, value string) {
+	t.Helper()
+	col, err := app.FindCollectionByNameOrId(settingsTable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := core.NewRecord(col)
+	row.Set("key", RequireMFAKey)
+	row.Set("value", value)
+	if err := app.Save(row); err != nil {
+		t.Fatalf("save setting: %v", err)
+	}
+}
+
+// Two requests racing with the same code must not both sign in.
+func TestVerify_SameCodeRacingSignsInOnce(t *testing.T) {
+	h := newHarness(t)
+	ada := h.user("ada@test.local", "member")
+	secret, codes := h.enroll(ada)
+	code := nextCode(t, secret)
+
+	for _, proof := range []map[string]any{{"code": code}, {"recoveryCode": codes[0]}} {
+		const racers = 8
+		results := make(chan int, racers)
+		var tokens []string
+		for i := 0; i < racers; i++ {
+			tokens = append(tokens, h.passwordLogin("ada@test.local").str("mfaToken"))
+		}
+		var wg sync.WaitGroup
+		for i := 0; i < racers; i++ {
+			wg.Add(1)
+			go func(token string) {
+				defer wg.Done()
+				body := map[string]any{"mfaToken": token}
+				for k, v := range proof {
+					body[k] = v
+				}
+				results <- h.do(http.MethodPost, "/api/auth/mfa/verify", body, "").status
+			}(tokens[i])
+		}
+		wg.Wait()
+		close(results)
+		ok := 0
+		for status := range results {
+			if status == http.StatusOK {
+				ok++
+			}
+		}
+		if ok != 1 {
+			t.Fatalf("%v: %d racing requests signed in, want exactly 1", proof, ok)
+		}
+		codeLimiter.Reset()
+	}
+}
+
+func TestEnrollToken_RefusedOnceAFactorExists(t *testing.T) {
+	h := newHarness(t)
+	h.user("ada@test.local", "member")
+	setRequireMFA(t, h.app, "true")
+	enroll := h.passwordLogin("ada@test.local").str("mfaEnrollToken")
+
+	begin := h.do(http.MethodPost, "/api/account/mfa/totp/begin", map[string]any{"mfaEnrollToken": enroll}, "")
+	confirm := h.do(http.MethodPost, "/api/account/mfa/totp/confirm", map[string]any{
+		"mfaEnrollToken": enroll,
+		"code":           codeAt(t, begin.str("secret"), time.Now()),
+	}, "")
+	if confirm.status != http.StatusOK {
+		t.Fatalf("confirm: %d %v", confirm.status, confirm.body)
+	}
+	if res := h.do(http.MethodPost, "/api/account/mfa/totp/begin", map[string]any{"mfaEnrollToken": enroll}, ""); res.status != http.StatusUnauthorized {
+		t.Fatalf("a spent enroll token still works: %d", res.status)
+	}
+}
+
+func TestRequireMFA_GuestsAreNotAskedToEnroll(t *testing.T) {
+	h := newHarness(t)
+	h.user("guest@test.local", "guest")
+	setRequireMFA(t, h.app, "true")
+	if res := h.passwordLogin("guest@test.local"); res.status != http.StatusOK {
+		t.Fatalf("guest asked to enroll: %d %v", res.status, res.body)
+	}
+}
