@@ -28,14 +28,13 @@ export function parseFormRows<T extends { id: string; definition: unknown }>(row
 
 export function useFormsOfHost(hostKey: string | undefined) {
     const [formsCollection] = useStore('forms')
-    const { data, isReady } = useLiveQuery(
-        query =>
+    const { data, isReady } = useLiveQuery({
+        query: query =>
             query
                 .from({ f: formsCollection })
                 .where(({ f }) => eq(f.host, hostKey ?? ''))
                 .orderBy(({ f }) => f.order, 'asc'),
-        [formsCollection, hostKey]
-    )
+    })
     const forms = useMemo(() => parseFormRows(data ?? []), [data])
     return { forms, defaultForm: forms.find(f => f.is_default), isReady: Boolean(isReady) }
 }

@@ -36,8 +36,8 @@ function column(ref: object, name: string): string {
 function useFieldFiles(host: FormHost, fieldKey: string, recordId: string) {
     const files = host.files
     const collection = files ? collectionByName(files.collection) : undefined
-    const { data } = useLiveQuery(
-        query => {
+    const { data } = useLiveQuery({
+        query: query => {
             if (!collection || !files) return null
             return query
                 .from({ f: collection })
@@ -48,8 +48,7 @@ function useFieldFiles(host: FormHost, fieldKey: string, recordId: string) {
                     )
                 )
         },
-        [collection, recordId, fieldKey]
-    )
+    })
     return { rows: (data ?? []) as FileRow[], collection, files }
 }
 
