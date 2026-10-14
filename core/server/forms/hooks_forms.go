@@ -70,7 +70,11 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		}
 		host := defs.Host(e.Record.GetString("host"))
 		if host != nil {
-			if _, err := e.App.FindCollectionByNameOrId(host.Collection); err != nil {
+			_, colErr := e.App.FindCollectionByNameOrId(host.Collection)
+			if colErr != nil && !errors.Is(colErr, sql.ErrNoRows) {
+				return fmt.Errorf("forms: check form use: %w", colErr)
+			}
+			if colErr != nil {
 				log.DebugContext(e.Context, "host collection absent, skipping in-use check", "collection", host.Collection)
 			} else {
 				_, err := e.App.FindFirstRecordByFilter(host.Collection, host.FormColumn+" = {:id}", dbx.Params{"id": e.Record.Id})

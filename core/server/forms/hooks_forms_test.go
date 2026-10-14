@@ -1,6 +1,8 @@
 package forms
 
 import (
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -250,6 +252,9 @@ func TestFormsHook_SettlingSiblingFiresUpdateHook(t *testing.T) {
 
 func TestFormsHook_DeleteToleratesAbsentHostCollection(t *testing.T) {
 	e := newTestEnv(t)
+	if _, err := e.app.FindCollectionByNameOrId("gizmos_others"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("want an absent collection (sql.ErrNoRows), got %v", err)
+	}
 	col, _ := e.app.FindCollectionByNameOrId("forms")
 	r := core.NewRecord(col)
 	r.Set("host", "gizmos:other")
