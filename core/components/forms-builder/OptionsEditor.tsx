@@ -98,7 +98,7 @@ function OptionRow({
 }
 
 /** The lowest n whose `option_n` is not a value yet, so a new row never repeats one. */
-function firstFreeNumber(taken: Set<string>): number {
+export function firstFreeNumber(taken: Set<string>): number {
     let n = 1
     while (taken.has(`option_${n}`)) n += 1
     return n

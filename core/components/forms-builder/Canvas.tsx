@@ -51,7 +51,7 @@ export function useEditorCanvasDrag(editor: Editor) {
  * then keeps the last valid definition instead of crashing. The watched draft
  * fields are returned too: editor errors are indexed by them.
  */
-function useCanvasDefinition(control: Control<DraftDefinition>) {
+export function useCanvasDefinition(control: Control<DraftDefinition>) {
     const [version, pages, fields] = useWatch({ control, name: ['version', 'pages', 'fields'] })
     const lastGood = useRef<FormDefinition | null>(null)
     const definition = useMemo(() => {
