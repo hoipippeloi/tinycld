@@ -23,11 +23,18 @@ func fieldErr(field, code, msg string) validation.Errors {
 	return validation.Errors{field: validation.NewError(code, msg)}
 }
 
+func isSettling(ctx context.Context) bool {
+	return ctx != nil && ctx.Value(settlingKey) == true
+}
+
 func bindFormsHooks(app core.App, defs *Defs) {
 	validate := func(e *core.RecordEvent) error {
 		host := defs.Host(e.Record.GetString("host"))
 		if host == nil {
 			return fieldErr("host", "validation_unknown_host", "No installed package provides this form host.")
+		}
+		if e.Record.GetBool("is_default") && e.Record.GetBool("archived") {
+			return fieldErr("archived", "validation_default_unarchivable", "The default form cannot be archived. Make another form the default first.")
 		}
 		def, err := ParseDefinition([]byte(e.Record.GetString("definition")))
 		if err != nil {
@@ -38,31 +45,45 @@ func bindFormsHooks(app core.App, defs *Defs) {
 		}
 		return nil
 	}
+	// The save and the clearing of the siblings' default flag commit together,
+	// so a failed clear never leaves two defaults or a half-saved form.
+	saveAndSettle := func(e *core.RecordEvent) error {
+		return e.App.RunInTransaction(func(txApp core.App) error {
+			e.App = txApp
+			if err := e.Next(); err != nil {
+				return err
+			}
+			return settleDefault(e.Context, txApp, e.Record)
+		})
+	}
 	app.OnRecordCreate(formsCollection).BindFunc(func(e *core.RecordEvent) error {
 		if err := validate(e); err != nil {
 			return err
 		}
-		if err := e.Next(); err != nil {
-			return err
-		}
-		return settleDefault(e.Context, e.App, e.Record)
+		return saveAndSettle(e)
 	})
 	app.OnRecordUpdate(formsCollection).BindFunc(func(e *core.RecordEvent) error {
-		if err := validate(e); err != nil {
-			return err
+		// A settling save only clears is_default on a sibling; the sibling's
+		// definition is not what changed, so it is not revalidated here.
+		if isSettling(e.Context) {
+			return e.Next()
 		}
+		// Read the stored row: a record saved earlier in this process keeps
+		// its first-load state in Original().
 		orig, err := e.App.FindRecordById(formsCollection, e.Record.Id)
 		if err != nil {
 			return err
 		}
-		settling := e.Context != nil && e.Context.Value(settlingKey) == true
-		if !settling && orig.GetBool("is_default") && !e.Record.GetBool("is_default") {
-			return fieldErr("is_default", "validation_default_required", "Set another form as the default first.")
+		if orig.GetString("host") != e.Record.GetString("host") {
+			return fieldErr("host", "validation_host_immutable", "A form cannot move to another record type.")
 		}
-		if err := e.Next(); err != nil {
+		if err := validate(e); err != nil {
 			return err
 		}
-		return settleDefault(e.Context, e.App, e.Record)
+		if orig.GetBool("is_default") && !e.Record.GetBool("is_default") {
+			return fieldErr("is_default", "validation_default_required", "Set another form as the default first.")
+		}
+		return saveAndSettle(e)
 	})
 	app.OnRecordDelete(formsCollection).BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetBool("is_default") {

@@ -269,3 +269,99 @@ func TestFormsHook_DeleteToleratesAbsentHostCollection(t *testing.T) {
 		t.Fatalf("delete with absent host collection: %v", err)
 	}
 }
+
+func TestFormsHook_HostCannotChange(t *testing.T) {
+	e := newTestEnv(t)
+	f := e.newForm(t, "widget", widgetDefault, false)
+	f.Set("host", "gizmos:other")
+	err := e.app.Save(f)
+	if err == nil {
+		t.Fatal("moving a form to another host must be refused")
+	}
+	if keys := errorKeys(t, err); len(keys) != 1 || keys[0] != "host" {
+		t.Fatalf("want a host error, got %v", err)
+	}
+}
+
+func TestFormsHook_DefaultCannotBeArchived(t *testing.T) {
+	e := newTestEnv(t)
+	f := e.newForm(t, "widget", widgetDefault, true)
+	f.Set("archived", true)
+	err := e.app.Save(f)
+	if err == nil {
+		t.Fatal("archiving the default must be refused")
+	}
+	if keys := errorKeys(t, err); len(keys) != 1 || keys[0] != "archived" {
+		t.Fatalf("want an archived error, got %v", err)
+	}
+	other := e.newForm(t, "other", widgetDefault, false)
+	other.Set("archived", true)
+	if err := e.app.Save(other); err != nil {
+		t.Fatalf("a non-default form archives: %v", err)
+	}
+}
+
+func TestFormsHook_SettlingSkipsTheSiblingsDefinition(t *testing.T) {
+	e := newTestEnv(t)
+	a := e.newForm(t, "a", widgetDefault, true)
+	// The host gains a built-in after a was saved, so a's stored definition no
+	// longer validates; clearing its default flag must still go through.
+	e.withBuiltins(t, append(append([]Builtin{}, e.host.Builtins...), Builtin{Key: "extra", Label: "Extra", Kind: "text", Storage: "column"}), func() {
+		def := withField(widgetDefault, `{"key":"extra","kind":"builtin","page":"main","label":"Extra","width":"full","required":false,"hidden":false}`)
+		e.newForm(t, "b", def, true)
+		a, _ = e.app.FindRecordById("forms", a.Id)
+		if a.GetBool("is_default") {
+			t.Fatal("a must no longer be default")
+		}
+	})
+}
+
+func TestFormsHook_AFailedSettleRollsBackTheSave(t *testing.T) {
+	e := newTestEnv(t)
+	a := e.newForm(t, "a", widgetDefault, true)
+	e.app.OnRecordUpdate("forms").BindFunc(func(ev *core.RecordEvent) error {
+		if isSettling(ev.Context) {
+			return errors.New("sibling clear failed")
+		}
+		return ev.Next()
+	})
+	err := e.saveFormErr(t, "b", widgetDefault)
+	if err != nil {
+		t.Fatalf("a non-default save does not settle: %v", err)
+	}
+	b, _ := e.app.FindFirstRecordByFilter("forms", "slug = 'b'")
+	b.Set("is_default", true)
+	if err := e.app.Save(b); err == nil || !strings.Contains(err.Error(), "sibling clear failed") {
+		t.Fatalf("want the settle error, got %v", err)
+	}
+	b, _ = e.app.FindRecordById("forms", b.Id)
+	a, _ = e.app.FindRecordById("forms", a.Id)
+	if b.GetBool("is_default") || !a.GetBool("is_default") {
+		t.Fatalf("the failed settle must roll back: a=%v b=%v", a.GetBool("is_default"), b.GetBool("is_default"))
+	}
+	col, _ := e.app.FindCollectionByNameOrId("forms")
+	c := core.NewRecord(col)
+	c.Set("host", e.host.Key)
+	c.Set("name", "c")
+	c.Set("slug", "c")
+	c.Set("definition", []byte(widgetDefault))
+	c.Set("is_default", true)
+	if err := e.app.Save(c); err == nil {
+		t.Fatal("want the settle error on create")
+	}
+	if _, err := e.app.FindFirstRecordByFilter("forms", "slug = 'c'"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("a create whose settle failed must not persist, got %v", err)
+	}
+}
+
+// withBuiltins swaps the host's declared built-ins for the length of a step:
+// the hooks hold the same *Host, so a form saved inside the step is checked
+// against the swapped list, the way it was when an older package version
+// declared it.
+func (e *env) withBuiltins(t *testing.T, builtins []Builtin, step func()) {
+	t.Helper()
+	saved := e.host.Builtins
+	e.host.Builtins = builtins
+	defer func() { e.host.Builtins = saved }()
+	step()
+}
