@@ -11,6 +11,7 @@ import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { EMPTY_DEFINITION, EMPTY_STATE } from './empty-schema'
+import { formErrorHandler } from './form-error-handler'
 import { useSchemaRefResolver } from './use-schema-ref-resolver'
 
 export function useFormCreate(
@@ -70,5 +71,14 @@ export function useFormCreate(
         return out
     }
 
-    return { form, schemaRef, definition, formId: row?.id ?? '', switchForm, submit, isReady }
+    return {
+        form,
+        schemaRef,
+        definition,
+        formId: row?.id ?? '',
+        switchForm,
+        submit,
+        onError: formErrorHandler(host, form, 'create record'),
+        isReady,
+    }
 }

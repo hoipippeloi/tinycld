@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema } from '../../../lib/forms/definition'
@@ -47,11 +47,42 @@ const record = {
 }
 
 describe('useFormEdit', () => {
-    it('patch returns only the dirty keys, split', async () => {
+    it('patch returns the dirty keys, split, over the stored json column', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
         const split = await result.current.patch()
-        expect(split).toEqual({ columns: {}, fields: { count: 3 }, rows: {} })
+        expect(split).toEqual({ columns: {}, fields: { severity: 'low', count: 3 }, rows: {} })
+    })
+    it('keeps a key the form does not declare in the returned fields', async () => {
+        const withOrphan = { ...record, fields: { severity: 'low', count: 2, legacy: 'kept' } }
+        const { result } = renderHook(() => useFormEdit(host, withOrphan, ctx))
+        act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
+        const split = await result.current.patch()
+        expect(split?.fields).toEqual({ severity: 'low', count: 3, legacy: 'kept' })
+    })
+    it('a second patch returns only its own change', async () => {
+        const { result } = renderHook(() => useFormEdit(host, record, ctx))
+        act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
+        await act(async () => {
+            await result.current.patch()
+        })
+        act(() => result.current.form.setValue('name', 'M', { shouldDirty: true }))
+        let second: Awaited<ReturnType<typeof result.current.patch>> = null
+        await act(async () => {
+            second = await result.current.patch()
+        })
+        expect(second).toEqual({ columns: { name: 'M' }, fields: {}, rows: {} })
+    })
+    it('shows a remote change to a key it already patched', async () => {
+        const { result, rerender } = renderHook(({ rec }) => useFormEdit(host, rec, ctx), {
+            initialProps: { rec: record },
+        })
+        act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
+        await act(async () => {
+            await result.current.patch()
+        })
+        rerender({ rec: { ...record, fields: { severity: 'low', count: 5 } } })
+        await waitFor(() => expect(result.current.form.getValues('count')).toBe(5))
     })
     it('patch returns empty buckets when nothing changed', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))

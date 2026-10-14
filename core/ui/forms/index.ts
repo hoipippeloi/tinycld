@@ -1,5 +1,5 @@
 export { FieldCell, type FieldCellProps } from './FieldCell'
-export { FieldInput, type FieldInputProps } from './FieldInput'
+export { FieldInput, type FieldInputProps, rendersOwnLabel } from './FieldInput'
 export { FormLayout } from './FormLayout'
 export {
     type DesignOptions,
@@ -7,6 +7,7 @@ export {
     FormRenderer,
     type FormRendererProps,
 } from './FormRenderer'
+export { formErrorHandler, type HostFieldErrors, mapHostErrors } from './form-error-handler'
 export { useContainerWidth } from './use-container-width'
 export { useFormCreate } from './use-form-create'
 export { useFormEdit } from './use-form-edit'
