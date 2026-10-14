@@ -16,6 +16,21 @@ describe('hostDefSchema', () => {
         )
         expect(hostDefSchema.safeParse({ ...widgetHost, builtin }).success).toBe(false)
     })
+    it('rejects a collaborative builtin when the host has no fragment template', () => {
+        const r = hostDefSchema.safeParse({ ...widgetHost, collaborative: undefined })
+        expect(r.success).toBe(false)
+        expect(JSON.stringify(r.error?.issues)).toContain(
+            'collaborative builtins need a collaborative fragment template'
+        )
+    })
+    it('rejects a duplicate builtin key', () => {
+        const r = hostDefSchema.safeParse({
+            ...widgetHost,
+            builtin: [...widgetHost.builtin, widgetHost.builtin[0]],
+        })
+        expect(r.success).toBe(false)
+        expect(JSON.stringify(r.error?.issues)).toContain('duplicate built-in key name')
+    })
     it('rejects a section with storage other than none', () => {
         const builtin = widgetHost.builtin.map(b =>
             b.key === 'comments' ? { ...b, storage: 'column' } : b

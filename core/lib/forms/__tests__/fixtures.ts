@@ -1,5 +1,5 @@
 import type { FormDefinition } from '../definition'
-import type { FormHostDef } from '../host'
+import { type FormHostDef, hostDefSchema } from '../host'
 
 export const bugDefinition: FormDefinition = {
     version: 1,
@@ -58,7 +58,7 @@ export const bugDefinition: FormDefinition = {
     submit: { required: ['title'] },
 }
 
-export const widgetHost: FormHostDef = {
+export const widgetHost: FormHostDef = hostDefSchema.parse({
     key: 'gizmos:widget',
     label: 'Widget',
     collection: 'gizmos_widgets',
@@ -94,4 +94,4 @@ export const widgetHost: FormHostDef = {
         uploaderColumn: 'uploaded_by',
     },
     collaborative: { fragment: 'widget:{record}:{format}:{key}' },
-}
+})

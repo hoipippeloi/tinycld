@@ -258,7 +258,11 @@ export interface DefinitionIssue {
     message: string
 }
 
-/** Checks a definition against the host it belongs to. Mirrored in Go (server/forms/definition.go). */
+/**
+ * Checks a definition against the host it belongs to. Mirrored in Go (server/forms/definition.go).
+ * Callers pass a definition that already passed `definitionSchema`; this function relies on it for
+ * unique field keys, so "every builtin present exactly once" holds only after that check.
+ */
 export function validateDefinitionForHost(
     def: FormDefinition,
     host: FormHostDef

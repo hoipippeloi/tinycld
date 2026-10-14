@@ -47,34 +47,55 @@ const builtinSchema = z
             })
     })
 
-/** Input types: a host declares only what differs from the defaults. */
-export type FormHostBuiltin = z.input<typeof builtinSchema>
+export const hostDefSchema = z
+    .object({
+        key: z.string().regex(/^[a-z][a-z0-9-]*:[a-z][a-z0-9_]*$/, 'host key is <slug>:<name>'),
+        label: z.string().min(1).max(60),
+        collection: z.string().min(1),
+        formColumn: z.string().min(1),
+        fieldsColumn: z.string().min(1),
+        /** Every column of the collection, so a custom key can never shadow one. */
+        columns: z.array(z.string().min(1)),
+        builtin: z.array(builtinSchema).min(1),
+        files: z
+            .object({
+                collection: z.string().min(1),
+                recordColumn: z.string().min(1),
+                fieldColumn: z.string().min(1),
+                sizeColumn: z.string().min(1),
+                uploaderColumn: z.string().min(1),
+            })
+            .optional(),
+        collaborative: z
+            .object({
+                fragment: z.string().includes('{record}').includes('{key}').includes('{format}'),
+            })
+            .optional(),
+    })
+    .superRefine((host, ctx) => {
+        const keys = new Set<string>()
+        host.builtin.forEach((b, i) => {
+            if (keys.has(b.key))
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['builtin', i, 'key'],
+                    message: `duplicate built-in key ${b.key}`,
+                })
+            keys.add(b.key)
+            if (b.collaborative && !host.collaborative)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['builtin', i, 'collaborative'],
+                    message: 'collaborative builtins need a collaborative fragment template',
+                })
+        })
+    })
 
-export const hostDefSchema = z.object({
-    key: z.string().regex(/^[a-z][a-z0-9-]*:[a-z][a-z0-9_]*$/, 'host key is <slug>:<name>'),
-    label: z.string().min(1).max(60),
-    collection: z.string().min(1),
-    formColumn: z.string().min(1),
-    fieldsColumn: z.string().min(1),
-    /** Every column of the collection, so a custom key can never shadow one. */
-    columns: z.array(z.string().min(1)),
-    builtin: z.array(builtinSchema).min(1),
-    files: z
-        .object({
-            collection: z.string().min(1),
-            recordColumn: z.string().min(1),
-            fieldColumn: z.string().min(1),
-            sizeColumn: z.string().min(1),
-            uploaderColumn: z.string().min(1),
-        })
-        .optional(),
-    collaborative: z
-        .object({
-            fragment: z.string().includes('{record}').includes('{key}').includes('{format}'),
-        })
-        .optional(),
-})
-export type FormHostDef = z.input<typeof hostDefSchema>
+/** Parsed host with defaults applied. Every consumer of parsed data uses these types. */
+export type FormHostBuiltin = z.infer<typeof builtinSchema>
+export type FormHostDef = z.infer<typeof hostDefSchema>
+/** Hand-authored host module input, where defaulted fields may be omitted. */
+export type FormHostDefInput = z.input<typeof hostDefSchema>
 export const hostDefListSchema = z.array(hostDefSchema)
 
 export function findBuiltin(host: FormHostDef, key: string): FormHostBuiltin | undefined {
@@ -91,7 +112,7 @@ export function defaultDefinitionFor(host: FormHostDef): FormDefinition {
             page: 'main',
             label: b.label,
             width: 'full',
-            required: b.required ?? false,
+            required: b.required,
             hidden: false,
         })),
         rules: [],
@@ -106,5 +127,8 @@ export function resolveFragment(
     key: string,
     format: 'md' | 'html'
 ) {
-    return template.replace('{record}', record).replace('{key}', key).replace('{format}', format)
+    return template
+        .replaceAll('{record}', () => record)
+        .replaceAll('{key}', () => key)
+        .replaceAll('{format}', () => format)
 }
