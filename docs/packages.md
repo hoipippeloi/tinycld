@@ -289,6 +289,7 @@ export default manifest
 | `payloads` | `{ package }` — dir (relative to the member root, e.g. `'server/api'`) of a **self-contained** Go package holding one exported struct per HTTP request/response. The generator parses it with go/ast (never imports it) and emits `lib/generated/<slug>-api.ts`, importable as `@tinycld/app-generated/<slug>-api` — the Go structs are the single source of truth for API payload shapes, consumed by both the web client and the CLI. Constraints (hard generation errors otherwise): no imports beyond `time`, structs + basic-literal consts only, every exported field json-tagged, no embedded fields, no `any`. |
 | `quota` | `[{ collection, sizeField, ownerField? }]` — storage-bearing collections `core/quota` enforces ceilings on, as record hooks. A source with no `ownerField` counts toward the org ceiling only. |
 | `automation` | `{ definitions }` — exports subpath to a pure-data module default-exporting `AutomationDefinitions<PkgSchema>`: the package's workflow-rules **triggers** (record events users build rules on) and **actions** (record-ops core executes anywhere, or native Go handlers registered via `automation.RegisterAction`). Generator-validated and materialized to `server/automation_defs.json`; the engine resolves and serves the catalog to the builder UI. Full authoring guide: [automation.md](automation.md). |
+| `forms` | `{ hosts, ui }` — two exports subpaths. `hosts` is a pure-data module declaring which of the package's records carry a form and their built-in fields; the generator materializes it to `server/form_hosts.json`. `ui` is the host's form UI module. Design: `docs/superpowers/specs/2026-10-14-forms-engine-design.md` in the workspace-root repo. |
 | `build.script` | A build script run before bundling (e.g. an embedded webview bundle). |
 | `dependencies[]` | A **slug-only** list of other packages — **advisory + seed-ordering only.** Used to topologically sort seed execution and as a soft hint; it imposes **no** version constraint and is never a compile-time import. |
 | `peerVersions` | `{ '<slug or @tinycld/core>': '<semver range>' }` (e.g. `{ '@tinycld/core': '>=2.1 <3' }`) — **enforced** semver ranges keyed by slug. See [`dependencies` vs `peerVersions`](#dependencies-vs-peerversions) below. |
@@ -874,6 +875,7 @@ runtime. The registries that exist:
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
 | a CalDAV / CardDAV / WebDAV source | `caldav.Register` / `carddav.Register` / `webdav.Register` |
 | a native automation action | `automation.RegisterAction` |
+| which of its records carry a form, and that record's built-in fields | `forms: { hosts, ui }` in the manifest; the generator emits `server/form_hosts.json`, which core's `forms` package reads |
 | version snapshot/restore hooks for its drive item type | `versionhooks.Register` |
 | a sink for provider delivery notifications about its own sent messages | `deliveryevents.Register` |
 | what to stop at once when a supervised server begins to drain (e.g. stop accepting on its own ports) | `drainhooks.OnBegin` |

@@ -363,7 +363,7 @@ The generator (`tinycld/scripts/generate.ts`, run by the postinstall and by `pnp
 - `tinycld.config.ts` — the typed `definePackageEntry` array plus the `MergedPackageSchema` literal intersection; the runtime source of truth that the helpers in `tinycld/core/lib/packages/` derive stores/registry/components/seeds from. Plus `tinycld.seeds.ts`, the Node-only seed list kept out of the app bundle.
 - `tinycld/app/a/(app)/<slug>/**` — app route re-exports — and `tinycld/app/p/<path>` — public routes.
 - `tinycld/lib/generated/*` — including the `package.json` that makes it the `@tinycld/app-generated` package, plus `tinycld-config.ts`, `package-help.ts`, `package-icons.ts`, and `uniwind-sources.css`.
-- `tinycld/server/package_extensions.go`, `tinycld/server/go.work`, and the `tinycld/server/pb_migrations/*` + `tinycld/server/pb_hooks/*` symlinks.
+- `tinycld/server/package_extensions.go`, `tinycld/server/go.work`, `tinycld/server/form_hosts.json` (the form-host registry core's `forms` package reads), and the `tinycld/server/pb_migrations/*` + `tinycld/server/pb_hooks/*` symlinks.
 
 The `node_modules/@tinycld/*` symlinks written by `link-members.ts` are likewise local-only. And don't edit `tinycld/core/types/pbSchema.ts` / `pbZodSchema.ts` either — they're gitignored and regenerated on every install from the on-disk PocketBase migrations, which are the actual source of truth.
 
