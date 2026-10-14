@@ -16,6 +16,7 @@ import {
     type Choice,
     ChoiceChips,
     type DraftCondition,
+    InlineError,
     optionsOf,
     PickMenu,
     RemoveButton,
@@ -91,7 +92,13 @@ function ConditionValueInput({ catalog, choices, op, value, onChange, testID }: 
         )
     return (
         <View className="flex-1 min-w-[120px] flex-row" testID={testID}>
-            <ValueInput field={catalog} op={op} value={value} onChange={onChange} />
+            <ValueInput
+                field={catalog}
+                op={op}
+                value={value}
+                onChange={onChange}
+                accessibilityLabel="Condition value"
+            />
         </View>
     )
 }
@@ -102,6 +109,7 @@ function useCondition(editor: Editor, ruleIndex: number, index: number) {
     const host = editor.host
     if (!host || !condition) return null
     const draft = editor.form.getValues()
+    const catalog = catalogFieldFor(draft, host, condition.field)
     const set = (patch: Partial<DraftCondition>) =>
         editor.form.setValue(name, { ...condition, ...patch }, { shouldDirty: true })
     const t = `${ruleIndex}-${index}`
@@ -128,9 +136,14 @@ function useCondition(editor: Editor, ruleIndex: number, index: number) {
         fieldLabel: draft.fields.find(f => f.key === condition.field)?.label ?? 'Field',
         fieldItems,
         opItems,
-        catalog: catalogFieldFor(draft, host, condition.field),
+        catalog,
         choices,
-        setValue: (value: ConditionValue) => set({ value }),
+        // A typed date is checked as it is typed, so its form shows under the input.
+        setValue: (value: ConditionValue) => {
+            set({ value })
+            // A typed date is checked as it is typed, so its form shows under the input.
+            if (catalog?.type === 'date') void editor.form.trigger(`${name}.value`)
+        },
     }
 }
 
@@ -165,6 +178,11 @@ export function ConditionEditor({ editor, ruleIndex, index, onRemove }: Conditio
                 label="Remove condition"
                 onPress={onRemove}
                 testID={`form-cond-${c.t}-remove`}
+            />
+            <InlineError
+                control={editor.form.control}
+                name={`rules.${ruleIndex}.when.${index}.value`}
+                testID={`form-cond-error-${c.t}`}
             />
         </View>
     )

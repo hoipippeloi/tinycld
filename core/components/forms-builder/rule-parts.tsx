@@ -4,7 +4,9 @@ import { type FormHostDef, findBuiltin } from '@tinycld/core/lib/forms/host'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Menu } from '@tinycld/core/ui/menu'
 import { ChevronDown, X } from 'lucide-react-native'
+import { type Control, get, useFormState } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
+import { firstMessage } from './editor-errors'
 
 export type DraftRule = NonNullable<DraftDefinition['rules']>[number]
 export type DraftCondition = DraftRule['when'][number]
@@ -125,5 +127,24 @@ export function RemoveButton({
         <Pressable onPress={onPress} accessibilityLabel={label} testID={testID} className="p-1">
             <X size={14} color={fg} />
         </Pressable>
+    )
+}
+
+interface InlineErrorProps {
+    control: Control<DraftDefinition>
+    /** Dot path of the value the message is about. */
+    name: string
+    testID: string
+}
+
+/** The editor's error for one value, under the input that holds it. */
+export function InlineError({ control, name, testID }: InlineErrorProps) {
+    const { errors } = useFormState({ control })
+    const message = firstMessage(get(errors, name))
+    if (!message) return null
+    return (
+        <Text className="w-full text-xs text-danger" accessibilityRole="alert" testID={testID}>
+            {message}
+        </Text>
     )
 }

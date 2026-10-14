@@ -94,8 +94,12 @@ export const ACTION_LABELS: Record<ActionKind, string> = {
     set_value: 'Set value',
 }
 
+/** Kinds the builder has no value editor for, so it cannot author a set_value on them. */
+const NO_VALUE_EDITOR = new Set(['checklist', 'file', 'custom'])
+
 export function actionsFor(targetKind: string | 'page'): ActionKind[] {
     if (targetKind === 'page' || targetKind === 'section') return ['show', 'hide']
     if (targetKind === 'select') return ['show', 'hide', 'require', 'set_options', 'set_value']
+    if (NO_VALUE_EDITOR.has(targetKind)) return ['show', 'hide', 'require']
     return ['show', 'hide', 'require', 'set_value']
 }

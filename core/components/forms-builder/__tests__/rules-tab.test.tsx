@@ -70,12 +70,16 @@ function Harness() {
 }
 
 describe('RulesTab', () => {
-    it('shows the empty hint and adds a rule with one empty condition and action row', () => {
+    it('shows the empty hint and adds an empty rule, with no condition or action row yet', () => {
         const { container, getByText } = render(<Harness />)
         expect(getByText(/no rules yet/i)).toBeTruthy()
         fireEvent.click(q(container, 'form-rule-add') as HTMLElement)
-        expect(editorRef?.form.getValues('rules')).toHaveLength(1)
+        expect(editorRef?.form.getValues('rules')).toEqual([
+            { key: 'rule', match: 'all', when: [], actions: [] },
+        ])
         expect(q(container, 'form-rule-0')).toBeTruthy()
+        expect(q(container, 'form-cond-0-0')).toBeNull()
+        expect(q(container, 'form-action-0-0')).toBeNull()
     })
     it('authors "when severity is high then require steps"', () => {
         const { container } = render(<Harness />)
@@ -305,6 +309,89 @@ describe('RulesTab offers only what can be authored', () => {
         press('form-action-kind-0-0')
         expect(q(document.body, 'form-action-kind-0-0-require')).toBeTruthy()
         expect(q(document.body, 'form-action-kind-0-0-set_value')).toBeNull()
+    })
+})
+
+describe('RulesTab keeps a rule the server would refuse from being authored', () => {
+    it('offers no hide for a required built-in or the page that holds it', () => {
+        render(<Harness />)
+        seed([{ ...emptyRule('r1'), actions: [{ action: 'show', field: 'name' }] }])
+        press('form-action-kind-0-0')
+        expect(q(document.body, 'form-action-kind-0-0-show')).toBeTruthy()
+        expect(q(document.body, 'form-action-kind-0-0-hide')).toBeNull()
+        seed([{ ...emptyRule('r1'), actions: [{ action: 'show', page: 'main' }] }])
+        press('form-action-kind-0-0')
+        expect(q(document.body, 'form-action-kind-0-0-hide')).toBeNull()
+        seed([{ ...emptyRule('r1'), actions: [{ action: 'show', field: 'severity' }] }])
+        press('form-action-kind-0-0')
+        expect(q(document.body, 'form-action-kind-0-0-hide')).toBeTruthy()
+    })
+    it('drops hide to show when the target becomes a required built-in', () => {
+        render(<Harness />)
+        seed([{ ...emptyRule('r1'), actions: [{ action: 'hide', field: 'severity' }] }])
+        press('form-action-target-0-0')
+        press('form-action-target-0-0-name')
+        expect(editorRef?.form.getValues('rules.0.actions.0')).toEqual({
+            action: 'show',
+            field: 'name',
+        })
+    })
+    it("shows a rule's first error inside its card", async () => {
+        render(<Harness />)
+        seed([emptyRule('r1')])
+        expect(q(document.body, 'form-rule-error-0')).toBeNull()
+        await act(async () => {
+            await editorRef?.save()
+        })
+        expect(q(document.body, 'form-rule-error-0')?.textContent).toBe(
+            'Add at least one condition'
+        )
+    })
+    it('names the condition value input for a screen reader', () => {
+        render(<Harness />)
+        seed([{ ...emptyRule('r1'), when: [{ field: 'steps', op: 'eq' }] }])
+        const input = document.body.querySelector(
+            'rn-textinput[accessibilityLabel="Condition value"]'
+        )
+        expect(input).toBeTruthy()
+    })
+    it('says how to write a date a before condition compares with', async () => {
+        render(<Harness />)
+        seed([
+            {
+                ...emptyRule('r1'),
+                when: [{ field: 'due', op: 'before' }],
+                actions: [{ action: 'show', field: 'steps' }],
+            },
+        ])
+        const input = document.body.querySelector(
+            'rn-textinput[accessibilityLabel="Condition value"]'
+        ) as HTMLElement
+        await act(async () => {
+            fireEvent.input(input, { target: { value: 'soon' } })
+        })
+        expect(q(document.body, 'form-cond-error-0-0')?.textContent).toBe('Use YYYY-MM-DD')
+        await act(async () => {
+            fireEvent.input(input, { target: { value: '2026-01-31' } })
+        })
+        expect(q(document.body, 'form-cond-error-0-0')).toBeNull()
+    })
+    it('says how to write a date that set_value writes, once the input loses focus', async () => {
+        render(<Harness />)
+        seed([
+            {
+                ...emptyRule('r1'),
+                when: [{ field: 'steps', op: 'is_empty' }],
+                actions: [{ action: 'set_value', field: 'due', value: null }],
+            },
+        ])
+        const input = q(document.body, 'form-action-value-0-0-date') as HTMLElement
+        fireEvent.input(input, { target: { value: 'later' } })
+        expect(q(document.body, 'form-action-error-0-0')).toBeNull()
+        await act(async () => {
+            fireEvent.blur(input)
+        })
+        expect(q(document.body, 'form-action-error-0-0')?.textContent).toBe('Use YYYY-MM-DD')
     })
 })
 

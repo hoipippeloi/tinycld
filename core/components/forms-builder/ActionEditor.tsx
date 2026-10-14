@@ -20,6 +20,7 @@ import {
     type Choice,
     ChoiceChips,
     type DraftAction,
+    InlineError,
     isMultipleField,
     optionsOf,
     PickMenu,
@@ -55,10 +56,24 @@ function targetKindOf(draft: DraftDefinition, host: FormHostDef, target: Target)
  */
 function allowedActions(draft: DraftDefinition, host: FormHostDef, target: Target): ActionKind[] {
     const kind = targetKindOf(draft, host, target)
-    const verbs = actionsFor(kind)
+    const verbs = actionsFor(kind).filter(
+        verb => verb !== 'hide' || !holdsRequired(draft, host, target)
+    )
     if (kind !== 'user' || !('field' in target)) return verbs
     if (!isMultipleField(draft, host, target.field)) return verbs
     return verbs.filter(verb => verb !== 'set_value')
+}
+
+/**
+ * A built-in the record requires, or a page holding one: a rule may not hide
+ * it (the server refuses), so the builder never offers to.
+ */
+export function holdsRequired(draft: DraftDefinition, host: FormHostDef, target: Target): boolean {
+    const required = new Set(host.builtin.filter(b => b.required).map(b => b.key))
+    const isRequired = (f: DraftDefinition['fields'][number]) =>
+        f.kind === 'builtin' && required.has(f.key)
+    if ('page' in target) return draft.fields.some(f => f.page === target.page && isRequired(f))
+    return draft.fields.some(f => f.key === target.field && isRequired(f))
 }
 
 /**
@@ -122,12 +137,15 @@ const DATE_STARTS: Record<string, SetValue> = {
 interface ValueInputProps {
     value: SetValue
     onChange: (value: SetValue) => void
+    /** Checks a typed value once the input loses focus. */
+    onBlur: () => void
     testID: string
 }
 
 function DateLiteral({
     text,
     onChange,
+    onBlur,
     testID,
     isVisible,
 }: { text: string; isVisible: boolean } & Omit<ValueInputProps, 'value'>) {
@@ -137,6 +155,7 @@ function DateLiteral({
         <PlainInput
             value={text}
             onChangeText={next => onChange(next === '' ? null : next)}
+            onBlur={onBlur}
             placeholder="YYYY-MM-DD"
             placeholderTextColor={placeholder}
             className={RULE_INPUT_CLASS}
@@ -151,7 +170,7 @@ function DaysText({
     onChange,
     testID,
     isVisible,
-}: { days: number; isVisible: boolean } & Omit<ValueInputProps, 'value'>) {
+}: { days: number; isVisible: boolean } & Omit<ValueInputProps, 'value' | 'onBlur'>) {
     if (!isVisible) return null
     const write = (n: number | null) => onChange({ addDays: [{ today: [] }, Math.trunc(n ?? 0)] })
     return (
@@ -165,7 +184,7 @@ function DaysText({
 }
 
 /** A day, today, or today plus a number of days. */
-function DateValue({ value, onChange, testID }: ValueInputProps) {
+function DateValue({ value, onChange, onBlur, testID }: ValueInputProps) {
     const pick = expressionToPick(value)
     const mode = pick.mode === 'none' ? 'literal' : pick.mode
     const text = pick.mode === 'literal' ? String(pick.value) : ''
@@ -181,6 +200,7 @@ function DateValue({ value, onChange, testID }: ValueInputProps) {
             <DateLiteral
                 text={text}
                 onChange={onChange}
+                onBlur={onBlur}
                 testID={testID}
                 isVisible={mode === 'literal'}
             />
@@ -213,7 +233,13 @@ interface SelectValueProps extends ValueInputProps {
 }
 
 /** One option, or for a multiple select a list of them. */
-function SelectValue({ choices, isMultiple, value, onChange, testID }: SelectValueProps) {
+function SelectValue({
+    choices,
+    isMultiple,
+    value,
+    onChange,
+    testID,
+}: Omit<SelectValueProps, 'onBlur'>) {
     if (!isMultiple)
         return (
             <ChoiceChips
@@ -242,7 +268,15 @@ interface SetValueInputProps extends SelectValueProps {
 }
 
 /** The value set_value writes, entered the way its target's kind holds it. */
-function SetValueInput({ kind, choices, isMultiple, value, onChange, testID }: SetValueInputProps) {
+function SetValueInput({
+    kind,
+    choices,
+    isMultiple,
+    value,
+    onChange,
+    onBlur,
+    testID,
+}: SetValueInputProps) {
     const placeholder = useThemeColor('field-placeholder')
     if (kind === 'select')
         return (
@@ -263,7 +297,8 @@ function SetValueInput({ kind, choices, isMultiple, value, onChange, testID }: S
                 testID={testID}
             />
         )
-    if (kind === 'date') return <DateValue value={value} onChange={onChange} testID={testID} />
+    if (kind === 'date')
+        return <DateValue value={value} onChange={onChange} onBlur={onBlur} testID={testID} />
     if (kind === 'user')
         return (
             <ChoiceChips
@@ -379,6 +414,7 @@ interface ActionValueProps extends OptionsProps {
     choices: Choice[]
     isMultiple: boolean
     onChange: (action: DraftAction) => void
+    onBlur: () => void
 }
 
 function ActionValue({
@@ -387,6 +423,7 @@ function ActionValue({
     choices,
     isMultiple,
     onChange,
+    onBlur,
     ...options
 }: ActionValueProps) {
     // Keyed by target: a retarget replaces the options outside this field array.
@@ -401,6 +438,7 @@ function ActionValue({
             isMultiple={isMultiple}
             value={action.value}
             onChange={value => onChange({ ...action, value })}
+            onBlur={onBlur}
             testID={`form-action-value-${options.ruleIndex}-${options.index}`}
         />
     )
@@ -456,7 +494,21 @@ function useAction(editor: Editor, ruleIndex: number, index: number) {
             ? optionsOf(draft, target.field).map(o => ({ id: o.value, label: o.label }))
             : []
     const isMultiple = 'field' in target && isMultipleField(draft, host, target.field)
-    return { action, kind, write, targetItems, verbItems, targetLabel, choices, isMultiple }
+    // The editor's schema checks a typed value, a date's form among others.
+    const validate = () => {
+        void editor.form.trigger(`${name}.value`)
+    }
+    return {
+        action,
+        kind,
+        write,
+        validate,
+        targetItems,
+        verbItems,
+        targetLabel,
+        choices,
+        isMultiple,
+    }
 }
 
 export function ActionEditor({ editor, ruleIndex, index, onRemove }: ActionEditorProps) {
@@ -483,9 +535,15 @@ export function ActionEditor({ editor, ruleIndex, index, onRemove }: ActionEdito
                 choices={a.choices}
                 isMultiple={a.isMultiple}
                 onChange={a.write}
+                onBlur={a.validate}
                 control={editor.form.control}
                 ruleIndex={ruleIndex}
                 index={index}
+            />
+            <InlineError
+                control={editor.form.control}
+                name={`rules.${ruleIndex}.actions.${index}.value`}
+                testID={`form-action-error-${t}`}
             />
             <RemoveButton
                 label="Remove action"

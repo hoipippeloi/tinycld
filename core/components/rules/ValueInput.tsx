@@ -15,6 +15,8 @@ export interface ValueInputProps {
     // ("" or "-") reports it rather than storing a non-numeric string that
     // would make the condition fail closed forever.
     onChange: (v: string | number | boolean | undefined) => void
+    /** Names a typed input for a screen reader, e.g. "Condition value". */
+    accessibilityLabel?: string
 }
 
 // `within_last_days` is a numeric "N days ago" value regardless of the
@@ -28,14 +30,17 @@ function inputKind(field: CatalogField, op: string): CatalogField['type'] | 'day
 function TextValueInput({
     value,
     onChange,
+    accessibilityLabel,
 }: {
     value: unknown
     onChange: ValueInputProps['onChange']
+    accessibilityLabel?: string
 }) {
     return (
         <PlainInput
             value={typeof value === 'string' ? value : ''}
             onChangeText={onChange}
+            accessibilityLabel={accessibilityLabel}
             className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
         />
     )
@@ -44,9 +49,11 @@ function TextValueInput({
 function NumberValueInput({
     value,
     onChange,
+    accessibilityLabel,
 }: {
     value: unknown
     onChange: ValueInputProps['onChange']
+    accessibilityLabel?: string
 }) {
     const placeholderColor = useThemeColor('field-placeholder')
     // While typing, "" and "-" are legitimate intermediate states that are not
@@ -75,6 +82,7 @@ function NumberValueInput({
         <PlainInput
             value={draft ?? (typeof value === 'number' ? String(value) : '')}
             onChangeText={handleChangeText}
+            accessibilityLabel={accessibilityLabel}
             keyboardType="numeric"
             placeholderTextColor={placeholderColor}
             className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
@@ -85,15 +93,18 @@ function NumberValueInput({
 function DateValueInput({
     value,
     onChange,
+    accessibilityLabel,
 }: {
     value: unknown
     onChange: ValueInputProps['onChange']
+    accessibilityLabel?: string
 }) {
     const placeholderColor = useThemeColor('field-placeholder')
     return (
         <PlainInput
             value={typeof value === 'string' ? value : ''}
             onChangeText={onChange}
+            accessibilityLabel={accessibilityLabel}
             placeholder="YYYY-MM-DD"
             placeholderTextColor={placeholderColor}
             className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
@@ -138,13 +149,14 @@ function SelectValueInput({
     )
 }
 
-export function ValueInput({ field, op, value, onChange }: ValueInputProps) {
+export function ValueInput({ field, op, value, onChange, accessibilityLabel }: ValueInputProps) {
     const kind = inputKind(field, op)
+    const typed = { value, onChange, accessibilityLabel }
 
-    if (kind === 'days') return <NumberValueInput value={value} onChange={onChange} />
-    if (kind === 'text') return <TextValueInput value={value} onChange={onChange} />
-    if (kind === 'number') return <NumberValueInput value={value} onChange={onChange} />
-    if (kind === 'date') return <DateValueInput value={value} onChange={onChange} />
+    if (kind === 'days') return <NumberValueInput {...typed} />
+    if (kind === 'text') return <TextValueInput {...typed} />
+    if (kind === 'number') return <NumberValueInput {...typed} />
+    if (kind === 'date') return <DateValueInput {...typed} />
     if (kind === 'select')
         return <SelectValueInput field={field} value={value} onChange={onChange} />
     if (kind === 'relation') {

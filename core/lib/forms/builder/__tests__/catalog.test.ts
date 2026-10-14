@@ -68,4 +68,8 @@ describe('operatorsFor / actionsFor', () => {
         expect(actionsFor('section')).toEqual(['show', 'hide'])
         expect(actionsFor('page')).toEqual(['show', 'hide'])
     })
+    it('offers no set_value for a kind the builder has no value editor for', () => {
+        for (const kind of ['checklist', 'file', 'custom'])
+            expect(actionsFor(kind)).toEqual(['show', 'hide', 'require'])
+    })
 })

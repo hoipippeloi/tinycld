@@ -2,10 +2,11 @@ import { MatchPillPair } from '@tinycld/core/components/rules/MatchPillPair'
 import { RuleCard } from '@tinycld/core/components/rules/RuleCard'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import type { ReactNode } from 'react'
-import { useFieldArray, useWatch } from 'react-hook-form'
+import { useFieldArray, useFormState, useWatch } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { ActionEditor } from './ActionEditor'
 import { ConditionEditor, conditionFields, firstOperator } from './ConditionEditor'
+import { firstMessage } from './editor-errors'
 import { RemoveButton } from './rule-parts'
 import type { useEditorForm } from './use-editor-form'
 
@@ -74,8 +75,20 @@ function RuleShell({ isSelectable, isSelected, onSelect, testID, children }: She
     )
 }
 
+/** The first thing wrong with the rule, in its card, so it is found where it is fixed. */
+function RuleError({ message, testID }: { message: string | undefined; testID: string }) {
+    if (!message) return null
+    return (
+        <Text className="text-xs text-danger" accessibilityRole="alert" testID={testID}>
+            {message}
+        </Text>
+    )
+}
+
 function useRuleEditor(editor: Editor, index: number) {
     const { control } = editor.form
+    const { errors } = useFormState({ control, name: `rules.${index}` })
+    const error = firstMessage(errors.rules?.[index])
     const match = useWatch({ control, name: `rules.${index}.match` }) ?? 'all'
     const when = useFieldArray({ control, name: `rules.${index}.when` })
     const actions = useFieldArray({ control, name: `rules.${index}.actions` })
@@ -95,7 +108,7 @@ function useRuleEditor(editor: Editor, index: number) {
     }
     const setMatch = (next: 'all' | 'any') =>
         editor.form.setValue(`rules.${index}.match`, next, { shouldDirty: true })
-    return { match, setMatch, when, actions, addCondition, addAction }
+    return { match, setMatch, when, actions, addCondition, addAction, error }
 }
 
 export function RuleEditor({
@@ -158,6 +171,7 @@ export function RuleEditor({
                     onPress={rule.addAction}
                     testID={`form-action-add-${index}`}
                 />
+                <RuleError message={rule.error} testID={`form-rule-error-${index}`} />
             </RuleCard>
         </RuleShell>
     )
