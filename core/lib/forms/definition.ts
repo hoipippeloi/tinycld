@@ -136,6 +136,30 @@ const pageSchema = z.object({
 })
 export type FormPage = z.infer<typeof pageSchema>
 
+/** The stored shape of a date value: a day, or a day and a time of day. Mirrored in Go (dateRe). */
+export const DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/
+export const dateValueSchema = z.string().regex(DATE_RE, 'Use YYYY-MM-DD')
+
+const todaySchema = z.strictObject({ today: z.tuple([]) })
+/**
+ * A default or set_value expression: a literal, or one of the picker's
+ * expressions. Anything else would throw inside applyDefaults during render.
+ * Mirrored in Go (validExpression).
+ */
+export const expressionSchema = z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(z.string()),
+    todaySchema,
+    z.strictObject({ me: z.tuple([]) }),
+    z.strictObject({
+        addDays: z.tuple([z.union([dateValueSchema, todaySchema]), z.number().int()]),
+    }),
+])
+export type FormExpression = z.infer<typeof expressionSchema>
+
 const conditionValue = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 const conditionSchema = z.object({
     field: keySchema,
@@ -156,7 +180,11 @@ const actionSchema = z.union([
         field: keySchema,
         options: z.array(optionSchema).min(1),
     }),
-    z.object({ action: z.literal('set_value'), field: keySchema, value: z.unknown() }),
+    z.object({
+        action: z.literal('set_value'),
+        field: keySchema,
+        value: expressionSchema.default(null),
+    }),
 ])
 export type RuleAction = z.infer<typeof actionSchema>
 
@@ -174,8 +202,8 @@ export const definitionSchema = z
         pages: z.array(pageSchema).min(1),
         fields: z.array(fieldSchema),
         rules: z.array(ruleSchema).default([]),
-        /** key → literal or JSON Logic expression */
-        defaults: z.record(keySchema, z.unknown()).default({}),
+        /** key → literal or one of the picker's expressions */
+        defaults: z.record(keySchema, expressionSchema).default({}),
         submit: z.object({ required: z.array(keySchema).default([]) }).default({ required: [] }),
     })
     .superRefine((def, ctx) => {
@@ -326,6 +354,7 @@ export function validateDefinitionForHost(
     for (const b of host.builtin)
         if (!seen.has(b.key))
             issues.push({ path: ['fields'], message: `missing built-in field ${b.key}` })
+    issues.push(...hiddenRequiredIssues(def, host))
     def.rules.forEach((r, ri) => {
         r.when.forEach((c, ci) => {
             const b = builtins.get(c.field)
@@ -335,6 +364,32 @@ export function validateDefinitionForHost(
                     message: `${c.op} is not valid for a ${b.kind} field`,
                 })
             }
+        })
+    })
+    return issues
+}
+
+/** A rule may not hide a built-in the host requires, nor a page that holds one. Mirrored in Go (actionError). */
+function hiddenRequiredIssues(def: FormDefinition, host: FormHostDef): DefinitionIssue[] {
+    const required = new Set(host.builtin.filter(b => b.required).map(b => b.key))
+    const requiredOn = (page: string) =>
+        def.fields.find(f => f.kind === 'builtin' && f.page === page && required.has(f.key))
+    const issues: DefinitionIssue[] = []
+    def.rules.forEach((r, ri) => {
+        r.actions.forEach((a, ai) => {
+            if (a.action !== 'hide') return
+            const path = ['rules', ri, 'actions', ai]
+            const held = a.page ? requiredOn(a.page) : undefined
+            if (held)
+                issues.push({
+                    path: [...path, 'page'],
+                    message: `page ${a.page} holds required field ${held.key}`,
+                })
+            if (a.field && required.has(a.field))
+                issues.push({
+                    path: [...path, 'field'],
+                    message: `cannot hide required field ${a.field}`,
+                })
         })
     })
     return issues

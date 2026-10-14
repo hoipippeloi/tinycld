@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { definitionSchema } from '../definition'
-import { bugDefinition } from './fixtures'
+import { definitionSchema, validateDefinitionForHost } from '../definition'
+import { defaultDefinitionFor } from '../host'
+import { bugDefinition, widgetHost } from './fixtures'
 
 describe('definitionSchema', () => {
     it('accepts a valid definition and fills defaults', () => {
@@ -89,5 +90,104 @@ describe('definitionSchema', () => {
     })
     it('rejects an empty pages list', () => {
         expect(definitionSchema.safeParse({ ...bugDefinition, pages: [] }).success).toBe(false)
+    })
+})
+
+describe('expressionSchema in defaults and set_value', () => {
+    const withDefault = (expr: unknown) => ({ ...bugDefinition, defaults: { severity: expr } })
+    const withSetValue = (expr: unknown) => ({
+        ...bugDefinition,
+        rules: [
+            {
+                ...bugDefinition.rules[0],
+                actions: [{ action: 'set_value', field: 'severity', value: expr }],
+            },
+        ],
+    })
+    const valid = [
+        '2026-01-31',
+        3,
+        true,
+        null,
+        ['a', 'b'],
+        { today: [] },
+        { me: [] },
+        { addDays: [{ today: [] }, 21] },
+        { addDays: ['2026-01-31', -3] },
+    ]
+    const invalid = [
+        { var: 'x' },
+        { today: [1] },
+        { addDays: [{ me: [] }, 2] },
+        { addDays: [{ today: [] }, 1.5] },
+        { addDays: ['soon', 2] },
+        { today: [], me: [] },
+        [1],
+        { addDays: [{ addDays: [{ today: [] }, 1] }, 1] },
+    ]
+    it.each(valid.map(v => [JSON.stringify(v), v]))('accepts %s', (_, expr) => {
+        expect(definitionSchema.safeParse(withDefault(expr)).success).toBe(true)
+        expect(definitionSchema.safeParse(withSetValue(expr)).success).toBe(true)
+    })
+    it.each(invalid.map(v => [JSON.stringify(v), v]))('rejects %s', (_, expr) => {
+        expect(definitionSchema.safeParse(withDefault(expr)).success).toBe(false)
+        expect(definitionSchema.safeParse(withSetValue(expr)).success).toBe(false)
+    })
+    it('reads a set_value with no value as null, like the server', () => {
+        const parsed = definitionSchema.parse(withSetValue(undefined))
+        expect(parsed.rules[0].actions[0]).toEqual({
+            action: 'set_value',
+            field: 'severity',
+            value: null,
+        })
+    })
+})
+
+describe('validateDefinitionForHost, rules that hide', () => {
+    const ok = defaultDefinitionFor(widgetHost)
+    const twoPages = {
+        ...ok,
+        pages: [...ok.pages, { key: 'more', title: 'More' }],
+    }
+    const hiding = (
+        action: { action: 'hide'; field: string } | { action: 'hide'; page: string }
+    ) => ({
+        ...twoPages,
+        rules: [
+            {
+                key: 'r',
+                match: 'all' as const,
+                when: [{ field: 'due', op: 'is_empty' as const }],
+                actions: [action],
+            },
+        ],
+    })
+    it('rejects a rule that hides a required built-in', () => {
+        expect(
+            validateDefinitionForHost(hiding({ action: 'hide', field: 'name' }), widgetHost)
+        ).toEqual([
+            {
+                path: ['rules', 0, 'actions', 0, 'field'],
+                message: 'cannot hide required field name',
+            },
+        ])
+    })
+    it('rejects a rule that hides the page holding a required built-in', () => {
+        expect(
+            validateDefinitionForHost(hiding({ action: 'hide', page: 'main' }), widgetHost)
+        ).toEqual([
+            {
+                path: ['rules', 0, 'actions', 0, 'page'],
+                message: 'page main holds required field name',
+            },
+        ])
+    })
+    it('accepts hiding a page or a field with no required built-in', () => {
+        expect(
+            validateDefinitionForHost(hiding({ action: 'hide', page: 'more' }), widgetHost)
+        ).toEqual([])
+        expect(
+            validateDefinitionForHost(hiding({ action: 'hide', field: 'owner' }), widgetHost)
+        ).toEqual([])
     })
 })
