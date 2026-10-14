@@ -7,8 +7,9 @@ order: 45
 
 Some records, such as a task or a ticket, carry a **form**. The form decides
 which fields the record shows, in what order, on which page, and which rules
-apply. A record type is a form: a board can have a Card form and a Bug form,
-and each card uses one of them.
+apply. A record type is a form: a project can have a Task form and a Bug
+form, and each record uses one of them. Forms belong to the organization, so
+every member sees the same record types.
 
 ## Fields
 
@@ -24,8 +25,8 @@ screen a quarter becomes a half, and halves and thirds become full width.
 ## Pages
 
 Fields are grouped into pages. When a record is created, the pages show one
-at a time, with Next and Back. In the record's detail view every page shows
-as a section.
+at a time, with Next and Back. In a single-line field, press Enter to go to
+the next page. In the record's detail view every page shows as a section.
 
 ## Rules
 
