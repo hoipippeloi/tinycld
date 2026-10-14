@@ -141,6 +141,14 @@ describe('rules', () => {
     })
 })
 
+describe('empty draft rules', () => {
+    it('keeps an empty rule when a field is removed', () => {
+        const withEmpty = addRule(def)
+        const { definition } = removeField(withEmpty, 'severity')
+        expect(definition.rules?.map(r => r.key)).toContain('rule')
+    })
+})
+
 describe('normalizeDraft', () => {
     it('fills field and rule defaults and empties rules, defaults and submit', () => {
         const draft = {

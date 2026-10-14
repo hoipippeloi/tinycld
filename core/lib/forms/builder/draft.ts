@@ -28,6 +28,7 @@ export class PageNotEmpty extends Error {
 /**
  * Turns a draft into a definition the renderer can consume. Rules are dropped
  * because a draft's rules may be incomplete; the schema fills field defaults.
+ * Throws a ZodError when the draft is invalid for reasons other than its rules.
  */
 export function normalizeDraft(draft: DraftDefinition): FormDefinition {
     return definitionSchema.parse({ ...draft, rules: [], defaults: {}, submit: { required: [] } })
@@ -84,13 +85,13 @@ export function referencesOf(def: DraftDefinition, key: string): Removed {
     const out: Removed = {
         rules: [],
         actions: 0,
-        defaults: key in (def.defaults ?? {}),
+        defaults: Object.hasOwn(def.defaults ?? {}, key),
         submitRequired: (def.submit?.required ?? []).includes(key),
     }
     for (const r of def.rules ?? []) {
         const reads = r.when.some(c => c.field === key)
         const targeted = r.actions.filter(a => actionTargets(a, key)).length
-        if (reads || targeted === r.actions.length) out.rules.push(r.key)
+        if (reads || (targeted > 0 && targeted === r.actions.length)) out.rules.push(r.key)
         else out.actions += targeted
     }
     return out
@@ -160,7 +161,8 @@ export function addPage(def: DraftDefinition, title: string): DraftDefinition {
 }
 
 export function renamePage(def: DraftDefinition, key: string, title: string): DraftDefinition {
-    return { ...def, pages: def.pages.map(p => (p.key === key ? { ...p, title } : p)) }
+    const clean = title.trim() || 'Page'
+    return { ...def, pages: def.pages.map(p => (p.key === key ? { ...p, title: clean } : p)) }
 }
 
 export function movePage(def: DraftDefinition, key: string, index: number): DraftDefinition {
