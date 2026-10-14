@@ -5,7 +5,14 @@ import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { moveField, newCustomField, removeField, removeRule } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { log } from '../../../lib/logger'
-import { dateIssues, draftPath, fromDraft, toDraft, useEditorForm } from '../use-editor-form'
+import {
+    dateIssues,
+    draftPath,
+    fromDraft,
+    SAVE_FAILED,
+    toDraft,
+    useEditorForm,
+} from '../use-editor-form'
 
 const plain = {
     id: 'f1',
@@ -346,7 +353,7 @@ describe('useEditorForm saving and rules', () => {
         await act(async () => {
             await result.current.editor.saveSafely()
         })
-        expect(result.current.root).toBe('Saving failed. Try again.')
+        expect(result.current.root).toBe(SAVE_FAILED)
         expect(logError).toHaveBeenCalledWith('forms.builder.save', error, { formId: 'f1' })
         logError.mockRestore()
     })

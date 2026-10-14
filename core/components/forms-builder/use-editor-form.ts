@@ -176,7 +176,7 @@ export function editorResolver(
     }
 }
 
-const SAVE_FAILED = 'The form could not be saved. Try again.'
+export const SAVE_FAILED = 'The form could not be saved. Try again.'
 const DEFINITION_PATH = /^(pages|fields|rules|defaults|submit|version)(\.|$)/
 
 type EditorForm = UseFormReturn<DraftDefinition, unknown, FormDefinition>
@@ -309,7 +309,7 @@ export function useEditorForm(row: EditorRow, host: FormHost) {
     const saveSafely = () =>
         save().catch(error => {
             log.error('forms.builder.save', error, { formId: row.id })
-            form.setError('root', { type: 'manual', message: 'Saving failed. Try again.' })
+            form.setError('root', { type: 'manual', message: SAVE_FAILED })
         })
 
     /** Drops the draft for the definition as it is stored now. */

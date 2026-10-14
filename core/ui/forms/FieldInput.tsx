@@ -173,6 +173,7 @@ function NumberKind({ field, control, resolved, disabled, testID, label }: KindP
             min={num?.min}
             max={num?.max}
             increment={num?.step}
+            allowDecimal
             disabled={disabled}
             testID={testID}
             accessibilityLabel={label}

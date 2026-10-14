@@ -156,6 +156,13 @@ describe('FieldInput', () => {
         expect(editableOf(create.container)).toBe(true)
     })
 
+    it('accepts a decimal into a number field with a fractional step', () => {
+        const field: FormField = { ...base, key: 'n', kind: 'number', step: 0.5 }
+        const { container } = render(<Harness field={field} />)
+        fireEvent.input(byTestId(container, 'form-input-n'), { target: { value: '1.5' } })
+        expect(byTestId(container, 'value').textContent).toBe('1.5')
+    })
+
     it.each([
         ['text', { kind: 'text' as const }, ''],
         ['textarea', { kind: 'textarea' as const }, ''],
