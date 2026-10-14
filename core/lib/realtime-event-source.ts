@@ -160,15 +160,87 @@ export class FetchEventSource implements EventSourceLike {
     }
 }
 
+/** A plain `fetch`, for the release request. */
+export type ReleaseFetch = (url: string, init: RequestInit) => Promise<unknown>
+
+interface ConnectedClient {
+    clientId: string
+    token: string
+    authId: string
+}
+
 /**
- * The factory for `setRealtimeEventSource(pb, …)`. pbtsdb calls it on each
- * connect, so the token read here is the current one, refreshed included.
- * A guest sends no `Authorization`, and the server never resumes a guest.
+ * pbtsdb's realtime connection, and the release of its server-side client.
+ *
+ * The server keeps a client whose stream ended for a grace period, so that a
+ * dropped connection can resume. A page that is reloaded or closed never
+ * resumes, and neither does a sign-out or a switch to another user: pbtsdb
+ * forgets the client id and starts a new client. Each such client still costs
+ * the server a rule check on some writes until the grace period ends, so
+ * `release` asks the server to drop it at once.
+ *
+ * `eventSource` is the factory for `setRealtimeEventSource(pb, …)`. pbtsdb
+ * calls it on each connect, so the token read there is the current one,
+ * refreshed included. A guest sends no `Authorization`, and the server never
+ * keeps a guest's client, so there is nothing to release for one.
  */
-export function realtimeEventSourceFactory(pb: PocketBase, fetch: StreamingFetch) {
-    return (url: string) => {
+export function createRealtimeConnection(
+    pb: PocketBase,
+    fetch: StreamingFetch,
+    releaseFetch: ReleaseFetch
+) {
+    let connected: ConnectedClient | null = null
+
+    function eventSource(url: string) {
         const token = pb.authStore.token
+        const authId = pb.authStore.record?.id ?? ''
         const headers: Record<string, string> = token ? { Authorization: token } : {}
-        return new FetchEventSource(url, { fetch, headers })
+        const source = new FetchEventSource(url, { fetch, headers })
+        if (token) {
+            source.addEventListener('PB_CONNECT', message => {
+                if (message.lastEventId)
+                    connected = { clientId: message.lastEventId, token, authId }
+            })
+        }
+        return source
     }
+
+    // Sent with the token the client connected with: the server releases a
+    // client only for its own auth record. keepalive lets the request outlive
+    // the page that sends it.
+    function release() {
+        if (!connected) return
+        const { clientId, token } = connected
+        connected = null
+        releaseFetch(pb.buildURL('/api/realtime/release'), {
+            method: 'POST',
+            keepalive: true,
+            headers: { 'Content-Type': 'application/json', Authorization: token },
+            body: JSON.stringify({ clientId }),
+        }).catch(error => log.debug('core.realtime', 'realtime release failed', { error }))
+    }
+
+    // A token refresh keeps the auth record, and the client with it.
+    pb.authStore.onChange((_token, record) => {
+        if (connected && connected.authId !== (record?.id ?? '')) release()
+    })
+
+    return { eventSource, release }
+}
+
+/**
+ * Release the realtime client when the page goes away for good: a reload, a
+ * closed tab, a navigation to another site. A page that enters the
+ * back/forward cache (`persisted`) can come back and resume, so it keeps its
+ * client. `pagehide` rather than `unload`: `unload` often does not fire on
+ * mobile browsers, and it keeps a page out of the back/forward cache.
+ *
+ * Web only. React Native defines a global `window` without the DOM event
+ * API, so detect the method, not the object (see use-realtime-room.ts).
+ */
+export function releaseOnPageHide(release: () => void) {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    window.addEventListener('pagehide', event => {
+        if (!event.persisted) release()
+    })
 }

@@ -36,6 +36,7 @@ func bindRealtimeApi(app core.App, rg *router.RouterGroup[*core.RequestEvent]) {
 	sub := rg.Group("/realtime")
 	sub.GET("", realtimeConnect).Bind(SkipSuccessActivityLog())
 	sub.POST("", realtimeSetSubscriptions)
+	sub.POST("/release", realtimeRelease) // fork: see realtime_resume.go
 
 	bindRealtimeEvents(app)
 }
@@ -628,6 +629,10 @@ func realtimeBroadcastRecord(app core.App, action string, record *core.Record, d
 				var visibleBefore map[string]struct{}
 				if detectLeaves {
 					visibleBefore = realtimeTakeLeaveCandidates(client, record)
+				}
+
+				if realtimeDeferChange(client, action, record, visibleBefore, dryCache) { // fork: see realtime_resume.go
+					continue
 				}
 
 				// note: not executed concurrently to avoid races and to ensure

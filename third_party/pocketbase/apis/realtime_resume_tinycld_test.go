@@ -383,10 +383,13 @@ func TestRealtimeResumeReplaysLeaveAndDelete(t *testing.T) {
 	stream, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
 	expectResumed(t, data, clientId)
 
+	// The delete was rule-checked and queued when it happened. The create
+	// and the rename were deferred: the resume sends the renamed record's
+	// leave, and nothing for the created record, which is gone.
 	expected := []struct {
 		action string
 		id     string
-	}{{"create", other.Id}, {"delete", record.Id}, {"delete", other.Id}}
+	}{{"delete", other.Id}, {"delete", record.Id}}
 	for i, want := range expected {
 		event := stream.nextRecord(t)
 		if event.Seq != uint64(i+2) || event.Action != want.action || event.Record["id"] != want.id {
@@ -554,4 +557,202 @@ func TestRealtimeResumeTakesOverOpenStream(t *testing.T) {
 	if seq := stream.nextRecord(t).Seq; seq != 2 {
 		t.Fatalf("expected seq 2, got %d", seq)
 	}
+}
+
+func (env *resumeEnv) save(record *core.Record, title string) {
+	env.t.Helper()
+
+	record.Set("title", title)
+	if err := env.app.Save(record); err != nil {
+		env.t.Fatal(err)
+	}
+}
+
+func (env *resumeEnv) release(clientId string, token string, ip string) {
+	env.t.Helper()
+
+	body, _ := json.Marshal(map[string]any{"clientId": clientId})
+	req, _ := http.NewRequest(http.MethodPost, env.srv.URL+"/api/realtime/release", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Forwarded-For", ip)
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+
+	res, err := env.srv.Client().Do(req)
+	if err != nil {
+		env.t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		env.t.Fatalf("release POST returned %d", res.StatusCode)
+	}
+}
+
+func expectRecordEvent(t *testing.T, event resumeRecordEvent, seq uint64, action string, id string) {
+	t.Helper()
+
+	if event.Seq != seq || event.Action != action || event.Record["id"] != id {
+		t.Fatalf("expected %s of %s with seq %d, got %+v", action, id, seq, event)
+	}
+}
+
+// A detached client gets no rule checks and no events while it is away; the
+// resume sends each changed record once, as it is then.
+func TestRealtimeResumeSendsEachRecordOnceAsItIsNow(t *testing.T) {
+	env := newResumeEnv(t)
+	clientId := env.detachedClient()
+
+	seen, err := env.app.FindFirstRecordByData("test_resume", "title", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.save(seen, "seen v2")
+	env.save(seen, "seen v3")
+
+	created := env.create("draft")
+	env.save(created, "draft v2")
+
+	if !env.resumable(clientId).Deferring() {
+		t.Fatal("expected the detached client to defer")
+	}
+
+	stream, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
+	expectResumed(t, data, clientId)
+
+	event := stream.nextRecord(t)
+	expectRecordEvent(t, event, 2, "update", seen.Id)
+	if event.Record["title"] != "seen v3" {
+		t.Fatalf("expected the current title, got %v", event.Record["title"])
+	}
+
+	event = stream.nextRecord(t)
+	expectRecordEvent(t, event, 3, "create", created.Id)
+	if event.Record["title"] != "draft v2" {
+		t.Fatalf("expected the current title, got %v", event.Record["title"])
+	}
+
+	stream.expectNothing(t)
+
+	// once drained, the client gets live events again
+	if env.resumable(clientId).Deferring() {
+		t.Fatal("expected the resumed client to stop deferring")
+	}
+	env.create("live")
+	expectRecordEvent(t, stream.nextRecord(t), 4, "create", mustFind(t, env, "live").Id)
+}
+
+func mustFind(t *testing.T, env *resumeEnv, title string) *core.Record {
+	t.Helper()
+
+	record, err := env.app.FindFirstRecordByData("test_resume", "title", title)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return record
+}
+
+// A record a subscription never saw sends nothing on resume, not even its id.
+func TestRealtimeResumeSkipsRecordsNeverVisible(t *testing.T) {
+	env := newResumeEnv(t)
+	clientId := env.detachedClient(leaveTopic("test_resume", `title = "first"`))
+
+	hidden := env.create("hidden")
+	env.save(hidden, "hidden v2")
+	matching := env.create("first")
+
+	stream, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
+	expectResumed(t, data, clientId)
+
+	expectRecordEvent(t, stream.nextRecord(t), 2, "create", matching.Id)
+	stream.expectNothing(t)
+}
+
+// A record that left a subscription and was then deleted still leaves it,
+// although the delete itself was not visible to the subscription.
+func TestRealtimeResumeLeaveThenDelete(t *testing.T) {
+	env := newResumeEnv(t)
+	clientId := env.detachedClient(leaveTopic("test_resume", `title = "first"`))
+
+	record := mustFind(t, env, "first")
+	env.save(record, "renamed")
+	if err := env.app.Delete(record); err != nil {
+		t.Fatal(err)
+	}
+
+	stream, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
+	expectResumed(t, data, clientId)
+
+	event := stream.nextRecord(t)
+	expectRecordEvent(t, event, 2, "delete", record.Id)
+	if _, ok := event.Record["title"]; ok {
+		t.Fatalf("expected a leave without field values, got %+v", event.Record)
+	}
+	stream.expectNothing(t)
+}
+
+func TestRealtimeReleaseDetachedClient(t *testing.T) {
+	env := newResumeEnv(t)
+	clientId := env.detachedClient()
+
+	env.release(clientId, env.token, resumeIP)
+	env.waitUnregistered(clientId)
+
+	_, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
+	expectNotResumed(t, data, clientId)
+}
+
+func TestRealtimeReleaseAttachedClient(t *testing.T) {
+	env := newResumeEnv(t)
+
+	stream, data := env.connect("", env.token, resumeIP)
+	env.subscribe(data.ClientId, env.token, "test_resume")
+
+	env.release(data.ClientId, env.token, resumeIP)
+
+	select {
+	case <-stream.ended:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the released stream to end")
+	}
+	env.waitUnregistered(data.ClientId)
+}
+
+func TestRealtimeReleaseRefused(t *testing.T) {
+	scenarios := []struct {
+		name  string
+		token func(env *resumeEnv) string
+		ip    string
+	}{
+		{name: "another user", token: func(env *resumeEnv) string { return userToken(t, env.app, "test2@example.com") }},
+		{name: "no auth", token: func(env *resumeEnv) string { return "" }},
+		{name: "another IP", ip: "10.0.0.2"},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			env := newResumeEnv(t)
+			clientId := env.detachedClient()
+
+			token := env.token
+			if s.token != nil {
+				token = s.token(env)
+			}
+			ip := resumeIP
+			if s.ip != "" {
+				ip = s.ip
+			}
+
+			env.release(clientId, token, ip)
+
+			_, data := env.connect(resumeQuery(clientId, "1"), env.token, resumeIP)
+			expectResumed(t, data, clientId)
+		})
+	}
+
+	t.Run("an unknown client", func(t *testing.T) {
+		env := newResumeEnv(t)
+		env.release("unknown", env.token, resumeIP)
+	})
 }

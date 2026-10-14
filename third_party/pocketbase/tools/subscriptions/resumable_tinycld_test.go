@@ -314,3 +314,121 @@ func TestResumableDiscard(t *testing.T) {
 	// safe to call again
 	c.Discard()
 }
+
+func TestResumableDefersOnlyWhileDetached(t *testing.T) {
+	c := subscriptions.NewResumableClient(subscriptions.ResumableOptions{})
+	conn := attach(t, c, 0)
+
+	if c.Defer("col", "a", false, nil) {
+		t.Fatal("expected an attached client not to defer")
+	}
+
+	conn.Detach()
+	if !c.Defer("col", "a", false, nil) {
+		t.Fatal("expected a detached client to defer")
+	}
+
+	// a resume attaches, but the client defers until its changes are taken
+	attach(t, c, 0)
+	if changes := c.TakePending(); len(changes) != 1 || changes[0].RecordId != "a" {
+		t.Fatalf("expected the deferred change, got %+v", changes)
+	}
+	if !c.Deferring() {
+		t.Fatal("expected the client to defer until nothing is left")
+	}
+	if changes := c.TakePending(); changes != nil {
+		t.Fatalf("expected nothing left, got %+v", changes)
+	}
+	if c.Deferring() || c.Defer("col", "a", false, nil) {
+		t.Fatal("expected the drained client to stop deferring")
+	}
+}
+
+func TestResumableDeferMergesByRecord(t *testing.T) {
+	c := subscriptions.NewResumableClient(subscriptions.ResumableOptions{})
+	attach(t, c, 0).Detach()
+
+	c.Defer("col", "b", true, nil)
+	c.Defer("col", "a", false, map[string]struct{}{"sub1": {}})
+	c.Defer("col", "b", false, map[string]struct{}{"sub2": {}})
+	c.Defer("col", "a", false, map[string]struct{}{"sub3": {}})
+
+	changes := c.TakePending()
+	if len(changes) != 2 || changes[0].RecordId != "b" || changes[1].RecordId != "a" {
+		t.Fatalf("expected b then a, in the order they first changed, got %+v", changes)
+	}
+	if !changes[0].Created {
+		t.Fatal("expected a record created while detached to stay created")
+	}
+	if changes[1].Created {
+		t.Fatal("expected an updated record not to be created")
+	}
+	if _, ok := changes[1].VisibleBefore["sub1"]; !ok || len(changes[1].VisibleBefore) != 2 {
+		t.Fatalf("expected the union of the visible subscriptions, got %v", changes[1].VisibleBefore)
+	}
+}
+
+// A change made while a resume takes the pending changes goes to the next
+// round, never to the live path ahead of the round that is still being sent.
+func TestResumableDeferDuringTake(t *testing.T) {
+	c := subscriptions.NewResumableClient(subscriptions.ResumableOptions{})
+	attach(t, c, 0).Detach()
+
+	c.Defer("col", "a", false, nil)
+	attach(t, c, 0)
+	if changes := c.TakePending(); len(changes) != 1 {
+		t.Fatalf("expected one change, got %+v", changes)
+	}
+
+	if !c.Defer("col", "a", false, nil) {
+		t.Fatal("expected a change during the drain to be deferred")
+	}
+	if changes := c.TakePending(); len(changes) != 1 || changes[0].RecordId != "a" {
+		t.Fatalf("expected the change in the next round, got %+v", changes)
+	}
+	if changes := c.TakePending(); changes != nil {
+		t.Fatalf("expected nothing left, got %+v", changes)
+	}
+}
+
+func TestResumablePendingOverflow(t *testing.T) {
+	var overflowed *subscriptions.ResumableClient
+	c := subscriptions.NewResumableClient(subscriptions.ResumableOptions{
+		MaxPending: 2,
+		OnOverflow: func(client *subscriptions.ResumableClient) {
+			overflowed = client
+			client.Discard()
+		},
+	})
+	attach(t, c, 0).Detach()
+
+	c.Defer("col", "a", false, nil)
+	c.Defer("col", "b", false, nil)
+	c.Defer("col", "a", false, nil)
+	if overflowed != nil {
+		t.Fatal("overflowed at the limit")
+	}
+
+	c.Defer("col", "c", false, nil)
+	if overflowed != c {
+		t.Fatal("expected OnOverflow past the limit")
+	}
+	if _, ok := c.Attach(0); ok {
+		t.Fatal("expected an overflowed client to refuse Attach")
+	}
+}
+
+func TestResumableDiscardDropsPending(t *testing.T) {
+	c := subscriptions.NewResumableClient(subscriptions.ResumableOptions{})
+	attach(t, c, 0).Detach()
+
+	c.Defer("col", "a", false, nil)
+	c.Discard()
+
+	if changes := c.TakePending(); changes != nil {
+		t.Fatalf("expected no pending changes after Discard, got %+v", changes)
+	}
+	if !c.Defer("col", "b", false, nil) {
+		t.Fatal("expected a discarded client to swallow changes")
+	}
+}
