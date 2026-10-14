@@ -29,6 +29,13 @@ import { useEffect, useRef } from 'react'
  * Either direction records it when it acts, so the other can tell an echo of
  * its own write from a genuine change.
  *
+ * A URL this hook wrote follows a later change in how the same value is
+ * spelled. Boards opens a card the server has not numbered yet as
+ * `?focused=<id>`, and once the number lands the store does not change, so
+ * the store->URL direction never runs again: the address stayed id-spelled for
+ * as long as the card was open. A URL that arrived from outside (a pasted link,
+ * a notification) is left as it came, so a link keeps its spelling.
+ *
  * Writes go through `setParams`, never `replace`: REPLACE mints a new route
  * key and remounts the screen, while SET_PARAMS keeps the key and swaps the
  * params. The web history layer treats a same-route param change as a
@@ -90,6 +97,9 @@ export function useUrlStateSync<T>(options: UrlStateSyncOptions<T>): void {
     // What the URL reflects. `null` is "unknown" — nothing has been read yet.
     const syncedRef = useRef<{ value: T } | null>(null)
 
+    // The params this hook last wrote, while the URL still carries them.
+    const writtenRef = useRef<Record<string, string | undefined> | null>(null)
+
     // URL -> store.
     useEffect(() => {
         if (!isReady || urlValue === undefined) return
@@ -113,14 +123,13 @@ export function useUrlStateSync<T>(options: UrlStateSyncOptions<T>): void {
             }
             syncedRef.current = { value }
             if (onChangeWhileBlurred && !navigation.isFocused()) {
+                writtenRef.current = null
                 onChangeWhileBlurred(value)
                 return
             }
             const want = format(value)
-            const inStep = Object.entries(want).every(
-                ([key, spelled]) => (params[key] ?? '') === (spelled ?? '')
-            )
-            if (inStep) return
+            if (carries(params, want)) return
+            writtenRef.current = want
             router.setParams(want)
         }
         // A change made before this subscription attached — a value written
@@ -128,4 +137,32 @@ export function useUrlStateSync<T>(options: UrlStateSyncOptions<T>): void {
         sync()
         return subscribe(sync)
     }, [isReady, subscribe, isEqual, router, navigation])
+
+    // Respelling. No dependency list: what changes the spelling is the
+    // caller's data, which `format` closes over and this hook cannot name, and
+    // every change to that data re-renders the caller.
+    useEffect(() => {
+        const written = writtenRef.current
+        const synced = syncedRef.current
+        if (!isReady || !written || !synced) return
+        const { read, format, params } = latestRef.current
+        // Not carrying it: the write has not landed yet, or the URL moved on
+        // (Back, a pasted link) and is not ours to change.
+        if (!carries(params, written) || !isEqual(read(), synced.value)) return
+        const want = format(synced.value)
+        if (carries(written, want) || !navigation.isFocused()) return
+        writtenRef.current = want
+        router.setParams(want)
+    })
+}
+
+/**
+ * Whether `params` already carries `spelling`. Only the keys the spelling names
+ * are compared, as `format` names every key it owns; absent and '' are equal.
+ */
+function carries(
+    params: Record<string, string | undefined>,
+    spelling: Record<string, string | undefined>
+): boolean {
+    return Object.entries(spelling).every(([key, value]) => (params[key] ?? '') === (value ?? ''))
 }

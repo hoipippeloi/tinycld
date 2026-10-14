@@ -22,6 +22,12 @@ const item = () => useStore.getState().item
 
 // The "records" the URL resolves against: an id is only meaningful once its
 // row has loaded, which is what `isReady` and the undefined urlValue model.
+// How an item is spelled in the URL. A suffix models boards' card, spelled by
+// its id until the server numbers it and by its key after: either spelling
+// resolves to the same item.
+const spelling = { suffix: '' }
+const resolve = (param: string) => param.split('-')[0]
+
 function useSync({
     params,
     isReady = true,
@@ -33,9 +39,9 @@ function useSync({
 }) {
     useUrlStateSync<string | null>({
         isReady,
-        urlValue: isReady ? params.item || null : undefined,
+        urlValue: isReady ? resolve(params.item) || null : undefined,
         params,
-        format: value => ({ item: value ?? undefined }),
+        format: value => ({ item: value ? `${value}${spelling.suffix}` : undefined }),
         read: () => useStore.getState().item,
         write: value => useStore.getState().open(value),
         subscribe: useStore.subscribe,
@@ -46,6 +52,7 @@ function useSync({
 describe('useUrlStateSync', () => {
     beforeEach(() => {
         useStore.setState({ item: null })
+        spelling.suffix = ''
     })
     // Unmount every hook, or its store subscription outlives the test and
     // answers the next test's writes with its own params.
@@ -133,5 +140,75 @@ describe('useUrlStateSync', () => {
         renderHook(() => useSync({ params: { item: '' } }))
         expect(item()).toBeNull()
         expect(setParams).not.toHaveBeenCalled()
+    })
+
+    // Respelling: the value stays, the way it is written changes.
+    it('respells a URL it wrote when the same value is spelled differently', () => {
+        spelling.suffix = '-draft'
+        const { rerender } = renderHook(({ params }) => useSync({ params }), {
+            initialProps: { params: { item: '' } },
+        })
+        act(() => useStore.getState().open('b'))
+        expect(setParams).toHaveBeenLastCalledWith({ item: 'b-draft' })
+        rerender({ params: { item: 'b-draft' } })
+
+        spelling.suffix = '-1'
+        rerender({ params: { item: 'b-draft' } })
+        expect(setParams).toHaveBeenLastCalledWith({ item: 'b-1' })
+        rerender({ params: { item: 'b-1' } })
+        expect(item()).toBe('b')
+        expect(setParams).toHaveBeenCalledTimes(2)
+    })
+
+    // The caller can render between the write and the router's echo of it.
+    it('keeps respelling across a render before its write lands', () => {
+        spelling.suffix = '-draft'
+        const { rerender } = renderHook(({ params }) => useSync({ params }), {
+            initialProps: { params: { item: '' } },
+        })
+        act(() => useStore.getState().open('b'))
+        rerender({ params: { item: '' } })
+        rerender({ params: { item: 'b-draft' } })
+
+        spelling.suffix = '-1'
+        rerender({ params: { item: 'b-draft' } })
+        expect(setParams).toHaveBeenLastCalledWith({ item: 'b-1' })
+    })
+
+    it('leaves a URL that arrived from outside as it came', () => {
+        spelling.suffix = '-1'
+        const { rerender } = renderHook(() => useSync({ params: { item: 'b-draft' } }))
+        expect(item()).toBe('b')
+        rerender()
+        expect(setParams).not.toHaveBeenCalled()
+    })
+
+    it('stops respelling once the URL has moved on', () => {
+        spelling.suffix = '-draft'
+        const { rerender } = renderHook(({ params }) => useSync({ params }), {
+            initialProps: { params: { item: '' } },
+        })
+        act(() => useStore.getState().open('b'))
+        // Back to a link the hook did not write.
+        rerender({ params: { item: 'c-old' } })
+        expect(item()).toBe('c')
+
+        spelling.suffix = '-1'
+        rerender({ params: { item: 'c-old' } })
+        expect(setParams).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not respell while the route is covered', () => {
+        spelling.suffix = '-draft'
+        const { rerender } = renderHook(({ params }) => useSync({ params }), {
+            initialProps: { params: { item: '' } },
+        })
+        act(() => useStore.getState().open('b'))
+        rerender({ params: { item: 'b-draft' } })
+
+        h.isFocused = false
+        spelling.suffix = '-1'
+        rerender({ params: { item: 'b-draft' } })
+        expect(setParams).toHaveBeenCalledTimes(1)
     })
 })
