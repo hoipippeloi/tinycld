@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -125,7 +126,12 @@ func checkKind(f *Field, v any) string {
 		return ""
 	}
 	switch f.Kind {
-	case "text", "textarea", "richtext", "markdown", "date":
+	case "date":
+		s, ok := v.(string)
+		if !ok || !dateRe.MatchString(s) {
+			return f.Label + " must be a date (YYYY-MM-DD)"
+		}
+	case "text", "textarea", "richtext", "markdown":
 		s, ok := v.(string)
 		if !ok {
 			return f.Label + " must be text"
@@ -193,16 +199,28 @@ func checkKind(f *Field, v any) string {
 	return ""
 }
 
-func requiredKeys(def *Definition, values map[string]any, today string) (map[string]bool, error) {
-	state, err := Evaluate(def, values, Context{Today: today})
-	if err != nil {
-		return nil, err
+func evaluateAt(def *Definition, values map[string]any, today string) (State, error) {
+	return Evaluate(def, values, Context{Today: today})
+}
+
+// withRuleOptions returns the field as the rules see it: a select whose
+// options a set_options rule replaced is checked against that list.
+func withRuleOptions(f *Field, state State) *Field {
+	opts := state.Fields[f.Key].Options
+	if f.Kind != "select" || opts == nil {
+		return f
 	}
-	required := map[string]bool{}
-	for _, f := range def.Fields {
-		required[f.Key] = state.Fields[f.Key].Required
-	}
-	return required, nil
+	cp := *f
+	cp.Options = opts
+	return &cp
+}
+
+// enforcedBuiltin reports whether a required built-in is checked here: only
+// column built-ins carry a value in the write. Rows, sections and
+// collaborative text live elsewhere and may be empty in the record.
+func enforcedBuiltin(host *Host, key string) bool {
+	b := host.Builtin(key)
+	return b != nil && b.Storage == "column" && !b.Collaborative && b.Kind != "section"
 }
 
 func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate bool) error {
@@ -233,8 +251,47 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 	if err != nil {
 		return fieldErr(host.FieldsColumn, "validation_invalid_json", "Custom fields are not valid JSON.")
 	}
+	rulesFailed := fieldErr(host.FieldsColumn, "validation_rules_failed", "The form rules could not be evaluated.")
+	today := time.Now().Format("2006-01-02")
+	values, err := recordValues(host, def, e.Record)
+	if err != nil {
+		return rulesFailed
+	}
+	state, err := evaluateAt(def, values, today)
+	if err != nil {
+		return rulesFailed
+	}
+	// On update the stored row is the baseline: a value the write leaves as
+	// it was is not checked again, so editing the form (deleting a field,
+	// removing an option, tightening a limit) never blocks later writes.
+	// Spec Part 7: "Field deleted: values stay".
+	var prev, prevValues map[string]any
+	var wasRequired map[string]bool
+	if !isCreate {
+		stored, err := app.FindRecordById(host.Collection, e.Record.Id)
+		if err != nil {
+			return fmt.Errorf("forms: read stored record: %w", err)
+		}
+		if prev, err = fieldsOf(stored, host.FieldsColumn); err != nil {
+			return fmt.Errorf("forms: read stored record: %w", err)
+		}
+		if prevValues, err = recordValues(host, def, stored); err != nil {
+			return rulesFailed
+		}
+		prevState, err := evaluateAt(def, prevValues, today)
+		if err != nil {
+			return rulesFailed
+		}
+		wasRequired = map[string]bool{}
+		for key, fs := range prevState.Fields {
+			wasRequired[key] = fs.Required
+		}
+	}
 	errs := validation.Errors{}
 	for key, v := range fields {
+		if old, had := prev[key]; !isCreate && had && reflect.DeepEqual(old, v) {
+			continue
+		}
 		f := def.Field(key)
 		if f == nil {
 			f = otherFormField(e.Context, app, host, key)
@@ -242,6 +299,8 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 				errs[host.FieldsColumn+"."+key] = validation.NewError("validation_unknown_field", "Unknown field "+key)
 				continue
 			}
+		} else {
+			f = withRuleOptions(f, state)
 		}
 		if f.Kind == "builtin" {
 			errs[host.FieldsColumn+"."+key] = validation.NewError("validation_builtin_in_json", key+" is a built-in field and is not stored here")
@@ -254,47 +313,29 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 	if len(errs) > 0 {
 		return errs
 	}
-	rulesFailed := fieldErr(host.FieldsColumn, "validation_rules_failed", "The form rules could not be evaluated.")
-	today := time.Now().Format("2006-01-02")
-	values, err := recordValues(host, def, e.Record)
-	if err != nil {
-		return rulesFailed
-	}
-	required, err := requiredKeys(def, values, today)
-	if err != nil {
-		return rulesFailed
-	}
-	// On update a field that was already required and empty before (the form
-	// was edited after the record was created) may stay empty.
-	var prev map[string]any
-	var wasRequired map[string]bool
-	if !isCreate {
-		stored, err := app.FindRecordById(host.Collection, e.Record.Id)
-		if err != nil {
-			return fmt.Errorf("forms: read stored record: %w", err)
-		}
-		if prev, err = fieldsOf(stored, host.FieldsColumn); err != nil {
-			return fmt.Errorf("forms: read stored record: %w", err)
-		}
-		prevValues, err := recordValues(host, def, stored)
-		if err != nil {
-			return rulesFailed
-		}
-		if wasRequired, err = requiredKeys(def, prevValues, today); err != nil {
-			return rulesFailed
-		}
-	}
 	for _, f := range def.Fields {
-		// Builtins are enforced by PocketBase columns; collaborative values
-		// live in a Yjs document and may legitimately be empty here.
-		if !required[f.Key] || f.Kind == "builtin" || f.Collaborative {
+		if !state.Fields[f.Key].Required {
 			continue
 		}
-		if !isEmpty(fields[f.Key]) {
+		// Built-in values are columns, keyed by their own name; custom values
+		// live in the JSON column. Collaborative values live in a Yjs
+		// document and may legitimately be empty here.
+		errKey, now, before := host.FieldsColumn+"."+f.Key, fields[f.Key], prev[f.Key]
+		if f.Kind == "builtin" {
+			if !enforcedBuiltin(host, f.Key) {
+				continue
+			}
+			errKey, now, before = f.Key, values[f.Key], prevValues[f.Key]
+		} else if f.Collaborative {
 			continue
 		}
-		if isCreate || !wasRequired[f.Key] || !isEmpty(prev[f.Key]) {
-			errs[host.FieldsColumn+"."+f.Key] = validation.NewError("validation_required", f.Label+" is required")
+		if !isEmpty(now) {
+			continue
+		}
+		// An update may leave empty a field that was already required and
+		// empty (the form was edited after the record was created).
+		if isCreate || !wasRequired[f.Key] || !isEmpty(before) {
+			errs[errKey] = validation.NewError("validation_required", f.Label+" is required")
 		}
 	}
 	if len(errs) > 0 {

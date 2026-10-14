@@ -214,3 +214,161 @@ func TestHostHook_CheckKindBranches(t *testing.T) {
 		}
 	}
 }
+
+func (e *env) editForm(t *testing.T, form *core.Record, from, to string) {
+	t.Helper()
+	def := form.GetString("definition")
+	if !strings.Contains(def, from) {
+		t.Fatalf("form definition lacks %s", from)
+	}
+	form.Set("definition", []byte(strings.Replace(def, from, to, 1)))
+	if err := e.app.Save(form); err != nil {
+		t.Fatal(err)
+	}
+}
+
+const nickField = `{"key":"nick","kind":"text","page":"main","label":"Nick","width":"full","required":false,"hidden":false,"maxLength":5},`
+
+func TestHostHook_UpdateAfterAFieldIsDeletedFromTheForm(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"severity":"low","nick":"abc"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.editForm(t, bug, nickField, "")
+	w.Set("name", "renamed")
+	if err := e.app.Save(w); err != nil {
+		t.Fatalf("an unrelated update after a field delete must pass, got %v", err)
+	}
+	w.Set("fields", []byte(`{"severity":"low","nick":"abcd"}`))
+	if err := e.app.Save(w); err == nil || !strings.Contains(err.Error(), "nick") {
+		t.Fatalf("changing the deleted field's value must be refused, got %v", err)
+	}
+}
+
+func TestHostHook_UpdateAfterAnOptionIsRemoved(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"severity":"low"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.editForm(t, bug, `{"value":"low","label":"Low"},`, "")
+	w.Set("fields", []byte(`{"severity":"low","count":4}`))
+	if err := e.app.Save(w); err != nil {
+		t.Fatalf("updating another key after an option removal must pass, got %v", err)
+	}
+	w.Set("fields", []byte(`{"severity":["low"],"count":4}`))
+	if err := e.app.Save(w); err == nil || !strings.Contains(err.Error(), "severity") {
+		t.Fatalf("changing the key to a value that is not an option must be refused, got %v", err)
+	}
+}
+
+func TestHostHook_UpdateAfterALimitIsTightened(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"count":9}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.editForm(t, bug, `"min":0,"max":10`, `"min":0,"max":5`)
+	w.Set("name", "renamed")
+	if err := e.app.Save(w); err != nil {
+		t.Fatalf("an unrelated update after a tighter max must pass, got %v", err)
+	}
+	w.Set("fields", []byte(`{"count":8}`))
+	if err := e.app.Save(w); err == nil || !strings.Contains(err.Error(), "count") {
+		t.Fatalf("a changed value is checked against the new max, got %v", err)
+	}
+}
+
+func TestHostHook_FormAddsARequiredFieldThenAnUnrelatedUpdatePasses(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"severity":"low"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.editForm(t, bug, `"label":"Flag","width":"full","required":false`, `"label":"Flag","width":"full","required":true`)
+	e.editForm(t, bug, nickField, nickField+`{"key":"code","kind":"text","page":"main","label":"Code","width":"full","required":true,"hidden":false},`)
+	w.Set("name", "renamed")
+	if err := e.app.Save(w); err != nil {
+		t.Fatalf("an unrelated update must pass when the form gained a required field, got %v", err)
+	}
+	if _, err := e.widget(t, bug.Id, `{"severity":"low"}`); err == nil || !strings.Contains(err.Error(), "code") {
+		t.Fatalf("a new record must fill the new required field, got %v", err)
+	}
+}
+
+func TestHostHook_RequiredBuiltinColumnIsEnforced(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	ruleRequired := strings.Replace(bugDef, `"actions":[{"action":"require","field":"steps"}]`, `"actions":[{"action":"require","field":"due"}]`, 1)
+	byRule := e.newForm(t, "by_rule", ruleRequired, false)
+	if _, err := e.widget(t, byRule.Id, `{"severity":"high"}`); err == nil || !strings.Contains(err.Error(), "due") {
+		t.Fatalf("a rule-required built-in must be filled on create, got %v", err)
+	}
+	adminRequired := strings.Replace(bugDef, `"label":"Due","width":"full","required":false`, `"label":"Due","width":"full","required":true`, 1)
+	byAdmin := e.newForm(t, "by_admin", adminRequired, false)
+	if _, err := e.widget(t, byAdmin.Id, ""); err == nil || !strings.Contains(err.Error(), "due") {
+		t.Fatalf("an admin-required built-in must be filled on create, got %v", err)
+	}
+	col, _ := e.app.FindCollectionByNameOrId("gizmos_widgets")
+	w := core.NewRecord(col)
+	w.Set("name", "w")
+	w.Set("form", byAdmin.Id)
+	w.Set("due", "2026-03-01 00:00:00.000Z")
+	if err := e.app.Save(w); err != nil {
+		t.Fatal(err)
+	}
+	w.Set("due", "")
+	if err := e.app.Save(w); err == nil || !strings.Contains(err.Error(), "due") {
+		t.Fatalf("an update that clears a required built-in must be refused, got %v", err)
+	}
+}
+
+func TestHostHook_RequiredRowsAndCollaborativeBuiltinsAreSkipped(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	def := strings.Replace(bugDef, `"label":"Tasks","width":"full","required":false`, `"label":"Tasks","width":"full","required":true`, 1)
+	def = strings.Replace(def, `"label":"Notes","width":"full","required":false`, `"label":"Notes","width":"full","required":true`, 1)
+	form := e.newForm(t, "rows", def, false)
+	if _, err := e.widget(t, form.Id, ""); err != nil {
+		t.Fatalf("rows and collaborative built-ins carry no value in the write, got %v", err)
+	}
+}
+
+func TestHostHook_AcceptsAValueFromASetOptionsRule(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	def := strings.Replace(bugDef, `"actions":[{"action":"require","field":"steps"}]`, `"actions":[{"action":"set_options","field":"tags","options":[{"value":"z","label":"Z"}]}]`, 1)
+	form := e.newForm(t, "high_sets_tags", def, false)
+	if _, err := e.widget(t, form.Id, `{"severity":"high","tags":["z"]}`); err != nil {
+		t.Fatalf("a value from a set_options list must pass, got %v", err)
+	}
+	if _, err := e.widget(t, form.Id, `{"severity":"low","tags":["z"]}`); err == nil || !strings.Contains(err.Error(), "tags") {
+		t.Fatalf("with the rule inactive the field's own options apply, got %v", err)
+	}
+}
+
+func TestHostHook_DateValuesMatchTheStoredShape(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	def := withField(widgetDefault, `{"key":"when","kind":"date","page":"main","label":"When","width":"full","required":false,"hidden":false}`)
+	form := e.newForm(t, "dated", def, false)
+	for _, ok := range []string{`"2026-01-31"`, `"2026-01-31T09:30"`} {
+		if _, err := e.widget(t, form.Id, `{"when":`+ok+`}`); err != nil {
+			t.Fatalf("%s: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{`"tomorrow"`, `"2026-1-31"`, `"2026-01-31 09:30"`, `5`} {
+		if _, err := e.widget(t, form.Id, `{"when":`+bad+`}`); err == nil || !strings.Contains(err.Error(), "when") {
+			t.Fatalf("%s must be refused, got %v", bad, err)
+		}
+	}
+}

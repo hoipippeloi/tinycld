@@ -1,5 +1,10 @@
 import { type ZodTypeAny, z } from 'zod'
-import type { CustomField, FormDefinition, FormField } from './definition'
+import {
+    type CustomField,
+    dateValueSchema,
+    type FormDefinition,
+    type FormField,
+} from './definition'
 import { type FormHostBuiltin, type FormHostDef, findBuiltin } from './host'
 import type { FormState, FormValues } from './logic'
 
@@ -36,6 +41,80 @@ export function isSubmittedKind(host: FormHostDef, field: FormField): boolean {
     return true
 }
 
+interface KindSchemaInput {
+    custom?: CustomField
+    required: boolean
+    multiple: boolean
+    missing: string
+    label: string
+    options?: { value: string }[]
+}
+
+function textSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny {
+    let t = z.string()
+    if (custom?.kind === 'text' && custom.maxLength) t = t.max(custom.maxLength)
+    return required ? t.trim().min(1, missing) : t.nullable()
+}
+
+function numberSchema({ custom, required }: KindSchemaInput): ZodTypeAny {
+    let n = z.number()
+    if (custom?.kind === 'number') {
+        if (custom.min !== undefined) n = n.min(custom.min)
+        if (custom.max !== undefined) n = n.max(custom.max)
+    }
+    return required ? n : n.nullable()
+}
+
+function dateSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny {
+    // A built-in date is a record column in the database's own format; a custom date is
+    // stored as typed, so it has the shape the server checks (DATE_RE).
+    const d = custom ? dateValueSchema : z.string()
+    return required ? z.string().min(1, missing).pipe(d) : d.nullable()
+}
+
+function selectSchema(input: KindSchemaInput): ZodTypeAny {
+    const { custom, required, multiple, missing, label, options } = input
+    const allowed = (options ?? (custom?.kind === 'select' ? custom.options : [])).map(o => o.value)
+    const one =
+        allowed.length > 0
+            ? z.enum(allowed as [string, ...string[]])
+            : z.never({ message: `${label} has no options` })
+    if (!multiple) return required ? one : one.nullable()
+    const many = z.array(one)
+    return required ? many.min(1, missing) : many.nullable()
+}
+
+function idSchema({ required, multiple, missing }: KindSchemaInput): ZodTypeAny {
+    if (!multiple) return required ? z.string().min(1, missing) : z.string().nullable()
+    const many = z.array(z.string())
+    return required ? many.min(1, missing) : many.nullable()
+}
+
+function listSchema({ required, missing }: KindSchemaInput): ZodTypeAny {
+    const items = z.array(checklistItemSchema)
+    return required ? items.min(1, missing) : items.nullable()
+}
+
+function anySchema({ required, missing }: KindSchemaInput): ZodTypeAny {
+    if (!required) return z.unknown()
+    return z.unknown().refine(v => v !== null && v !== undefined && v !== '', missing)
+}
+
+const SCHEMA_BY_KIND: Record<string, (input: KindSchemaInput) => ZodTypeAny> = {
+    text: textSchema,
+    textarea: textSchema,
+    richtext: textSchema,
+    markdown: textSchema,
+    number: numberSchema,
+    toggle: ({ required, missing }) =>
+        required ? z.literal(true, { message: missing }) : z.boolean().nullable(),
+    date: dateSchema,
+    select: selectSchema,
+    user: idSchema,
+    file: idSchema,
+    checklist: listSchema,
+}
+
 function schemaFor(
     host: FormHostDef,
     field: FormField,
@@ -45,68 +124,15 @@ function schemaFor(
     const { kind, custom, builtin } = resolveKind(host, field)
     const multiple =
         (custom && 'multiple' in custom && custom.multiple) || builtin?.multiple || false
-    const missing = `${field.label} is required`
-    let s: ZodTypeAny
-    switch (kind) {
-        case 'text':
-        case 'textarea':
-        case 'richtext':
-        case 'markdown': {
-            let t = z.string()
-            if (custom?.kind === 'text' && custom.maxLength) t = t.max(custom.maxLength)
-            s = required ? t.trim().min(1, missing) : t.nullable()
-            break
-        }
-        case 'number': {
-            let n = z.number()
-            if (custom?.kind === 'number') {
-                if (custom.min !== undefined) n = n.min(custom.min)
-                if (custom.max !== undefined) n = n.max(custom.max)
-            }
-            s = required ? n : n.nullable()
-            break
-        }
-        case 'toggle':
-            s = required ? z.literal(true, { message: missing }) : z.boolean().nullable()
-            break
-        case 'date':
-            s = required ? z.string().min(1, missing) : z.string().nullable()
-            break
-        case 'select': {
-            const allowed = (options ?? (custom?.kind === 'select' ? custom.options : [])).map(
-                o => o.value
-            )
-            const one =
-                allowed.length > 0
-                    ? z.enum(allowed as [string, ...string[]])
-                    : z.never({ message: `${field.label} has no options` })
-            if (multiple) {
-                const many = z.array(one)
-                s = required ? many.min(1, missing) : many.nullable()
-            } else {
-                s = required ? one : one.nullable()
-            }
-            break
-        }
-        case 'user':
-        case 'file':
-            if (multiple) {
-                const many = z.array(z.string())
-                s = required ? many.min(1, missing) : many.nullable()
-            } else {
-                s = required ? z.string().min(1, missing) : z.string().nullable()
-            }
-            break
-        case 'checklist': {
-            const items = z.array(checklistItemSchema)
-            s = required ? items.min(1, missing) : items.nullable()
-            break
-        }
-        default:
-            s = required
-                ? z.unknown().refine(v => v !== null && v !== undefined && v !== '', missing)
-                : z.unknown()
-    }
+    const build = SCHEMA_BY_KIND[kind] ?? anySchema
+    const s = build({
+        custom,
+        required,
+        multiple,
+        missing: `${field.label} is required`,
+        label: field.label,
+        options,
+    })
     return required ? s : s.optional()
 }
 

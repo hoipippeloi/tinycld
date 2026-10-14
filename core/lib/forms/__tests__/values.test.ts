@@ -273,3 +273,35 @@ describe('isSubmittedKind', () => {
         expect(isSubmittedKind(widgetHost, field('name'))).toBe(true)
     })
 })
+
+describe('buildSchema, dates', () => {
+    const dated = definitionSchema.parse({
+        ...defaultDefinitionFor(widgetHost),
+        fields: [
+            ...defaultDefinitionFor(widgetHost).fields,
+            { key: 'when', kind: 'date', page: 'main', label: 'When' },
+            { key: 'at', kind: 'date', page: 'main', label: 'At', time: true, required: true },
+        ],
+    })
+    const schema = buildSchema(dated, widgetHost, evaluate(dated, {}, ctx))
+    const ok = { name: 'n', at: '2026-01-31T09:30' }
+    it('accepts a day and a day with a time, the shape the server checks', () => {
+        expect(schema.safeParse({ ...ok, when: '2026-01-31' }).success).toBe(true)
+        expect(schema.safeParse({ ...ok, when: null }).success).toBe(true)
+    })
+    it.each([
+        'tomorrow',
+        '2026-1-31',
+        '2026-01-31 09:30',
+    ])('rejects %s in a custom date field', value => {
+        const r = schema.safeParse({ ...ok, when: value })
+        expect(r.error?.issues.map(i => i.path.join('.'))).toContain('when')
+    })
+    it('reports a missing required date as required', () => {
+        const r = schema.safeParse({ name: 'n', at: '' })
+        expect(r.error?.issues.find(i => i.path[0] === 'at')?.message).toBe('At is required')
+    })
+    it('leaves a built-in date column in the database format', () => {
+        expect(schema.safeParse({ ...ok, due: '2026-01-31 00:00:00.000Z' }).success).toBe(true)
+    })
+})
