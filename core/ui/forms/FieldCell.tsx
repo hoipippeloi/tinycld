@@ -1,6 +1,7 @@
 import type { FieldWidth } from '@tinycld/core/lib/forms/definition'
 import type { ReactNode } from 'react'
 import { Text, View } from 'react-native'
+import { type LayoutRect, useMeasuredRect } from './use-measure-rect'
 import { effectiveWidth, widthClass } from './widths'
 
 export interface FieldCellProps {
@@ -18,6 +19,11 @@ export interface FieldCellProps {
     isSelected?: boolean
     /** The input shows the label itself (a toggle, a radio or choice list), so the cell does not. */
     hideLabel?: boolean
+    /** The builder's per-cell marker (e.g. a rule badge), right of the label. */
+    badge?: ReactNode
+    /** Which edge shows the drop bar while a field is dragged over this cell. */
+    dropIndicator?: 'before' | 'after'
+    onLayoutRect?: (rect: LayoutRect) => void
 }
 
 // A border on both platforms; the border is always present so selecting a cell never shifts its layout.
@@ -43,6 +49,17 @@ function CellLabel({
         <Text className="text-foreground text-sm font-medium" nativeID={`form-label-${fieldKey}`}>
             {label}
         </Text>
+    )
+}
+
+function DropBar({ fieldKey, side }: { fieldKey: string; side?: 'before' | 'after' }) {
+    if (!side) return null
+    const edge = side === 'before' ? 'left-0' : 'right-0'
+    return (
+        <View
+            className={`absolute top-0 bottom-0 w-0.5 bg-primary ${edge}`}
+            testID={`form-field-${fieldKey}-drop-${side}`}
+        />
     )
 }
 
@@ -73,22 +90,30 @@ export function FieldCell({
     handle,
     isSelected,
     hideLabel = false,
+    badge,
+    dropIndicator,
+    onLayoutRect,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
+    const { ref, onLayout } = useMeasuredRect(onLayoutRect)
     const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
     return (
         <View
-            className={`${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`}
+            ref={ref}
+            onLayout={onLayout}
+            className={`relative ${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`}
             testID={testID ?? `form-field-${fieldKey}`}
         >
             <View className="flex-row items-center mb-1">
                 {handle}
                 <CellLabel fieldKey={fieldKey} label={label} isVisible={!hideLabel} />
                 <RequiredMark isVisible={required} />
+                {badge}
             </View>
             <CellDescription text={description} />
             {children}
             <CellError message={error} />
+            <DropBar fieldKey={fieldKey} side={dropIndicator} />
         </View>
     )
 }

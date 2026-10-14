@@ -12,6 +12,7 @@ import { FieldInput, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
+import { type LayoutRect, useMeasuredRect } from './use-measure-rect'
 import type { FormSchema } from './use-schema-ref-resolver'
 import { WizardSteps } from './WizardSteps'
 
@@ -21,6 +22,22 @@ export interface DesignOptions {
     selectedKey?: string
     onSelect?: (key: string) => void
     renderHandle?: (key: string) => ReactNode
+    /** Replaces the section title. */
+    renderPageHeader?: (page: FormPage) => ReactNode
+    /** After a page's fields, e.g. an "Add field" button. */
+    renderPageFooter?: (page: FormPage) => ReactNode
+    onCellLayout?: (key: string, rect: LayoutRect) => void
+    onPageLayout?: (pageKey: string, rect: LayoutRect) => void
+    dropTarget?: DropTarget | null
+    badges?: Record<string, ReactNode>
+    /** Cell error text keyed by field key, from the editor form. */
+    errors?: Record<string, string>
+}
+
+export type DropTarget = { key: string; side: 'before' | 'after' } | { page: string; end: true }
+
+function dropSideFor(target: DropTarget | null | undefined, key: string) {
+    return target && 'key' in target && target.key === key ? target.side : undefined
 }
 
 export interface FormRendererProps {
@@ -54,6 +71,11 @@ interface PageProps extends BodyProps {
     page: FormPage
 }
 
+interface PageChromeProps {
+    page: FormPage
+    design?: DesignOptions
+}
+
 interface CellProps extends BodyProps {
     field: FormField
 }
@@ -73,19 +95,24 @@ function Cell(props: CellProps) {
     const { field, state, containerWidth, host, ui, form, mode, recordId, collab, design } = props
     const hideLabel = rendersOwnLabel(host, field, ui)
     const fieldState = state.fields[field.key]
-    const error = form.formState.errors[field.key]?.message
+    const formError = form.formState.errors[field.key]?.message
+    const error =
+        design?.errors?.[field.key] ?? (typeof formError === 'string' ? formError : undefined)
     const cell = (
         <FieldCell
             fieldKey={field.key}
             label={field.label}
             description={field.description}
             required={fieldState?.required ?? false}
-            error={typeof error === 'string' ? error : undefined}
+            error={error}
             width={field.width}
             containerWidth={containerWidth}
             handle={design?.renderHandle?.(field.key)}
             isSelected={design?.selectedKey === field.key}
             hideLabel={hideLabel}
+            badge={design?.badges?.[field.key]}
+            dropIndicator={dropSideFor(design?.dropTarget, field.key)}
+            onLayoutRect={design?.onCellLayout && (rect => design.onCellLayout?.(field.key, rect))}
         >
             <FieldInput
                 host={host}
@@ -132,6 +159,40 @@ function SectionTitle({ page, isVisible }: { page: FormPage; isVisible: boolean 
     )
 }
 
+function PageHeader({
+    page,
+    isTitleVisible,
+    design,
+}: PageChromeProps & { isTitleVisible: boolean }) {
+    const custom = design?.renderPageHeader?.(page)
+    if (custom) return custom
+    return <SectionTitle page={page} isVisible={isTitleVisible} />
+}
+
+function PageFooter({ page, design }: PageChromeProps) {
+    return design?.renderPageFooter?.(page) ?? null
+}
+
+function PageDropBar({ page, target }: { page: FormPage; target?: DropTarget | null }) {
+    if (!target || !('page' in target) || target.page !== page.key) return null
+    return <View className="h-0.5 bg-primary" testID={`form-page-${page.key}-drop-end`} />
+}
+
+function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVisible: boolean }) {
+    const { design } = props
+    const { ref, onLayout } = useMeasuredRect(
+        design?.onPageLayout && (rect => design.onPageLayout?.(page.key, rect))
+    )
+    return (
+        <View ref={ref} onLayout={onLayout} testID={`form-page-${page.key}`}>
+            <PageHeader page={page} isTitleVisible={isTitleVisible} design={design} />
+            <PageFields {...props} page={page} />
+            <PageFooter page={page} design={design} />
+            <PageDropBar page={page} target={design?.dropTarget} />
+        </View>
+    )
+}
+
 function SubmitErrors({
     form,
     attempted = false,
@@ -151,10 +212,12 @@ function Sections(props: BodyProps) {
         <>
             <SubmitErrors form={props.form} />
             {pages.map(page => (
-                <View key={page.key}>
-                    <SectionTitle page={page} isVisible={pages.length > 1} />
-                    <PageFields {...props} page={page} />
-                </View>
+                <DesignPage
+                    key={page.key}
+                    {...props}
+                    page={page}
+                    isTitleVisible={pages.length > 1}
+                />
             ))}
         </>
     )
