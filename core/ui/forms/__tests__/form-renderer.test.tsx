@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useForm } from 'react-hook-form'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bugDefinition, widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { definitionSchema } from '../../../lib/forms/definition'
+import { definitionSchema, type FormDefinition } from '../../../lib/forms/definition'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { evaluate } from '../../../lib/forms/logic'
 import { buildSchema } from '../../../lib/forms/values'
@@ -28,31 +28,87 @@ const def = definitionSchema.parse({
 
 const defaults = { name: '', severity: 'low' }
 
-function useHarnessForm() {
-    const initial = buildSchema(def, host, evaluate(def, defaults, ctx))
+const baseFields = [
+    ...defaultDefinitionFor(widgetHost).fields.map(f => ({ ...f, page: 'details' })),
+    bugDefinition.fields[1],
+]
+
+const ruleDef = definitionSchema.parse({
+    ...bugDefinition,
+    submit: { required: ['name'] },
+    fields: [
+        ...baseFields,
+        { key: 'note', kind: 'text', page: 'details', label: 'Note' },
+        { key: 'steps', kind: 'textarea', page: 'repro', label: 'Steps' },
+    ],
+    rules: [
+        {
+            key: 'escalate',
+            when: [{ field: 'severity', op: 'is', value: 'high' }],
+            actions: [{ action: 'set_value', field: 'note', value: 'escalated' }],
+        },
+        {
+            key: 'loaded',
+            when: [{ field: 'name', op: 'is', value: 'loaded' }],
+            actions: [{ action: 'set_value', field: 'note', value: 'overwritten' }],
+        },
+        {
+            key: 'secret',
+            when: [{ field: 'name', op: 'is', value: 'secret' }],
+            actions: [{ action: 'hide', field: 'due' }],
+        },
+    ],
+})
+
+const onePageDef = definitionSchema.parse({
+    ...bugDefinition,
+    submit: { required: ['name'] },
+    pages: [{ key: 'details', title: 'Details' }],
+    fields: baseFields,
+    rules: [],
+})
+
+type Form = ReturnType<typeof useForm<Record<string, unknown>>>
+
+function useHarnessForm(definition: FormDefinition, initialValues: Record<string, unknown>) {
+    const initial = buildSchema(definition, host, evaluate(definition, initialValues, ctx))
     const { schemaRef, resolver } = useSchemaRefResolver(initial)
-    const form = useForm({ defaultValues: defaults, resolver })
+    const form = useForm({ defaultValues: initialValues, resolver })
     return { form, schemaRef }
 }
 
-function Harness({ layout, onSubmit }: { layout: 'wizard' | 'sections'; onSubmit?: () => void }) {
-    const { form, schemaRef } = useHarnessForm()
+interface HarnessProps {
+    layout: 'wizard' | 'sections'
+    definition?: FormDefinition
+    initialValues?: Record<string, unknown>
+    onSubmit?: () => void
+    recordId?: string
+    readOnly?: boolean
+    formRef?: { current: Form | null }
+}
+
+function Harness(props: HarnessProps) {
+    const { layout, definition = def, initialValues = defaults, formRef } = props
+    const { form, schemaRef } = useHarnessForm(definition, initialValues)
+    if (formRef) formRef.current = form
     return (
         <FormRenderer
             host={host}
             ui={null}
-            definition={def}
+            definition={definition}
             layout={layout}
             form={form}
             schemaRef={schemaRef}
             context={ctx}
-            onSubmit={onSubmit}
+            onSubmit={props.onSubmit}
+            recordId={props.recordId}
+            readOnly={props.readOnly}
         />
     )
 }
 
 function DesignHarness({ onSelect }: { onSelect: (key: string) => void }) {
-    const { form, schemaRef } = useHarnessForm()
+    const { form, schemaRef } = useHarnessForm(def, defaults)
     return (
         <FormRenderer
             host={host}
@@ -123,5 +179,72 @@ describe('FormRenderer design', () => {
         )
         fireEvent.click(byTestId(container, 'form-field-name') as Element)
         expect(onSelect).toHaveBeenCalledWith('name')
+    })
+})
+
+describe('FormRenderer wizard navigation', () => {
+    it('goes back to the previous page', async () => {
+        const { container } = render(<Harness layout="wizard" />)
+        const input = byTestId(container, 'form-input-name') as HTMLInputElement
+        fireEvent.input(input, { target: { value: 'Login fails' } })
+        fireEvent.click(byTestId(container, 'form-wizard-next') as Element)
+        await waitFor(() => expect(byTestId(container, 'form-field-steps')).toBeTruthy())
+        fireEvent.click(byTestId(container, 'form-wizard-back') as Element)
+        await waitFor(() => expect(byTestId(container, 'form-field-name')).toBeTruthy())
+        expect(byTestId(container, 'form-field-steps')).toBeNull()
+    })
+    it('shows no steps for a one-page form', () => {
+        const { container } = render(<Harness layout="wizard" definition={onePageDef} />)
+        expect(byTestId(container, 'form-wizard-steps')).toBeNull()
+        expect(byTestId(container, 'form-field-name')).toBeTruthy()
+    })
+})
+
+describe('FormRenderer rules and modes', () => {
+    it('applies set_value when its rule becomes active after mount', async () => {
+        const formRef = { current: null as Form | null }
+        const { getByText } = render(
+            <Harness layout="sections" definition={ruleDef} formRef={formRef} />
+        )
+        fireEvent.click(getByText('High'))
+        await waitFor(() => expect(formRef.current?.getValues('note')).toBe('escalated'))
+    })
+    it('does not apply a set_value rule that is already active on mount in edit mode', async () => {
+        const formRef = { current: null as Form | null }
+        render(
+            <Harness
+                layout="sections"
+                definition={ruleDef}
+                recordId="rec1"
+                initialValues={{ name: 'loaded', severity: 'low', note: 'kept' }}
+                formRef={formRef}
+            />
+        )
+        await new Promise(r => setTimeout(r, 20))
+        expect(formRef.current?.getValues('note')).toBe('kept')
+    })
+    it('disables inputs in read-only mode', () => {
+        const editable = render(<Harness layout="sections" recordId="rec1" />)
+        expect(byTestId(editable.container, 'form-input-name')?.hasAttribute('editable')).toBe(true)
+        cleanup()
+        const { container } = render(<Harness layout="sections" readOnly recordId="rec1" />)
+        expect(byTestId(container, 'form-input-name')?.hasAttribute('editable')).toBe(false)
+    })
+    it('unmounts a field hidden by a rule but keeps its value', async () => {
+        const formRef = { current: null as Form | null }
+        const { container } = render(
+            <Harness
+                layout="sections"
+                definition={ruleDef}
+                initialValues={{ name: '', severity: 'low', due: '2026-02-02' }}
+                formRef={formRef}
+            />
+        )
+        expect(byTestId(container, 'form-field-due')).toBeTruthy()
+        fireEvent.input(byTestId(container, 'form-input-name') as Element, {
+            target: { value: 'secret' },
+        })
+        await waitFor(() => expect(byTestId(container, 'form-field-due')).toBeNull())
+        expect(formRef.current?.getValues('due')).toBe('2026-02-02')
     })
 })

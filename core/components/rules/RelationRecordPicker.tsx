@@ -78,7 +78,6 @@ function useRelationRecords(target: string, displayField: string, search: string
         },
     })
     return {
-        isRegistered: Boolean(collection),
         isReady,
         records: (data ?? []) as Record<string, unknown>[],
     }
@@ -105,13 +104,8 @@ function useSelectedRecord(target: string, value: string) {
     return (data?.[0] ?? undefined) as Record<string, unknown> | undefined
 }
 
-export function RelationRecordPicker({
-    target,
-    displayField,
-    value,
-    onChange,
-}: RelationRecordPickerProps) {
-    const mutedColor = useThemeColor('muted-foreground')
+// Rendered only inside the open menu, so a closed picker runs no results query.
+function PickerResults({ target, displayField, value, onChange }: RelationRecordPickerProps) {
     const placeholderColor = useThemeColor('field-placeholder')
     const [search, setSearch] = useState('')
     // Debounced so each keystroke does not open a new subscription — the query's
@@ -120,12 +114,7 @@ export function RelationRecordPicker({
     // `\"` compiles to an unterminated filter literal and PocketBase answers 400.
     const term = search.trim().replace(/\\/g, '')
     const debouncedSearch = useDebouncedValue(term, SEARCH_DEBOUNCE_MS)
-    const { isRegistered, isReady, records } = useRelationRecords(
-        target,
-        displayField,
-        debouncedSearch
-    )
-    const selectedRecord = useSelectedRecord(target, value)
+    const { isReady, records } = useRelationRecords(target, displayField, debouncedSearch)
 
     // The debounce window, plus the request it then issues, is a stretch of time
     // in which `records` still answers the PREVIOUS term. Rendering those rows is
@@ -138,35 +127,8 @@ export function RelationRecordPicker({
         ? []
         : records.map(record => ({ record, label: recordLabel(record, displayField) }))
 
-    if (!isRegistered) {
-        return (
-            <PlainInput
-                value={value}
-                onChangeText={onChange}
-                placeholder={`record id — ${target} isn't installed here`}
-                className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
-            />
-        )
-    }
-
-    // The trigger names the selection from its own one-row query, so it stays
-    // correct while the menu's window shows something else entirely — or
-    // nothing, on a freshly reopened picker with no term typed. It falls back
-    // to the raw id only while that row is still in flight.
-    const label = selectedRecord ? recordLabel(selectedRecord, displayField) : value || 'Select…'
-
     return (
-        <Menu
-            trigger={
-                <Pressable className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background">
-                    <Text className="text-sm text-foreground" numberOfLines={1}>
-                        {label}
-                    </Text>
-                    <ChevronDown size={14} color={mutedColor} />
-                </Pressable>
-            }
-            placement="bottom-start"
-        >
+        <>
             <Menu.Custom className="px-2 pt-1 pb-2">
                 <PlainInput
                     value={search}
@@ -190,6 +152,45 @@ export function RelationRecordPicker({
                 hasSearch={Boolean(debouncedSearch)}
             />
             <MoreHint isVisible={!isSearching && matches.length >= VISIBLE_LIMIT} />
+        </>
+    )
+}
+
+export function RelationRecordPicker(props: RelationRecordPickerProps) {
+    const { target, displayField, value, onChange } = props
+    const mutedColor = useThemeColor('muted-foreground')
+    const isRegistered = Boolean(collectionByName(target))
+    const selectedRecord = useSelectedRecord(target, value)
+
+    if (!isRegistered) {
+        return (
+            <PlainInput
+                value={value}
+                onChangeText={onChange}
+                placeholder={`record id — ${target} isn't installed here`}
+                className="flex-1 border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
+            />
+        )
+    }
+
+    // The trigger names the selection from its own one-row query, so it stays
+    // correct while the menu's window shows something else entirely. It falls
+    // back to the raw id only while that row is still in flight.
+    const label = selectedRecord ? recordLabel(selectedRecord, displayField) : value || 'Select…'
+
+    return (
+        <Menu
+            trigger={
+                <Pressable className="flex-1 flex-row items-center justify-between border rounded-lg px-2.5 py-1.5 border-border bg-background">
+                    <Text className="text-sm text-foreground" numberOfLines={1}>
+                        {label}
+                    </Text>
+                    <ChevronDown size={14} color={mutedColor} />
+                </Pressable>
+            }
+            placement="bottom-start"
+        >
+            <PickerResults {...props} />
         </Menu>
     )
 }

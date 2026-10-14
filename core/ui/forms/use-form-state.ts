@@ -2,13 +2,17 @@ import type { FormDefinition } from '@tinycld/core/lib/forms/definition'
 import { type EvalContext, evaluate, type FormValues } from '@tinycld/core/lib/forms/logic'
 import { buildSchema } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { type Control, type UseFormSetValue, useWatch } from 'react-hook-form'
 
 /**
  * The effective state for the current values, recomputed on every change.
- * set_value actions fire once, when their rule becomes active; the ref holds
- * which rules were active on the last pass so a user's later edit is kept.
+ * `ctx` must be referentially stable (memoize it), or the state recomputes every render.
+ *
+ * set_value actions fire once, when their rule becomes active after mount; the ref holds
+ * which rules were active on the last commit so a user's later edit is kept, and it is
+ * seeded from the first evaluation so a rule already active on mount never overwrites
+ * loaded values. Pass `setValue` only where the form is editable.
  */
 export function useFormState(
     def: FormDefinition,
@@ -18,22 +22,34 @@ export function useFormState(
     setValue?: UseFormSetValue<FormValues>
 ) {
     const values = useWatch({ control }) as FormValues
-    const previouslyActive = useRef<Set<string>>(new Set())
     const state = useMemo(() => evaluate(def, values, ctx), [def, values, ctx])
     const schema = useMemo(() => buildSchema(def, host, state), [def, host, state])
-    const newlyActive = state.activeRules.filter(k => !previouslyActive.current.has(k))
-    previouslyActive.current = new Set(state.activeRules)
-    if (setValue && newlyActive.length > 0) {
+    const previouslyActive = useRef<Set<string> | null>(null)
+    if (previouslyActive.current === null) previouslyActive.current = new Set(state.activeRules)
+    const seen = previouslyActive.current
+    const newlyActiveKey = state.activeRules.filter(k => !seen.has(k)).join(',')
+
+    // The one justified effect: react-hook-form's setValue publishes synchronously, so
+    // calling it during render would update other components while this one renders.
+    useEffect(() => {
+        if (!setValue || !newlyActiveKey) return
+        const newly = newlyActiveKey.split(',')
         for (const r of def.rules) {
-            if (!newlyActive.includes(r.key)) continue
+            if (!newly.includes(r.key)) continue
             for (const a of r.actions) {
                 if (a.action === 'set_value' && a.field in state.setValues) {
                     setValue(a.field, state.setValues[a.field])
                 }
             }
         }
-    }
-    return { state, schema, values }
+    }, [newlyActiveKey, def.rules, state.setValues, setValue])
+
+    // Declared after the apply effect so it runs second on every commit.
+    useEffect(() => {
+        previouslyActive.current = new Set(state.activeRules)
+    }, [state.activeRules])
+
+    return { state, schema }
 }
 
 export type UseFormStateResult = ReturnType<typeof useFormState>

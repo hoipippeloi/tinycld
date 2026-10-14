@@ -127,14 +127,20 @@ function SectionTitle({ page, isVisible }: { page: FormPage; isVisible: boolean 
     )
 }
 
+function SubmitErrors({ form }: { form: UseFormReturn<FormValues> }) {
+    const { errors, isSubmitted } = form.formState
+    return <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
+}
+
 function Sections(props: BodyProps) {
     const { definition, state, mode } = props
     const pages = definition.pages.filter(p => mode === 'design' || state.pages[p.key]?.visible)
     return (
         <>
+            <SubmitErrors form={props.form} />
             {pages.map(page => (
                 <View key={page.key}>
-                    <SectionTitle page={page} isVisible={definition.pages.length > 1} />
+                    <SectionTitle page={page} isVisible={pages.length > 1} />
                     <PageFields {...props} page={page} />
                 </View>
             ))}
@@ -154,7 +160,7 @@ function useWizard(props: BodyProps) {
     const next = async () => {
         const ok = await form.trigger(pageKeys)
         if (!ok) return
-        if (isLast) form.handleSubmit(() => onSubmit?.())()
+        if (isLast) await form.handleSubmit(() => onSubmit?.())()
         else setIndex(current + 1)
     }
     const back = () => setIndex(Math.max(0, current - 1))
@@ -175,14 +181,16 @@ interface WizardFooterProps {
     isLast: boolean
     onBack: () => void
     onNext: () => void
+    isSubmitting: boolean
     submitLabel: string
 }
 
-function WizardFooter({ isFirst, isLast, onBack, onNext, submitLabel }: WizardFooterProps) {
+function WizardFooter(props: WizardFooterProps) {
+    const { isFirst, isLast, onBack, onNext, isSubmitting, submitLabel } = props
     return (
         <View className="flex-row justify-end mt-2">
             <BackButton isVisible={!isFirst} onPress={onBack} />
-            <Button onPress={onNext} testID="form-wizard-next">
+            <Button onPress={onNext} isDisabled={isSubmitting} testID="form-wizard-next">
                 <ButtonText>{isLast ? submitLabel : 'Next'}</ButtonText>
             </Button>
         </View>
@@ -196,16 +204,14 @@ function Wizard(props: BodyProps) {
     return (
         <View>
             <WizardSteps pages={w.pages} index={w.index} />
-            <FormErrorSummary
-                errors={formState.errors}
-                isEnabled={formState.submitCount > 0 || formState.isSubmitted}
-            />
+            <SubmitErrors form={props.form} />
             <PageFields {...props} page={w.page} />
             <WizardFooter
                 isFirst={w.index === 0}
                 isLast={w.isLast}
                 onBack={w.back}
                 onNext={w.next}
+                isSubmitting={formState.isSubmitting}
                 submitLabel={props.submitLabel ?? 'Create'}
             />
         </View>
@@ -226,10 +232,17 @@ function Body(props: BodyProps) {
 export function FormRenderer(props: FormRendererProps) {
     const { definition, host, form, context, layout, readOnly, recordId, schemaRef } = props
     const { width, onLayout } = useContainerWidth()
-    const { state, schema } = useFormState(definition, host, form.control, context, form.setValue)
+    const mode = modeFor(layout, readOnly, recordId)
+    const isEditable = mode === 'create' || mode === 'edit'
+    const { state, schema } = useFormState(
+        definition,
+        host,
+        form.control,
+        context,
+        isEditable ? form.setValue : undefined
+    )
     // The resolver reads this ref, so required-if rules validate against the live state.
     if (schemaRef) schemaRef.current = schema
-    const mode = modeFor(layout, readOnly, recordId)
     return (
         <View onLayout={onLayout} testID={props.testID ?? 'form-renderer'}>
             <Body {...props} state={state} containerWidth={width} mode={mode} />
