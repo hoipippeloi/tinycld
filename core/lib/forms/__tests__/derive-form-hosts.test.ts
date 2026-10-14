@@ -23,4 +23,27 @@ describe('deriveFormHosts', () => {
         ])
         await expect(hosts[0].ui()).resolves.toEqual({ components: {}, mappers: {} })
     })
+    it('applies schema defaults to hand-authored input', () => {
+        const hosts = deriveFormHosts([
+            {
+                manifest: { name: 'Gizmos', slug: 'gizmos' },
+                formHosts: [
+                    {
+                        key: 'gizmos:widget',
+                        label: 'Widget',
+                        collection: 'gizmos_widgets',
+                        formColumn: 'form',
+                        fieldsColumn: 'fields',
+                        columns: ['name'],
+                        builtin: [{ key: 'name', label: 'Name', kind: 'text', storage: 'column' }],
+                    },
+                ],
+            },
+        ])
+        expect(hosts[0].builtin[0]).toMatchObject({
+            required: false,
+            multiple: false,
+            collaborative: false,
+        })
+    })
 })

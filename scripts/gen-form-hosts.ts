@@ -41,7 +41,9 @@ export async function loadFormHosts(
             `[generate] ${packageName}: exports entry './${subpath}' is not a plain string (conditional exports are unsupported here)`
         )
     }
-    const mod = await import(pathToFileURL(path.join(packageDir, rel)).href)
+    const mod = (await import(pathToFileURL(path.join(packageDir, rel)).href)) as {
+        default?: unknown
+    }
     if (!mod.default) {
         throw new Error(
             `[generate] ${packageName}: module '${rel}' must default-export FormHostDef[]`

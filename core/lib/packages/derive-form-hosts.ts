@@ -1,4 +1,4 @@
-import type { FormHostDef } from '../forms/host'
+import { type FormHostDef, type FormHostDefInput, hostDefListSchema } from '../forms/host'
 import type { FormHostUi } from '../forms/host-ui'
 
 export interface FormHost extends FormHostDef {
@@ -8,7 +8,7 @@ export interface FormHost extends FormHostDef {
 
 type FormHostEntryLike = {
     manifest: { name: string; slug: string }
-    formHosts?: FormHostDef[]
+    formHosts?: FormHostDefInput[]
     formHostsUi?: () => Promise<{ default: FormHostUi }>
 }
 
@@ -26,7 +26,9 @@ export function deriveFormHosts(entries: readonly FormHostEntryLike[]): FormHost
                     : Promise.resolve(EMPTY_UI)
             return cached
         }
-        for (const h of e.formHosts) out.push({ ...h, pkgSlug: e.manifest.slug, ui })
+        // The generator already validated these; a throw here means it was bypassed.
+        for (const h of hostDefListSchema.parse(e.formHosts))
+            out.push({ ...h, pkgSlug: e.manifest.slug, ui })
     }
     return out
 }

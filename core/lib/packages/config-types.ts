@@ -4,7 +4,7 @@ import type { createCollection, SchemaDeclaration } from 'pbtsdb/core'
 import type PocketBase from 'pocketbase'
 import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
 import type { AutomationDefinitions } from '../automation/types'
-import type { FormHostDef } from '../forms/host'
+import type { FormHostDefInput } from '../forms/host'
 import type { FormHostUi } from '../forms/host-ui'
 import type { PackageManifest } from './types'
 
@@ -147,7 +147,7 @@ export interface PackageEntry<S extends SchemaDeclaration, R> {
     eventSources?: PackageEventSource[]
     setupSteps?: PackageSetupStep[]
     automation?: AutomationDefinitions
-    formHosts?: FormHostDef[]
+    formHosts?: FormHostDefInput[]
     formHostsUi?: () => Promise<{ default: FormHostUi }>
     seed?: (pb: PocketBase, ctx: SeedContext) => Promise<void>
 }
