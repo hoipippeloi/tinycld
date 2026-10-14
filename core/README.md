@@ -35,7 +35,7 @@ Consumers import core through the `@tinycld/core/*` subpaths declared in
 | --- | --- |
 | `@tinycld/core` | top-level `index.ts` re-exports |
 | `@tinycld/core/lib/*` | runtime helpers (pocketbase, mutations, errors, store, org-routes, the `packages/` derivation modules, …) |
-| `@tinycld/core/ui/*` | Gluestack + Uniwind UI primitives (forms, menu, modal, …) |
+| `@tinycld/core/ui/*` | Gluestack + Uniwind UI primitives (forms, menu, dialog, sheet, popover, …) |
 | `@tinycld/core/components/*` | shared React components |
 | `@tinycld/core/types/*` | schema types (`pbSchema`, `pbZodSchema` — generated from applied migrations) |
 | `@tinycld/core/file-viewer/*` | file preview/icon helpers |

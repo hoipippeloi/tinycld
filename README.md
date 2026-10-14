@@ -90,8 +90,8 @@ pnpm run ssl:generate
   (`~/lib/diagnose-regexp`, `~/lib/polyfill-dom-shim`, `~/lib/polyfill-crypto`), then loads
   `expo-router/entry`.
 - **`app/`** — Expo Router route tree. `_layout.tsx` imports `~/lib/configure-core` first (which
-  calls `configureCore(appConfig)` at module-init), then imports core's Providers and mounts the
-  gate. The polyfills are deliberately not imported here — see the comment at the top of `index.js`.
+  calls `configureCore(appConfig)` at module-init), then mounts the server-address gate, which
+  loads core's Providers with a dynamic import once a server address resolves. The polyfills are deliberately not imported here — see the comment at the top of `index.js`.
 - **`lib/app-config.ts`** — `CoreConfig` value handed to core at boot. Branding, server
   shortcuts, Sentry creds, review-mode flags.
 - **`lib/configure-core.ts`** — side-effect-only module imported by `_layout.tsx` first (before
