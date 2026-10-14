@@ -9,7 +9,9 @@ import { definitionSchema } from '../definition'
 import { keyFromLabel, uniqueKey } from './key'
 
 /** The editor's working shape: a definition whose rules may still be empty. */
-export type DraftDefinition = FormDefinitionInput
+export type DraftDefinition = Omit<FormDefinitionInput, 'fields'> & {
+    fields: (FormDefinitionInput['fields'][number] & { acceptText?: string })[]
+}
 type RuleAction = NonNullable<DraftDefinition['rules']>[number]['actions'][number]
 
 export interface Removed {
