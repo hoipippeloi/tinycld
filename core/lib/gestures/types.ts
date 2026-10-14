@@ -51,6 +51,12 @@ export interface UseDragGestureOptions {
     // If true, the hook measures the originating element on drag-start
     // and reports its rect via DragContext.startRect. Defaults to true.
     measureTarget?: boolean
+    // Native only (web ignores it): the drag engages only after the press
+    // is held this long without moving past `threshold`. A move past it
+    // first gives the gesture up, so a ScrollView around the handle can
+    // still scroll; once engaged, the drag refuses to hand the gesture
+    // over. Absent, the drag engages on movement alone, as before.
+    longPressMs?: number
     // Disable the gesture entirely. The hook still returns props so
     // the consumer's JSX stays static, but the handlers are no-ops.
     disabled?: boolean
