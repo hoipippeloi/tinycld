@@ -14,4 +14,5 @@ func registerCore(app core.App, defs *Defs) {
 		return
 	}
 	bindFormsHooks(app, defs)
+	bindHostHooks(app, defs)
 }
