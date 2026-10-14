@@ -143,6 +143,37 @@ func TestFormsHook_RejectsDuplicateOptionValue(t *testing.T) {
 	}
 }
 
+func TestFormsHook_RejectsDuplicateSetOptionsValue(t *testing.T) {
+	e := newTestEnv(t)
+	def := strings.Replace(withField(widgetDefault, `{"key":"severity","kind":"select","page":"main","label":"Severity","width":"full","required":false,"hidden":false,"display":"dropdown","multiple":false,"options":[{"value":"low","label":"Low"}]}`),
+		`"rules":[]`,
+		`"rules":[{"key":"r","match":"all","when":[{"field":"due","op":"is_empty"}],"actions":[{"action":"set_options","field":"severity","options":[{"value":"a","label":"A"},{"value":"a","label":"Also A"}]}]}]`, 1)
+	err := e.saveFormErr(t, "bad", def)
+	if err == nil || !strings.Contains(err.Error(), "duplicate option value a") {
+		t.Fatalf("want a duplicate option error, got %v", err)
+	}
+	if keys := errorKeys(t, err); len(keys) != 1 || keys[0] != "definition.rules.0.actions.0.options.1.value" {
+		t.Fatalf("want the error at the second option's value, got %v", keys)
+	}
+}
+
+func TestFormsHook_RejectsMinimumAboveMaximum(t *testing.T) {
+	e := newTestEnv(t)
+	number := func(min, max string) string {
+		return withField(widgetDefault, `{"key":"count","kind":"number","page":"main","label":"Count","width":"full","required":false,"hidden":false,"min":`+min+`,"max":`+max+`}`)
+	}
+	err := e.saveFormErr(t, "bad", number("5", "2"))
+	if err == nil || !strings.Contains(err.Error(), "minimum is above maximum") {
+		t.Fatalf("want a min/max error, got %v", err)
+	}
+	if keys := errorKeys(t, err); len(keys) != 1 || keys[0] != "definition.fields.5.min" {
+		t.Fatalf("want the error at the field's minimum, got %v", keys)
+	}
+	if err := e.saveFormErr(t, "ok", number("2", "2")); err != nil {
+		t.Fatalf("an equal minimum and maximum is fine: %v", err)
+	}
+}
+
 func TestFormsHook_RejectsHiddenRequiredBuiltin(t *testing.T) {
 	e := newTestEnv(t)
 	def := strings.Replace(widgetDefault, `"label":"Name","width":"full","required":true,"hidden":false`, `"label":"Name","width":"full","required":true,"hidden":true`, 1)

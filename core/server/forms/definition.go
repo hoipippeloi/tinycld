@@ -199,12 +199,11 @@ func ValidateDefinition(def *Definition, host *Host) validation.Errors {
 		if host.HasColumn(f.Key) {
 			return defErr(f.Key+" is a column of the record and cannot be a custom field", "fields", i, "key")
 		}
-		seenValues := map[string]bool{}
-		for oi, o := range f.Options {
-			if seenValues[o.Value] {
-				return defErr("duplicate option value "+o.Value, "fields", i, "options", oi, "value")
-			}
-			seenValues[o.Value] = true
+		if errs := duplicateOptionError(f.Options, "fields", i, "options"); errs != nil {
+			return errs
+		}
+		if f.Kind == "number" && f.Min != nil && f.Max != nil && *f.Min > *f.Max {
+			return defErr("minimum is above maximum", "fields", i, "min")
 		}
 		if f.Collaborative && host.Collab == nil {
 			return defErr(host.Label+" does not support collaborative fields", "fields", i, "collaborative")
@@ -265,6 +264,19 @@ func ValidateDefinition(def *Definition, host *Host) validation.Errors {
 	return nil
 }
 
+// duplicateOptionError mirrors the schema's check on a select's options and a
+// set_options action's options: each value appears once.
+func duplicateOptionError(options []Option, path ...any) validation.Errors {
+	seen := map[string]bool{}
+	for oi, o := range options {
+		if seen[o.Value] {
+			return defErr("duplicate option value "+o.Value, append(append([]any{}, path...), oi, "value")...)
+		}
+		seen[o.Value] = true
+	}
+	return nil
+}
+
 func actionError(a Action, kinds map[string]string, pages map[string]bool, requiredOnPage map[string][]string, host *Host, path ...any) validation.Errors {
 	at := func(leaf string) []any { return append(append([]any{}, path...), leaf) }
 	switch a.Action {
@@ -290,6 +302,9 @@ func actionError(a Action, kinds map[string]string, pages map[string]bool, requi
 		}
 		if a.Action == "set_options" && len(a.Options) == 0 {
 			return defErr("set_options needs at least one option", at("options")...)
+		}
+		if errs := duplicateOptionError(a.Options, at("options")...); errs != nil {
+			return errs
 		}
 		if a.Action == "set_value" && !validExpression(a.Value) {
 			return defErr("the value of "+a.Field+" is not a value or a supported expression", at("value")...)

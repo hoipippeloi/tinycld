@@ -191,8 +191,8 @@ export type RuleAction = z.infer<typeof actionSchema>
 const ruleSchema = z.object({
     key: keySchema,
     match: z.enum(['all', 'any']).default('all'),
-    when: z.array(conditionSchema).min(1),
-    actions: z.array(actionSchema).min(1),
+    when: z.array(conditionSchema).min(1, 'Add at least one condition'),
+    actions: z.array(actionSchema).min(1, 'Add at least one action'),
 })
 export type FormRule = z.infer<typeof ruleSchema>
 
@@ -207,6 +207,19 @@ export const definitionSchema = z
         submit: z.object({ required: z.array(keySchema).default([]) }).default({ required: [] }),
     })
     .superRefine((def, ctx) => {
+        // Mirrored in Go (duplicateOptionError).
+        const duplicateOptions = (options: SelectOption[], path: (string | number)[]) => {
+            const values = new Set<string>()
+            options.forEach((o, j) => {
+                if (values.has(o.value))
+                    ctx.addIssue({
+                        code: 'custom',
+                        path: [...path, j, 'value'],
+                        message: `duplicate option value ${o.value}`,
+                    })
+                values.add(o.value)
+            })
+        }
         const pages = new Set<string>()
         def.pages.forEach((p, i) => {
             if (pages.has(p.key))
@@ -236,18 +249,13 @@ export const definitionSchema = z
                     message: `duplicate field key ${f.key}`,
                 })
             kinds.set(f.key, f.kind)
-            if (f.kind === 'select') {
-                const values = new Set<string>()
-                f.options.forEach((o, j) => {
-                    if (values.has(o.value))
-                        ctx.addIssue({
-                            code: 'custom',
-                            path: ['fields', i, 'options', j, 'value'],
-                            message: `duplicate option value ${o.value}`,
-                        })
-                    values.add(o.value)
+            if (f.kind === 'select') duplicateOptions(f.options, ['fields', i, 'options'])
+            if (f.kind === 'number' && f.min !== undefined && f.max !== undefined && f.min > f.max)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['fields', i, 'min'],
+                    message: 'minimum is above maximum',
                 })
-            }
             if (!pages.has(f.page))
                 ctx.addIssue({
                     code: 'custom',
@@ -293,6 +301,8 @@ export const definitionSchema = z
                     })
             })
             r.actions.forEach((a, ai) => {
+                if (a.action === 'set_options')
+                    duplicateOptions(a.options, ['rules', ri, 'actions', ai, 'options'])
                 if ('field' in a && a.field)
                     requireField(a.field, ['rules', ri, 'actions', ai, 'field'])
                 if ('page' in a && a.page && !pages.has(a.page)) {

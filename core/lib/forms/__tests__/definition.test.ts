@@ -49,6 +49,55 @@ describe('definitionSchema', () => {
             })
         )
     })
+    it('rejects a duplicate option value within a set_options action', () => {
+        const rule = {
+            key: 'r9',
+            match: 'all',
+            when: [{ field: 'title', op: 'is_empty' }],
+            actions: [
+                {
+                    action: 'set_options',
+                    field: 'severity',
+                    options: [
+                        { value: 'a', label: 'A' },
+                        { value: 'a', label: 'Also A' },
+                    ],
+                },
+            ],
+        }
+        const r = definitionSchema.safeParse({ ...bugDefinition, rules: [rule] })
+        expect(r.success).toBe(false)
+        expect(r.error?.issues).toContainEqual(
+            expect.objectContaining({
+                path: ['rules', 0, 'actions', 0, 'options', 1, 'value'],
+                message: 'duplicate option value a',
+            })
+        )
+    })
+    it('rejects a number field whose minimum is above its maximum', () => {
+        const count = {
+            key: 'count',
+            kind: 'number',
+            page: 'details',
+            label: 'Count',
+            min: 5,
+            max: 2,
+        }
+        const at = (field: object) =>
+            definitionSchema.safeParse({
+                ...bugDefinition,
+                fields: [...bugDefinition.fields, field],
+            })
+        const r = at(count)
+        expect(r.success).toBe(false)
+        expect(r.error?.issues).toContainEqual(
+            expect.objectContaining({
+                path: ['fields', bugDefinition.fields.length, 'min'],
+                message: 'minimum is above maximum',
+            })
+        )
+        expect(at({ ...count, max: 5 }).success).toBe(true)
+    })
     it('rejects a key that is not a slug', () => {
         const bad = { ...bugDefinition.fields[1], key: 'Bad Key' }
         expect(
