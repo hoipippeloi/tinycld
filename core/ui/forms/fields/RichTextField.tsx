@@ -49,7 +49,8 @@ export function RichTextField({
         contentFormat: format,
         editorOptions: { collab: collabOptions, placeholder: 'Write…', minHeight: 72 },
         surfaceId: `form:${fieldKey}`,
-        canEdit: !disabled && (collab ? collab.canEdit : true),
+        // A collaborative field with no room must not take local edits that would diverge from the document.
+        canEdit: !disabled && (fragment ? Boolean(collab?.canEdit) : true),
         // A collaborative document persists through the room, not the form value.
         onCommit: collabOptions ? () => {} : onChange,
         renderEditor: slots => <slots.EditorComponent />,

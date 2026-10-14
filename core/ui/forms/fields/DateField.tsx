@@ -18,7 +18,8 @@ export interface DateFieldProps {
 function toDate(value: string | null): Date {
     if (!value) return new Date()
     const [y, m, d] = value.slice(0, 10).split('-').map(Number)
-    return new Date(y, m - 1, d)
+    const date = new Date(y, m - 1, d)
+    return Number.isNaN(date.getTime()) ? new Date() : date
 }
 
 function toIso(date: Date, time: string): string {

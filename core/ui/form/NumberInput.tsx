@@ -12,6 +12,7 @@ export type NumberInputProps<T extends FieldValues = Record<string, unknown>> = 
     min?: number
     max?: number
     disabled?: boolean
+    testID?: string
     wrapperProps?: ViewProps
 }
 
@@ -24,6 +25,7 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
     min,
     max,
     disabled = false,
+    testID,
     wrapperProps = {},
 }: NumberInputProps<T>) {
     const placeholderColor = useThemeColor('field-placeholder')
@@ -85,7 +87,7 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
                     keyboardType="numeric"
                     editable={!disabled}
                     accessibilityLabel={label}
-                    testID={name}
+                    testID={testID ?? name}
                     placeholderTextColor={placeholderColor}
                     className={`flex-1 border rounded-lg px-3 py-2.5 text-center text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}
                     style={iosInputCenteringStyle(16)}

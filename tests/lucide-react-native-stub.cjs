@@ -54,6 +54,7 @@ const knownIcons = {
     Ban: Icon,
     Check: Icon,
     Square: Icon,
+    CheckSquare: Icon,
     CalendarDays: Icon,
     ChevronDown: Icon,
     ChevronUp: Icon,

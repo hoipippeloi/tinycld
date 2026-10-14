@@ -14,6 +14,7 @@ export type RadioInputProps<T extends FieldValues = Record<string, unknown>> = {
     label: string
     options: RadioOption[]
     hint?: string
+    disabled?: boolean
     wrapperProps?: ViewProps
 }
 
@@ -47,6 +48,7 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
     label,
     options,
     hint,
+    disabled = false,
     wrapperProps = {},
 }: RadioInputProps<T>) {
     const {
@@ -61,7 +63,8 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
                 key={option.value}
                 testID={`${name}-${option.value}`}
                 accessibilityRole="radio"
-                accessibilityState={{ checked: isSelected }}
+                accessibilityState={{ checked: isSelected, disabled }}
+                disabled={disabled}
                 accessibilityLabel={option.label}
                 onPress={() => field.onChange(option.value)}
                 className="flex-row items-start gap-3 py-1.5"

@@ -4,6 +4,7 @@ import type { CollabDoc, FieldMode, FormHostUi } from '@tinycld/core/lib/forms/h
 import type { FormValues } from '@tinycld/core/lib/forms/logic'
 import { type ChecklistItem, resolveKind } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
     type Control,
     Controller,
@@ -14,8 +15,9 @@ import {
     TextInput,
     Toggle,
 } from '@tinycld/core/ui/form'
+import { CheckSquare, Square } from 'lucide-react-native'
 import type { ReactElement } from 'react'
-import { Text } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { ChecklistField } from './fields/ChecklistField'
 import { DateField } from './fields/DateField'
 import { FileField } from './fields/FileField'
@@ -60,31 +62,58 @@ function Uncontrolled<T>({
     )
 }
 
+function CheckboxRow({
+    option,
+    isChecked,
+    onToggle,
+    disabled,
+}: {
+    option: SelectOption
+    isChecked: boolean
+    onToggle: (v: string) => void
+    disabled: boolean
+}) {
+    const fg = useThemeColor('foreground')
+    const Icon = isChecked ? CheckSquare : Square
+    return (
+        <Pressable
+            onPress={() => onToggle(option.value)}
+            disabled={disabled}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: isChecked, disabled }}
+            className="flex-row items-center py-1"
+        >
+            <Icon size={18} color={fg} />
+            <Text className="text-foreground ml-2">{option.label}</Text>
+        </Pressable>
+    )
+}
+
 function CheckboxRows({
     options,
     selected,
     onToggle,
     disabled,
+    testID,
 }: {
     options: SelectOption[]
     selected: string[]
     onToggle: (v: string) => void
     disabled: boolean
+    testID: string
 }) {
     return (
-        <>
+        <View testID={testID}>
             {options.map(o => (
-                <Text
+                <CheckboxRow
                     key={o.value}
-                    onPress={disabled ? undefined : () => onToggle(o.value)}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected.includes(o.value) }}
-                    className="text-foreground py-1"
-                >
-                    {selected.includes(o.value) ? '☑' : '☐'} {o.label}
-                </Text>
+                    option={o}
+                    isChecked={selected.includes(o.value)}
+                    onToggle={onToggle}
+                    disabled={disabled}
+                />
             ))}
-        </>
+        </View>
     )
 }
 
@@ -93,11 +122,13 @@ function CheckboxGroup({
     control,
     options,
     disabled,
+    testID,
 }: {
     name: string
     control: Control<FormValues>
     options: SelectOption[]
     disabled: boolean
+    testID: string
 }) {
     return (
         <Uncontrolled<string[] | null>
@@ -115,6 +146,7 @@ function CheckboxGroup({
                         selected={selected}
                         onToggle={toggle}
                         disabled={disabled}
+                        testID={testID}
                     />
                 )
             }}
@@ -122,7 +154,7 @@ function CheckboxGroup({
     )
 }
 
-function NumberKind({ field, control, resolved, disabled }: KindProps) {
+function NumberKind({ field, control, resolved, disabled, testID }: KindProps) {
     const { custom } = resolved
     const num = custom?.kind === 'number' ? custom : undefined
     return (
@@ -133,11 +165,12 @@ function NumberKind({ field, control, resolved, disabled }: KindProps) {
             max={num?.max}
             increment={num?.step}
             disabled={disabled}
+            testID={testID}
         />
     )
 }
 
-function SelectKind({ field, control, resolved, options, disabled }: KindProps) {
+function SelectKind({ field, control, resolved, options, disabled, testID }: KindProps) {
     const { custom, builtin } = resolved
     const sel = custom?.kind === 'select' ? custom : undefined
     const opts = options ?? sel?.options ?? []
@@ -145,13 +178,37 @@ function SelectKind({ field, control, resolved, options, disabled }: KindProps) 
     const multiple = sel?.multiple ?? builtin?.multiple ?? false
     if (multiple || display === 'checkbox') {
         return (
-            <CheckboxGroup name={field.key} control={control} options={opts} disabled={disabled} />
+            <CheckboxGroup
+                name={field.key}
+                control={control}
+                options={opts}
+                disabled={disabled}
+                testID={testID}
+            />
         )
     }
     if (display === 'radio') {
-        return <RadioInput control={control} name={field.key} label="" options={opts} />
+        return (
+            <RadioInput
+                control={control}
+                name={field.key}
+                label=""
+                options={opts}
+                disabled={disabled}
+                wrapperProps={{ testID }}
+            />
+        )
     }
-    return <SelectInput control={control} name={field.key} label="" options={opts} />
+    return (
+        <SelectInput
+            control={control}
+            name={field.key}
+            label=""
+            options={opts}
+            disabled={disabled}
+            wrapperProps={{ testID }}
+        />
+    )
 }
 
 function DateKind({ field, control, resolved, disabled, testID }: KindProps) {
@@ -346,7 +403,15 @@ function KindInput(props: KindProps) {
         case 'number':
             return <NumberKind {...props} />
         case 'toggle':
-            return <Toggle control={control} name={field.key} label="" disabled={disabled} />
+            return (
+                <Toggle
+                    control={control}
+                    name={field.key}
+                    label=""
+                    disabled={disabled}
+                    wrapperProps={{ testID }}
+                />
+            )
         case 'select':
             return <SelectKind {...props} />
         case 'date':

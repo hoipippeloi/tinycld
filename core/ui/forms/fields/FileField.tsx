@@ -119,6 +119,13 @@ export function FileField({
     const { user } = useAuth()
     const { pickFiles } = usePickFiles()
     const { rows, collection, files } = useFieldFiles(host, fieldKey, recordId)
+    const remove = useMutation({
+        mutationFn: function* (id: string) {
+            if (!collection) return
+            yield collection.delete(id)
+            onChange((value ?? []).filter(x => x !== id))
+        },
+    })
     const upload = useMutation({
         mutationFn: async (picked: PickedFile[]) => {
             if (!files) return
@@ -139,15 +146,12 @@ export function FileField({
                 })
                 ids.push(id)
             }
+            if (!multiple) {
+                // The single slot is replaced, so the old rows go or the list and the query disagree.
+                for (const old of value ?? []) await remove.mutateAsync(old)
+            }
             onChange(multiple ? [...(value ?? []), ...ids] : ids.slice(-1))
             await collection?.reload()
-        },
-    })
-    const remove = useMutation({
-        mutationFn: function* (id: string) {
-            if (!collection) return
-            yield collection.delete(id)
-            onChange((value ?? []).filter(x => x !== id))
         },
     })
     const pick = async () => {

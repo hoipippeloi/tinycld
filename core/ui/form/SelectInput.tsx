@@ -13,6 +13,7 @@ export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = 
     options: SelectOption[]
     hint?: string
     horizontal?: boolean
+    disabled?: boolean
     wrapperProps?: ViewProps
 }
 
@@ -23,6 +24,7 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     options,
     hint,
     horizontal = false,
+    disabled = false,
     wrapperProps = {},
 }: SelectInputProps<T>) {
     const {
@@ -42,6 +44,8 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                         <Pressable
                             key={option.value}
                             onPress={() => field.onChange(option.value)}
+                            disabled={disabled}
+                            accessibilityState={{ selected: isSelected, disabled }}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
                                 flex: horizontal ? 1 : undefined,
