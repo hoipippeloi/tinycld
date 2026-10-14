@@ -257,6 +257,30 @@ describe('FormRenderer wizard keyboard and errors', () => {
         input.dispatchEvent(new Event('SubmitEditing'))
         await waitFor(() => expect(byTestId(container, 'form-field-steps')).toBeTruthy())
     })
+    it('ignores a second Enter on the last page while a submit is in flight', async () => {
+        let resolve = () => {}
+        const onSubmit = vi.fn(
+            () =>
+                new Promise<void>(r => {
+                    resolve = r
+                })
+        )
+        const { container } = render(
+            <Harness layout="wizard" definition={onePageDef} onSubmit={onSubmit} />
+        )
+        const input = byTestId(container, 'form-input-name') as HTMLInputElement
+        fireEvent.input(input, { target: { value: 'Login fails' } })
+        input.dispatchEvent(new Event('SubmitEditing'))
+        input.dispatchEvent(new Event('SubmitEditing'))
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+        await new Promise(r => setTimeout(r, 20))
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+        resolve()
+        await new Promise(r => setTimeout(r, 20))
+        input.dispatchEvent(new Event('SubmitEditing'))
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2))
+        resolve()
+    })
     it('shows the error summary after a Next that fails', async () => {
         const { container, queryByText } = render(<Harness layout="wizard" />)
         expect(queryByText('Please fix the following errors:')).toBeNull()

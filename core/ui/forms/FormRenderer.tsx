@@ -4,7 +4,7 @@ import type { EvalContext, FormState, FormValues } from '@tinycld/core/lib/forms
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { FormErrorSummary } from '@tinycld/core/ui/form'
-import { type MutableRefObject, type ReactNode, useState } from 'react'
+import { type MutableRefObject, type ReactNode, useRef, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
@@ -170,14 +170,23 @@ function useWizard(props: BodyProps) {
     const page = pages[current]
     const isLast = current >= pages.length - 1
     const pageKeys = definition.fields.filter(f => f.page === page?.key).map(f => f.key)
+    // Enter on the last page reaches `next` without the footer button's
+    // isDisabled, so a fast double press would otherwise submit twice.
+    const inFlight = useRef(false)
     const next = async () => {
-        const ok = await form.trigger(pageKeys)
-        if (!ok) {
-            setStep({ index: current, attemptedNext: true })
-            return
+        if (inFlight.current || form.formState.isSubmitting) return
+        inFlight.current = true
+        try {
+            const ok = await form.trigger(pageKeys)
+            if (!ok) {
+                setStep({ index: current, attemptedNext: true })
+                return
+            }
+            if (isLast) await form.handleSubmit(() => onSubmit?.())()
+            else setStep({ index: current + 1, attemptedNext: false })
+        } finally {
+            inFlight.current = false
         }
-        if (isLast) await form.handleSubmit(() => onSubmit?.())()
-        else setStep({ index: current + 1, attemptedNext: false })
     }
     const back = () => setStep({ index: Math.max(0, current - 1), attemptedNext: false })
     return { pages, page, index: current, isLast, next, back, attemptedNext: step.attemptedNext }
