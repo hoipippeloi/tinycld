@@ -221,6 +221,18 @@ export interface PackageManifest {
         definitions: string
     }
 
+    /**
+     * Form hosts: `hosts` is a package-exports subpath to a pure-data module
+     * default-exporting FormHostDef[] (the generator imports it in Node);
+     * `ui` is a subpath to the module default-exporting FormHostUi with the
+     * components, row mappers and collab hook. See
+     * docs/superpowers/specs/2026-10-14-forms-engine-design.md.
+     */
+    forms?: {
+        hosts: string
+        ui: string
+    }
+
     repository?: {
         url: string
         issueTemplate?: string

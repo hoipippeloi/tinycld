@@ -4,6 +4,8 @@ import type { createCollection, SchemaDeclaration } from 'pbtsdb/core'
 import type PocketBase from 'pocketbase'
 import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
 import type { AutomationDefinitions } from '../automation/types'
+import type { FormHostDef } from '../forms/host'
+import type { FormHostUi } from '../forms/host-ui'
 import type { PackageManifest } from './types'
 
 // --- Spike-2-proven helpers (see ~/code/tinycld/new/spike2/sim.ts) ----------
@@ -145,6 +147,8 @@ export interface PackageEntry<S extends SchemaDeclaration, R> {
     eventSources?: PackageEventSource[]
     setupSteps?: PackageSetupStep[]
     automation?: AutomationDefinitions
+    formHosts?: FormHostDef[]
+    formHostsUi?: () => Promise<{ default: FormHostUi }>
     seed?: (pb: PocketBase, ctx: SeedContext) => Promise<void>
 }
 
@@ -172,6 +176,8 @@ export function definePackageEntry<S extends SchemaDeclaration>() {
         eventSources?: PackageEntry<S, R>['eventSources']
         setupSteps?: PackageEntry<S, R>['setupSteps']
         automation?: PackageEntry<S, R>['automation']
+        formHosts?: PackageEntry<S, R>['formHosts']
+        formHostsUi?: PackageEntry<S, R>['formHostsUi']
         seed?: PackageEntry<S, R>['seed']
     }): PackageEntry<S, R> => entry as unknown as PackageEntry<S, R>
 }

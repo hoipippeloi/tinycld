@@ -86,6 +86,7 @@ export function manifestToConfigPkg(packageName: string, manifest: PackageManife
         })),
         ...(manifest.search ? { search: manifest.search } : {}),
         ...(manifest.automation ? { automation: manifest.automation.definitions } : {}),
+        ...(manifest.forms ? { forms: manifest.forms } : {}),
         eventSources: (manifest.eventSources ?? []).map(s => ({
             target: s.target,
             id: s.id,
