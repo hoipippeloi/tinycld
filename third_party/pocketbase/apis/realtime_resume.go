@@ -27,16 +27,16 @@ import (
 //
 // A create or update broadcast does not rule-check a detached client: it only
 // notes the record (realtimeDeferChange). The broadcast runs inside the write
-// request, and most detached clients never resume (a reload or a closed tab
-// starts a new client), so checking every subscription of every one of them
-// made each write slower for an hour. The resume sends each noted record as it
-// is then, rule-checked as a live broadcast is (realtimeDrainDeferred). A
+// request, and many detached clients never resume, so checking every
+// subscription of every one of them made each write slower for the whole
+// grace period. The resume sends each noted record as it is then,
+// rule-checked as a live broadcast is (realtimeDrainDeferred). A
 // delete is still rule-checked when it happens, because afterwards the record
 // is gone and nothing could tell which subscriptions saw it.
 //
-// A subscriber that will not resume a client releases it with
-// `POST /api/realtime/release` (realtimeRelease), so the client does not wait
-// out the grace period.
+// A subscriber that will not resume a client (a page being reloaded or
+// closed, a sign-out) releases it with `POST /api/realtime/release`
+// (realtimeRelease), so the client does not wait out the grace period.
 //
 // The SSE request carries the subscriber's Authorization header, so a resume
 // is bound to the auth record stored by the client's subscriptions POST (and
@@ -46,8 +46,13 @@ import (
 
 // vars, not consts, so that tests can shorten them
 var (
-	// realtimeResumeGrace is how long a detached client is kept.
-	realtimeResumeGrace = time.Hour
+	// realtimeResumeGrace is how long a detached client is kept. Long
+	// enough for a laptop lid or a train tunnel. Every detached client
+	// still costs a rule check on each delete and on each write that can
+	// change what a subscription sees, and not every abandoned client is
+	// released (a crash, a mobile tab the OS ends, an e2e browser context
+	// that closes without pagehide), so the bound is kept short.
+	realtimeResumeGrace = 10 * time.Minute
 
 	// realtimeResumeMaxMessages and realtimeResumeMaxBytes bound one
 	// client's queue; past either the client cannot replay everything.

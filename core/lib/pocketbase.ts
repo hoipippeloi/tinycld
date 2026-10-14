@@ -5,7 +5,10 @@ import { captureException } from '@tinycld/core/lib/errors'
 import { log } from '@tinycld/core/lib/logger'
 import { buildPackageStores } from '@tinycld/core/lib/packages/derive-stores'
 import { ACTIVE_PKG_STATUSES, isActivePkg } from '@tinycld/core/lib/packages/registry-predicates'
-import { realtimeEventSourceFactory } from '@tinycld/core/lib/realtime-event-source'
+import {
+    createRealtimeConnection,
+    releaseOnPageHide,
+} from '@tinycld/core/lib/realtime-event-source'
 import { reloadLoadedStores } from '@tinycld/core/lib/reload-loaded-stores'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
 import { acceptServerRow } from '@tinycld/core/lib/server-rows'
@@ -134,8 +137,10 @@ pb.autoCancellation(false)
 
 // pbtsdb's realtime stream carries the session's Authorization, so the server
 // can resume a dropped connection instead of making every collection reload.
-// See realtime-event-source.ts.
-setRealtimeEventSource(pb, realtimeEventSourceFactory(pb, serverFetch))
+// A client that will never resume is released. See realtime-event-source.ts.
+const realtimeConnection = createRealtimeConnection(pb, serverFetch, serverFetch)
+setRealtimeEventSource(pb, realtimeConnection.eventSource)
+releaseOnPageHide(realtimeConnection.release)
 
 // A share-link visitor is unauthenticated, so every row they may read is
 // authorized by a token rather than by `@request.auth.id`. Attaching it here

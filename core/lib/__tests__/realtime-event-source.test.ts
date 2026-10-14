@@ -1,9 +1,10 @@
 import PocketBase from 'pocketbase'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+    createRealtimeConnection,
     createSseParser,
     FetchEventSource,
-    realtimeEventSourceFactory,
+    releaseOnPageHide,
     type SseMessage,
     type StreamingFetch,
 } from '../realtime-event-source'
@@ -201,17 +202,43 @@ describe('FetchEventSource', () => {
     })
 })
 
-describe('realtimeEventSourceFactory', () => {
+function fakeRelease() {
+    const calls: { url: string; init: RequestInit }[] = []
+    const releaseFetch = async (url: string, init: RequestInit) => {
+        calls.push({ url, init })
+    }
+    return { calls, releaseFetch }
+}
+
+const userA = { id: 'usera0000000000', collectionId: 'users', collectionName: 'users' }
+const userB = { id: 'userb0000000000', collectionId: 'users', collectionName: 'users' }
+
+async function connectAs(token: string, record: typeof userA, clientId = 'client-1') {
+    const pb = new PocketBase('http://pb.test')
+    pb.authStore.save(token, record)
+    const server = fakeServer()
+    const release = fakeRelease()
+    const connection = createRealtimeConnection(pb, server.fetch, release.releaseFetch)
+    connection.eventSource('http://pb.test/api/realtime')
+    server.write(`id:${clientId}\nevent:PB_CONNECT\ndata:{"clientId":"${clientId}"}\n\n`)
+    await settle()
+    return { pb, connection, calls: release.calls }
+}
+
+describe('createRealtimeConnection', () => {
     it('reads the token on each connect and sends none for a guest', async () => {
         const pb = new PocketBase('http://pb.test')
         const server = fakeServer()
-        const open = realtimeEventSourceFactory(pb, server.fetch)
-        const record = { id: 'user00000000000', collectionId: 'users', collectionName: 'users' }
+        const open = createRealtimeConnection(
+            pb,
+            server.fetch,
+            fakeRelease().releaseFetch
+        ).eventSource
 
         open('http://pb.test/api/realtime').close()
-        pb.authStore.save('token-1', record)
+        pb.authStore.save('token-1', userA)
         open('http://pb.test/api/realtime').close()
-        pb.authStore.save('token-2', record)
+        pb.authStore.save('token-2', userA)
         open('http://pb.test/api/realtime').close()
         await settle()
 
@@ -220,5 +247,86 @@ describe('realtimeEventSourceFactory', () => {
             'token-1',
             'token-2',
         ])
+    })
+
+    it('releases the connected client once, with the token it connected with', async () => {
+        const { connection, calls } = await connectAs('token-a', userA)
+
+        connection.release()
+        connection.release()
+
+        expect(calls).toHaveLength(1)
+        expect(calls[0].url).toBe('http://pb.test/api/realtime/release')
+        expect(calls[0].init).toMatchObject({
+            method: 'POST',
+            keepalive: true,
+            headers: { Authorization: 'token-a' },
+            body: JSON.stringify({ clientId: 'client-1' }),
+        })
+    })
+
+    it('has nothing to release before PB_CONNECT or for a guest', async () => {
+        const pb = new PocketBase('http://pb.test')
+        const server = fakeServer()
+        const release = fakeRelease()
+        const connection = createRealtimeConnection(pb, server.fetch, release.releaseFetch)
+
+        connection.release()
+        connection.eventSource('http://pb.test/api/realtime')
+        server.write('id:guest-1\nevent:PB_CONNECT\ndata:{"clientId":"guest-1"}\n\n')
+        await settle()
+        connection.release()
+
+        expect(release.calls).toEqual([])
+    })
+
+    it('releases on a sign-out or a switch of user, with the old token', async () => {
+        const signOut = await connectAs('token-a', userA)
+        signOut.pb.authStore.clear()
+
+        const switchUser = await connectAs('token-a', userA)
+        switchUser.pb.authStore.save('token-b', userB)
+
+        for (const { calls } of [signOut, switchUser]) {
+            expect(calls).toHaveLength(1)
+            expect(calls[0].init.headers).toMatchObject({ Authorization: 'token-a' })
+        }
+    })
+
+    it('keeps the client when the token is refreshed for the same user', async () => {
+        const { pb, calls } = await connectAs('token-a', userA)
+
+        pb.authStore.save('token-a2', userA)
+
+        expect(calls).toEqual([])
+    })
+})
+
+describe('releaseOnPageHide', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    function pagehide(persisted: boolean) {
+        return Object.assign(new Event('pagehide'), { persisted })
+    }
+
+    it('releases when the page goes away, not when it enters the back/forward cache', () => {
+        const target = new EventTarget()
+        vi.stubGlobal('window', target)
+        const release = vi.fn()
+
+        releaseOnPageHide(release)
+        target.dispatchEvent(pagehide(true))
+        expect(release).not.toHaveBeenCalled()
+
+        target.dispatchEvent(pagehide(false))
+        expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing where window has no event API, as on React Native', () => {
+        vi.stubGlobal('window', {})
+
+        expect(() => releaseOnPageHide(vi.fn())).not.toThrow()
     })
 })
