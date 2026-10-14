@@ -1,3 +1,5 @@
+import type { FormExpression } from '../definition'
+
 export type DefaultPick =
     | { mode: 'none' }
     | { mode: 'literal'; value: string | number | boolean }
@@ -7,7 +9,7 @@ export type DefaultPick =
 
 export type PickMode = DefaultPick['mode']
 
-export function pickToExpression(pick: DefaultPick): unknown | undefined {
+export function pickToExpression(pick: DefaultPick): FormExpression | undefined {
     switch (pick.mode) {
         case 'none':
             return undefined

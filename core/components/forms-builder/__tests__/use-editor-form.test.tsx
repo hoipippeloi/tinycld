@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { newCustomField, removeField } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
-import { fromDraft, toDraft, useEditorForm } from '../use-editor-form'
+import { draftPath, fromDraft, toDraft, useEditorForm } from '../use-editor-form'
 
 const plain = {
     id: 'f1',
@@ -79,6 +79,24 @@ describe('useEditorForm', () => {
         expect(ok).toBe(false)
         expect(result.current.form.getFieldState('fields.0.label').error?.message).toBe('bad label')
     })
+    it('shows a server error on a file field accept list on its text input', async () => {
+        save.mockRejectedValueOnce({
+            response: { data: { 'definition.fields.6.accept.0': { message: 'bad type' } } },
+        })
+        const { result } = renderHook(() => useEditorForm('f1'))
+        act(() =>
+            result.current.apply(def => ({
+                ...def,
+                fields: [...def.fields, newCustomField('file', 'Doc', 'main', new Set())],
+            }))
+        )
+        await act(async () => {
+            await result.current.save()
+        })
+        expect(result.current.form.getFieldState('fields.6.acceptText').error?.message).toBe(
+            'bad type'
+        )
+    })
     it('refuses to save a definition that fails host validation', async () => {
         const { result } = renderHook(() => useEditorForm('f1'))
         act(() =>
@@ -137,5 +155,22 @@ describe('toDraft / fromDraft', () => {
         const file = draft.fields.at(-1)
         if (file) file.acceptText = 'image/*, , x'
         expect(fromDraft(draft).fields.at(-1)).toMatchObject({ accept: ['image/*', 'x'] })
+    })
+    it('drops optional props a cleared input left as an empty string', () => {
+        const def = defaultDefinitionFor(widgetHost)
+        const nick = { ...newCustomField('number', 'Nick', 'main', new Set()), min: 1 }
+        const draft = toDraft({ ...def, fields: [...def.fields, nick] })
+        const cleared = { ...draft, fields: draft.fields.map(f => ({ ...f, description: '' })) }
+        const out = fromDraft(cleared)
+        expect(out.fields.at(-1)).toMatchObject({ min: 1 })
+        expect(out.fields.some(f => 'description' in f)).toBe(false)
+    })
+})
+
+describe('draftPath', () => {
+    it('points accept errors at the acceptText input', () => {
+        expect(draftPath('fields.3.accept.0')).toBe('fields.3.acceptText')
+        expect(draftPath('fields.3.accept')).toBe('fields.3.acceptText')
+        expect(draftPath('fields.3.label')).toBe('fields.3.label')
     })
 })

@@ -81,6 +81,17 @@ export function orderOf(def: {
     }))
 }
 
+// A node that unmounted mid-measure never answers; without a limit the drag would never land.
+const MEASURE_TIMEOUT_MS = 250
+
+function measureWithin(measure: MeasureRect, ms: number): Promise<Rect | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), ms)
+    })
+    return Promise.race([measure(), timeout]).finally(() => clearTimeout(timer))
+}
+
 function onlyKeys<R>(map: Map<string, R>, keys: Set<string>): Map<string, R> {
     return new Map([...map].filter(([key]) => keys.has(key)))
 }
@@ -140,7 +151,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
         const read = (measures: Map<string, MeasureRect>, rects: Map<string, Rect>) =>
             Promise.all(
                 [...measures].map(async ([key, measure]) => {
-                    const rect = await measure()
+                    const rect = await measureWithin(measure, MEASURE_TIMEOUT_MS)
                     if (rect) rects.set(key, unscrolled(rect))
                 })
             )

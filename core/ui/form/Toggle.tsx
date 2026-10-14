@@ -8,6 +8,8 @@ export type ToggleProps<T extends FieldValues = Record<string, unknown>> = {
     label: string
     hint?: string
     disabled?: boolean
+    /** Defaults to `name`, as on the other form inputs. */
+    testID?: string
     wrapperProps?: ViewProps
 }
 
@@ -17,6 +19,7 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
     label,
     hint,
     disabled = false,
+    testID,
     wrapperProps = {},
 }: ToggleProps<T>) {
     const {
@@ -35,6 +38,7 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
                     onValueChange={field.onChange}
                     disabled={disabled}
                     accessibilityLabel={label}
+                    testID={testID ?? name}
                 />
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}

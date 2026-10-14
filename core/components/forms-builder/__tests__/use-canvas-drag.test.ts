@@ -167,4 +167,24 @@ describe('useCanvasDrag', () => {
         act(() => hook.result.current.hover({ x: 20, y: 20 }))
         expect(hook.result.current.dropTarget).toEqual({ page: 'p1', end: true })
     })
+
+    it('gives up on a measure that never answers, so the drag still lands', async () => {
+        vi.useFakeTimers()
+        try {
+            const { hook, onMove } = setUp()
+            act(() => {
+                hook.result.current.registerCell('b', () => new Promise<Rect | null>(() => {}))
+            })
+            act(() => hook.result.current.begin('a'))
+            act(() => hook.result.current.drop('a', { x: 20, y: 120 }))
+            expect(onMove).not.toHaveBeenCalled()
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(250)
+            })
+            expect(onMove).toHaveBeenCalledWith('a', 'p2', 0)
+            expect(hook.result.current.draggingKey).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
 })

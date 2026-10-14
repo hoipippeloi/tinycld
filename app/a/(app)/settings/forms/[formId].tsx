@@ -1,12 +1,14 @@
-import { SettingsScreen } from '@tinycld/core/components/settings/SettingsScreen'
+import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
+import { FormEditor } from '@tinycld/core/components/forms-builder/FormEditor'
 import { useLocalSearchParams } from 'expo-router'
-import { Text } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
 
 export default function FormEditorRoute() {
     const { formId } = useLocalSearchParams<{ formId: string }>()
     return (
-        <SettingsScreen title="Edit form">
-            <Text className="text-muted-foreground">{formId}</Text>
-        </SettingsScreen>
+        <GestureHandlerRootView className="flex-1">
+            <DocumentTitle pkg="Settings" title="Edit form" />
+            <FormEditor formId={formId} />
+        </GestureHandlerRootView>
     )
 }

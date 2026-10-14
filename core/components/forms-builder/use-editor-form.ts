@@ -20,10 +20,27 @@ export function toDraft(definition: FormDefinition): DraftDefinition {
     }
 }
 
+// A cleared optional input holds '' rather than nothing; the schema wants the prop absent.
+const CLEARABLE = new Set(['description', 'placeholder', 'min', 'max', 'step', 'maxLength', 'rows'])
+
+function withoutCleared<F extends object>(field: F): F {
+    const kept = Object.entries(field).filter(
+        ([key, value]) => !(CLEARABLE.has(key) && value === '')
+    )
+    // Every CLEARABLE prop is optional on every kind, so dropping one keeps the field's type.
+    return Object.fromEntries(kept) as F
+}
+
+/** `accept` is edited as one `acceptText` input, so its errors are shown there. */
+export function draftPath(path: string): string {
+    return path.replace(/^(fields\.\d+)\.accept(\.\d+)?$/, '$1.acceptText')
+}
+
 export function fromDraft(draft: DraftDefinition): DraftDefinition {
     return {
         ...draft,
-        fields: draft.fields.map(field => {
+        fields: draft.fields.map(draftField => {
+            const field = withoutCleared(draftField)
             if (field.kind !== 'file') return field
             const { acceptText, ...rest } = field
             if (acceptText === undefined) return rest
@@ -84,7 +101,8 @@ export function useEditorForm(formId: string) {
     }
 
     const setIssue = (path: string, type: string, message: string) => {
-        form.setError(path ? (path as FieldPath<DraftDefinition>) : 'root', { type, message })
+        const target = path ? (draftPath(path) as FieldPath<DraftDefinition>) : 'root'
+        form.setError(target, { type, message })
     }
 
     const save = async (): Promise<boolean> => {
