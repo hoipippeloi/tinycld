@@ -1,6 +1,6 @@
 import type { FieldWidth } from '@tinycld/core/lib/forms/definition'
 import type { ReactNode } from 'react'
-import { Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { type LayoutRect, type RegisterMeasure, useMeasuredRect } from './use-measure-rect'
 import { effectiveWidth, widthClass } from './widths'
 
@@ -26,6 +26,11 @@ export interface FieldCellProps {
     onLayoutRect?: (rect: LayoutRect) => void
     /** Hands the builder a thunk that re-measures this cell on demand. */
     registerMeasure?: RegisterMeasure
+    /**
+     * The builder selects the cell on press. The cell itself is then the
+     * pressable, so it stays the row's flex item and keeps its width basis.
+     */
+    onPress?: () => void
 }
 
 // A border on both platforms; the border is always present so selecting a cell never shifts its layout.
@@ -96,17 +101,19 @@ export function FieldCell({
     dropIndicator,
     onLayoutRect,
     registerMeasure,
+    onPress,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
     const { ref, onLayout } = useMeasuredRect(onLayoutRect, registerMeasure)
     const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
-    return (
-        <View
-            ref={ref}
-            onLayout={onLayout}
-            className={`relative ${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`}
-            testID={testID ?? `form-field-${fieldKey}`}
-        >
+    const root = {
+        ref,
+        onLayout,
+        className: `relative ${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`,
+        testID: testID ?? `form-field-${fieldKey}`,
+    }
+    const body = (
+        <>
             <View className="flex-row items-center mb-1">
                 {handle}
                 <CellLabel fieldKey={fieldKey} label={label} isVisible={!hideLabel} />
@@ -117,6 +124,17 @@ export function FieldCell({
             {children}
             <CellError message={error} />
             <DropBar fieldKey={fieldKey} side={dropIndicator} />
-        </View>
+        </>
+    )
+    if (!onPress) return <View {...root}>{body}</View>
+    return (
+        <Pressable
+            {...root}
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={`Select ${label}`}
+        >
+            {body}
+        </Pressable>
     )
 }

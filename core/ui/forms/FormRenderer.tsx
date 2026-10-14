@@ -6,7 +6,7 @@ import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { FormErrorSummary } from '@tinycld/core/ui/form'
 import { type MutableRefObject, type ReactNode, useRef, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
-import { Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
 import { FieldInput, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
@@ -106,7 +106,7 @@ function Cell(props: CellProps) {
     const formError = form.formState.errors[field.key]?.message
     const error =
         design?.errors?.[field.key] ?? (typeof formError === 'string' ? formError : undefined)
-    const cell = (
+    return (
         <FieldCell
             fieldKey={field.key}
             label={field.label}
@@ -122,6 +122,7 @@ function Cell(props: CellProps) {
             dropIndicator={dropSideFor(design?.dropTarget, field.key)}
             onLayoutRect={design?.onCellLayout && (rect => design.onCellLayout?.(field.key, rect))}
             registerMeasure={onCellMeasure && (measure => onCellMeasure(field.key, measure))}
+            onPress={mode === 'design' ? () => design?.onSelect?.(field.key) : undefined}
         >
             <FieldInput
                 host={host}
@@ -136,8 +137,6 @@ function Cell(props: CellProps) {
             />
         </FieldCell>
     )
-    if (mode !== 'design') return cell
-    return <Pressable onPress={() => design?.onSelect?.(field.key)}>{cell}</Pressable>
 }
 
 function PageFields(props: PageProps) {

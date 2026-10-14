@@ -81,6 +81,19 @@ describe('FormRenderer design extensions', () => {
         expect(q(container, 'form-page-details-drop-end')).toBeNull()
     })
 
+    it('makes the cell itself the pressable, so it keeps its width basis', () => {
+        const onSelect = vi.fn()
+        const { container } = render(<Design design={{ onSelect }} />)
+        const cell = q(container, 'form-field-severity') as HTMLElement
+        expect(cell.tagName.toLowerCase()).toBe('rn-pressable')
+        expect(cell.getAttribute('class')).toContain('basis-')
+        expect(cell.getAttribute('accessibilityRole')).toBe('button')
+        expect(cell.getAttribute('accessibilityLabel')).toBe('Select Severity')
+        expect(cell.parentElement?.tagName.toLowerCase()).not.toBe('rn-pressable')
+        fireEvent.click(cell)
+        expect(onSelect).toHaveBeenCalledWith('severity')
+    })
+
     it('shows an error under a cell in design mode', () => {
         const { getByText } = render(<Design design={{ errors: { severity: 'needs options' } }} />)
         expect(getByText('needs options')).toBeTruthy()

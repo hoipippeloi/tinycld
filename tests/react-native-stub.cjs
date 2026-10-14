@@ -112,14 +112,12 @@ TextInput.displayName = TEXT_INPUT_TAG
 
 // A Pressable answers a DOM click with its onPress, so a test can drive a
 // button the way a user does. `disabled` swallows it, as on every platform.
-const Pressable = React.forwardRef(function Pressable(
-    { style, onPress, disabled, onClick, ...props },
-    ref
-) {
-    return React.createElement('rn-pressable', {
+// It is a layout host too, since a Pressable takes onLayout like a View.
+const PressableHost = host('rn-pressable')
+const Pressable = React.forwardRef(function Pressable({ onPress, disabled, onClick, ...props }, ref) {
+    return React.createElement(PressableHost, {
         ...props,
         ref,
-        style: flattenStyle(style),
         onClick: disabled ? undefined : (onClick ?? onPress),
     })
 })
