@@ -26,7 +26,7 @@ const bug = {
                 label: 'Severity',
                 options: [{ value: 'low', label: 'Low' }],
             },
-            { key: 'count', kind: 'number', page: 'main', label: 'Count' },
+            { key: 'count', kind: 'number', page: 'main', label: 'Count', max: 10 },
         ],
     }),
 }
@@ -46,6 +46,8 @@ const record = {
     fields: { severity: 'low', count: 2 },
 }
 
+const strictRecord = { ...record, fields: { severity: 'low', count: 50 } }
+
 describe('useFormEdit', () => {
     it('patch returns the dirty keys, split, over the stored json column', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
@@ -60,20 +62,47 @@ describe('useFormEdit', () => {
         const split = await result.current.patch()
         expect(split?.fields).toEqual({ severity: 'low', count: 3, legacy: 'kept' })
     })
-    it('a second patch returns only its own change', async () => {
+    it('a second patch resends keys until the host marks them saved', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
         await act(async () => {
             await result.current.patch()
         })
         act(() => result.current.form.setValue('name', 'M', { shouldDirty: true }))
-        let second: Awaited<ReturnType<typeof result.current.patch>> = null
+        let second: Awaited<ReturnType<typeof result.current.patch>> | undefined
         await act(async () => {
             second = await result.current.patch()
         })
-        expect(second).toEqual({ columns: { name: 'M' }, fields: {}, rows: {} })
+        expect(second?.fields).toEqual({ severity: 'low', count: 3 })
+        expect(second?.columns).toEqual({ name: 'M' })
+        act(() => result.current.markSaved(['count', 'name']))
+        act(() => result.current.form.setValue('name', 'P', { shouldDirty: true }))
+        let third: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            third = await result.current.patch()
+        })
+        expect(third).toEqual({ columns: { name: 'P' }, fields: {}, rows: {} })
     })
-    it('shows a remote change to a key it already patched', async () => {
+    it('does not validate untouched fields', async () => {
+        const { result } = renderHook(() => useFormEdit(host, strictRecord, ctx))
+        act(() => result.current.form.setValue('name', 'N2', { shouldDirty: true }))
+        let out: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            out = await result.current.patch()
+        })
+        expect(out).toEqual({ columns: { name: 'N2' }, fields: {}, rows: {} })
+    })
+    it('returns null and sets the error when a dirty key is invalid', async () => {
+        const { result } = renderHook(() => useFormEdit(host, strictRecord, ctx))
+        act(() => result.current.form.setValue('count', 99, { shouldDirty: true }))
+        let out: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            out = await result.current.patch()
+        })
+        expect(out).toBeNull()
+        expect(result.current.form.getFieldState('count').error).toBeDefined()
+    })
+    it('shows a remote change to a key the host marked saved', async () => {
         const { result, rerender } = renderHook(({ rec }) => useFormEdit(host, rec, ctx), {
             initialProps: { rec: record },
         })
@@ -81,6 +110,7 @@ describe('useFormEdit', () => {
         await act(async () => {
             await result.current.patch()
         })
+        act(() => result.current.markSaved(['count']))
         rerender({ rec: { ...record, fields: { severity: 'low', count: 5 } } })
         await waitFor(() => expect(result.current.form.getValues('count')).toBe(5))
     })

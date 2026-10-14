@@ -22,10 +22,10 @@ import { useSchemaRefResolver } from './use-schema-ref-resolver'
  *
  * The record is a live row, so the `values` prop updates when another client
  * edits it, and react-hook-form resets to it while keeping what the user is
- * typing. `patch()` marks the keys it returns as saved, so a later patch does
- * not resend them and a remote change to them shows again: call it only when
- * the host is going to write the result. `markSaved(keys)` does the same for
- * keys the host wrote some other way.
+ * typing. `patch()` validates only the dirty keys and returns null when one is
+ * invalid. It does not mark anything saved: the host writes the result, then
+ * calls `markSaved(Object.keys(...))` in the mutation's `onSuccess`. A failed
+ * write therefore leaves the keys dirty and a retry sends them again.
  */
 export function useFormEdit(
     host: FormHost,
@@ -64,20 +64,20 @@ export function useFormEdit(
             host,
             evaluate(definition, form.getValues(), context)
         )
-        let out: SplitValues | null = null
-        await form.handleSubmit(next => {
-            const changed: FormValues = {}
-            const dirtyKeys = definition.fields
-                .map(f => f.key)
-                .filter(key => form.getFieldState(key).isDirty)
-            for (const key of dirtyKeys) changed[key] = next[key]
-            const split = splitValues(host, definition, changed)
-            const stored = (record[host.fieldsColumn] ?? {}) as Record<string, unknown>
-            const hasCustom = Object.keys(split.fields).length > 0
-            out = { ...split, fields: hasCustom ? { ...stored, ...split.fields } : {} }
-            markSaved(dirtyKeys)
-        })()
-        return out
+        const dirtyKeys = definition.fields
+            .map(f => f.key)
+            .filter(key => form.getFieldState(key).isDirty)
+        // Only the dirty keys are validated: a field an admin tightened later must not
+        // block an unrelated edit.
+        const ok = await form.trigger(dirtyKeys)
+        if (!ok) return null
+        const values = form.getValues()
+        const changed: FormValues = {}
+        for (const key of dirtyKeys) changed[key] = values[key]
+        const split = splitValues(host, definition, changed)
+        const stored = (record[host.fieldsColumn] ?? {}) as Record<string, unknown>
+        const hasCustom = Object.keys(split.fields).length > 0
+        return { ...split, fields: hasCustom ? { ...stored, ...split.fields } : {} }
     }
 
     return {
