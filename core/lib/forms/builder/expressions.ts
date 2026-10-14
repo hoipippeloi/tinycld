@@ -2,7 +2,8 @@ import type { FormExpression } from '../definition'
 
 export type DefaultPick =
     | { mode: 'none' }
-    | { mode: 'literal'; value: string | number | boolean }
+    /** A list literal is a multiple select's options. */
+    | { mode: 'literal'; value: string | number | boolean | string[] }
     | { mode: 'today' }
     | { mode: 'today_plus'; days: number }
     | { mode: 'me' }
@@ -28,7 +29,11 @@ export function expressionToPick(expr: unknown): DefaultPick {
     if (expr === undefined || expr === null) return { mode: 'none' }
     if (typeof expr === 'string' || typeof expr === 'number' || typeof expr === 'boolean')
         return { mode: 'literal', value: expr }
-    if (typeof expr !== 'object' || Array.isArray(expr)) return { mode: 'none' }
+    if (Array.isArray(expr))
+        return expr.every(v => typeof v === 'string')
+            ? { mode: 'literal', value: expr }
+            : { mode: 'none' }
+    if (typeof expr !== 'object') return { mode: 'none' }
     const obj = expr as Record<string, unknown>
     if ('today' in obj) return { mode: 'today' }
     if ('me' in obj) return { mode: 'me' }

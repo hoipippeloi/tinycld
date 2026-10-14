@@ -1,4 +1,10 @@
-import { kindOf, type Removed, referencesOf, removeField } from '@tinycld/core/lib/forms/builder'
+import {
+    kindOf,
+    moveField,
+    type Removed,
+    referencesOf,
+    removeField,
+} from '@tinycld/core/lib/forms/builder'
 import { FIELD_WIDTHS, type FieldWidth } from '@tinycld/core/lib/forms/definition'
 import { findBuiltin } from '@tinycld/core/lib/forms/host'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
@@ -8,6 +14,8 @@ import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { DefaultPicker } from './DefaultPicker'
 import { OptionsEditor } from './OptionsEditor'
+import { PickMenu } from './rule-parts'
+import { orderOf, positionOf } from './use-canvas-drag'
 import { removalParts, type useEditorForm } from './use-editor-form'
 
 type Editor = ReturnType<typeof useEditorForm>
@@ -187,6 +195,77 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
     return { index, field, builtin, kind, isConfirming, setIsConfirming, message, remove }
 }
 
+/**
+ * Where the field sits: its page, and its place among that page's fields.
+ * Dragging does the same; this is the way that needs no pointer, for a
+ * keyboard or a screen reader.
+ */
+function usePlacement(editor: Editor, fieldKey: string) {
+    const { control } = editor.form
+    const pages = useWatch({ control, name: 'pages' }) ?? []
+    const fields = useWatch({ control, name: 'fields' }) ?? []
+    const order = orderOf({ pages, fields })
+    const at = positionOf(fieldKey, order)
+    const count = order.find(o => o.page === at?.page)?.keys.length ?? 0
+    const moveTo = (page: string, index: number) =>
+        editor.apply(def => moveField(def, fieldKey, page, index))
+    const pageItems = pages.map(page => ({
+        id: page.key,
+        label: page.title,
+        isSelected: page.key === at?.page,
+        // A new page takes the field at its end; its own page leaves it where it is.
+        onSelect: () => {
+            if (page.key !== at?.page) moveTo(page.key, Number.MAX_SAFE_INTEGER)
+        },
+    }))
+    const pageLabel = pages.find(p => p.key === at?.page)?.title ?? ''
+    return {
+        pageItems,
+        pageLabel,
+        canMoveUp: Boolean(at && at.index > 0),
+        canMoveDown: Boolean(at && at.index < count - 1),
+        moveUp: () => at && moveTo(at.page, at.index - 1),
+        moveDown: () => at && moveTo(at.page, at.index + 1),
+    }
+}
+
+function PlacementSection({ editor, fieldKey }: { editor: Editor; fieldKey: string }) {
+    const p = usePlacement(editor, fieldKey)
+    return (
+        <View className="mb-3 gap-1.5">
+            <Text className="text-sm font-semibold text-foreground">Page</Text>
+            <View className="flex-row flex-wrap items-center gap-2">
+                <PickMenu
+                    label={p.pageLabel}
+                    purpose="Page"
+                    items={p.pageItems}
+                    testID="form-prop-page"
+                />
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onPress={p.moveUp}
+                    isDisabled={!p.canMoveUp}
+                    accessibilityLabel="Move up"
+                    testID="form-prop-move-up"
+                >
+                    <ButtonText>Move up</ButtonText>
+                </Button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onPress={p.moveDown}
+                    isDisabled={!p.canMoveDown}
+                    accessibilityLabel="Move down"
+                    testID="form-prop-move-down"
+                >
+                    <ButtonText>Move down</ButtonText>
+                </Button>
+            </View>
+        </View>
+    )
+}
+
 interface DeleteSectionProps {
     isVisible: boolean
     isConfirming: boolean
@@ -248,6 +327,7 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
             />
             <TextInput control={control} name={`fields.${i}.description`} label="Description" />
             <TextInput control={control} name={`fields.${i}.placeholder`} label="Placeholder" />
+            <PlacementSection editor={editor} fieldKey={fieldKey} />
             <RadioInput
                 control={control}
                 name={`fields.${i}.width`}

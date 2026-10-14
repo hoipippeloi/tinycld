@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render as renderBare } from '@testing-library/
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { newCustomField } from '../../../lib/forms/builder'
+import { addPage, newCustomField } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { OverlayProvider } from '../../../ui/overlay'
 import { FieldProperties } from '../FieldProperties'
@@ -153,6 +153,46 @@ describe('FieldProperties', () => {
     })
 })
 
+describe('FieldProperties placement', () => {
+    // A Button marks itself disabled with data-disabled.
+    const isOff = (el: HTMLElement | null) => el?.getAttribute('data-disabled') === 'true'
+    const keys = () => editorRef?.form.getValues('fields').map(f => f.key)
+    const head = base.fields.map(f => f.key)
+    it('moves a field up and down within its page', () => {
+        const { container } = render(<Harness fieldKey="flag" />)
+        fireEvent.click(q(container, 'form-prop-move-up') as HTMLElement)
+        expect(keys()).toEqual([...head, 'flag', 'severity', 'count'])
+        fireEvent.click(q(container, 'form-prop-move-down') as HTMLElement)
+        fireEvent.click(q(container, 'form-prop-move-down') as HTMLElement)
+        expect(keys()).toEqual([...head, 'severity', 'count', 'flag'])
+        expect(isOff(q(container, 'form-prop-move-down'))).toBe(true)
+        expect(isOff(q(container, 'form-prop-move-up'))).toBe(false)
+        expect(editorRef?.isDirty).toBe(true)
+    })
+    it('cannot move the first field of a page up', () => {
+        const { container } = render(<Harness fieldKey="name" />)
+        expect(isOff(q(container, 'form-prop-move-up'))).toBe(true)
+        expect(isOff(q(container, 'form-prop-move-down'))).toBe(false)
+    })
+    it('moves a field to the end of the page picked for it', () => {
+        const { container } = render(<Harness fieldKey="severity" />)
+        act(() => editorRef?.apply(def => addPage(def, 'More')))
+        act(() =>
+            editorRef?.apply(def => ({
+                ...def,
+                fields: def.fields.map(f => (f.key === 'count' ? { ...f, page: 'more' } : f)),
+            }))
+        )
+        expect(q(container, 'form-prop-page')?.textContent).toContain('Widget')
+        fireEvent.click(q(container, 'form-prop-page') as HTMLElement)
+        fireEvent.click(q(document.body, 'form-prop-page-more') as HTMLElement)
+        const fields = editorRef?.form.getValues('fields') ?? []
+        const onMore = fields.filter(f => f.page === 'more').map(f => f.key)
+        expect(onMore).toEqual(['count', 'severity'])
+        expect(q(container, 'form-prop-page')?.textContent).toContain('More')
+    })
+})
+
 describe('DefaultPicker', () => {
     const pick = (container: HTMLElement, id: string) => {
         fireEvent.click(q(container, 'form-default-mode') as HTMLElement)
@@ -204,6 +244,53 @@ describe('DefaultPicker', () => {
         expect(q(container, 'form-default-mode')?.getAttribute('accessibilityLabel')).toBe(
             'Default: A value'
         )
+    })
+    it("offers a select's options as chips instead of free text", () => {
+        const { container } = render(<Harness fieldKey="severity" />)
+        pick(container, 'form-default-literal')
+        expect(q(container, 'form-default-value')).toBeNull()
+        fireEvent.click(q(container, 'form-default-option-option_1') as HTMLElement)
+        expect(editorRef?.form.getValues('defaults')).toEqual({ severity: 'option_1' })
+    })
+    it('picks a list of options for a multiple select', () => {
+        const { container } = render(<Harness fieldKey="severity" />)
+        act(() =>
+            editorRef?.apply(def => ({
+                ...def,
+                fields: def.fields.map(f =>
+                    f.key === 'severity' && f.kind === 'select'
+                        ? {
+                              ...f,
+                              multiple: true,
+                              options: [...f.options, { value: 'high', label: 'High' }],
+                          }
+                        : f
+                ),
+            }))
+        )
+        pick(container, 'form-default-literal')
+        expect(editorRef?.form.getValues('defaults')).toEqual({ severity: [] })
+        fireEvent.click(q(container, 'form-default-option-high') as HTMLElement)
+        fireEvent.click(q(container, 'form-default-option-option_1') as HTMLElement)
+        expect(editorRef?.form.getValues('defaults')).toEqual({ severity: ['high', 'option_1'] })
+        fireEvent.click(q(container, 'form-default-option-high') as HTMLElement)
+        expect(editorRef?.form.getValues('defaults')).toEqual({ severity: ['option_1'] })
+    })
+    it('says how to write a date default once the input loses focus', async () => {
+        const { container, getByText, queryByText } = render(<Harness fieldKey="due" />)
+        pick(container, 'form-default-literal')
+        const input = q(container, 'form-default-value') as HTMLElement
+        fireEvent.input(input, { target: { value: 'soon' } })
+        expect(queryByText('Use YYYY-MM-DD')).toBeNull()
+        await act(async () => {
+            fireEvent.blur(input)
+        })
+        expect(getByText('Use YYYY-MM-DD')).toBeTruthy()
+        fireEvent.input(input, { target: { value: '2026-01-31' } })
+        await act(async () => {
+            fireEvent.blur(input)
+        })
+        expect(queryByText('Use YYYY-MM-DD')).toBeNull()
     })
     it('removes the default when No default is chosen', () => {
         const { container } = render(<Harness fieldKey="due" />)

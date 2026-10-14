@@ -7,6 +7,7 @@ describe('expressions', () => {
             { mode: 'none' as const },
             { mode: 'literal' as const, value: 'low' },
             { mode: 'literal' as const, value: 3 },
+            { mode: 'literal' as const, value: ['low', 'high'] },
             { mode: 'today' as const },
             { mode: 'today_plus' as const, days: 21 },
             { mode: 'me' as const },
@@ -23,6 +24,7 @@ describe('expressions', () => {
     })
     it('reads an unknown expression as none', () => {
         expect(expressionToPick({ foo: [] })).toEqual({ mode: 'none' })
+        expect(expressionToPick([1, 2])).toEqual({ mode: 'none' })
     })
     it('offers date picks only to date kinds and me only to user kinds', () => {
         expect(picksFor('date')).toEqual(['none', 'literal', 'today', 'today_plus'])

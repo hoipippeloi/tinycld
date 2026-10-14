@@ -188,3 +188,10 @@ describe('useCanvasDrag', () => {
         }
     })
 })
+
+describe('the canvas drag handle on web', () => {
+    it('drags at once, with no hold', async () => {
+        const { HANDLE_LONG_PRESS_MS } = await import('../use-canvas-drag')
+        expect(HANDLE_LONG_PRESS_MS).toBeUndefined()
+    })
+})

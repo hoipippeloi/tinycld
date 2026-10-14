@@ -13,11 +13,13 @@ import type { EvalContext, FormValues } from '@tinycld/core/lib/forms/logic'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { type DesignOptions, FormRenderer } from '@tinycld/core/ui/forms'
+import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { GripVertical } from 'lucide-react-native'
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { type Control, type FieldErrors, useForm, useWatch } from 'react-hook-form'
 import { Platform, View } from 'react-native'
 import { ZodError } from 'zod'
+import { firstMessage } from './editor-errors'
 import { KindPicker } from './KindPicker'
 import { PageHeader } from './PageHeader'
 import { type CanvasDrag, orderOf, useCanvasDrag, useDragHandle } from './use-canvas-drag'
@@ -66,41 +68,37 @@ export function useCanvasDefinition(control: Control<DraftDefinition>) {
     return { definition, draftFields: fields ?? [] }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null
-}
-
-/** The first message in a field's error subtree; `ref` points at an element, not an error. */
-function firstMessage(error: unknown): string | undefined {
-    if (!isRecord(error)) return undefined
-    if (typeof error.message === 'string' && error.message) return error.message
-    for (const [key, child] of Object.entries(error)) {
-        if (key === 'ref') continue
-        const message = firstMessage(child)
-        if (message) return message
-    }
-    return undefined
-}
-
-function errorsByKey(errors: FieldErrors<DraftDefinition>, fields: DraftField[]) {
+/**
+ * Cell errors by field key. Errors are stored by the field's index in the
+ * draft; the editor carries them along when a move or a removal shifts the
+ * indexes, so the index each key has in the current draft finds its own.
+ */
+export function errorsByKey(errors: FieldErrors<DraftDefinition>, fields: DraftField[]) {
     const out: Record<string, string> = {}
-    fields.forEach((field, index) => {
+    for (const [index, field] of fields.entries()) {
         const message = firstMessage(errors.fields?.[index])
         if (message) out[field.key] = message
-    })
+    }
     return out
 }
 
 // Without it a touch drag on web scrolls the page instead of moving the cell.
 const HANDLE_STYLE = Platform.select({ web: { touchAction: 'none' } as Record<string, unknown> })
 
-function DragHandle({ fieldKey, drag }: { fieldKey: string; drag: CanvasDrag }) {
+interface DragHandleProps {
+    fieldKey: string
+    label: string
+    drag: CanvasDrag
+}
+
+function DragHandle({ fieldKey, label, drag }: DragHandleProps) {
     const { handlers } = useDragHandle(drag, fieldKey)
     const muted = useThemeColor('muted-foreground')
     return (
         <View
             {...handlers}
-            accessibilityLabel="Drag to reorder"
+            accessibilityRole="button"
+            accessibilityLabel={`Drag ${label}`}
             className="mr-1"
             style={HANDLE_STYLE}
             testID={`form-handle-${fieldKey}`}
@@ -114,26 +112,29 @@ function deleteHintFor(hasFields: boolean) {
     return hasFields ? 'Move its fields first' : 'A form needs one page'
 }
 
+export interface PendingField {
+    page: string
+    kind: CustomKind
+}
+
 interface DesignInputs {
     editor: Editor
     definition: FormDefinition
     draftFields: DraftField[]
     drag: CanvasDrag
+    /** A kind was picked: the canvas asks for the field's label before it adds the field. */
+    onPickKind: (pending: PendingField) => void
 }
 
-function designOptionsFor({ editor, definition, draftFields, drag }: DesignInputs): DesignOptions {
+function designOptionsFor(inputs: DesignInputs): DesignOptions {
+    const { editor, definition, draftFields, drag, onPickKind } = inputs
     const hasFields = (page: FormPage) => definition.fields.some(f => f.page === page.key)
     const canDelete = (page: FormPage) => definition.pages.length > 1 && !hasFields(page)
-    const addFieldTo = (page: string, kind: CustomKind) => {
-        const taken = new Set(editor.form.getValues('fields').map(f => f.key))
-        const field = newCustomField(kind, 'New field', page, taken)
-        editor.apply(def => addField(def, field))
-        editor.select(field.key)
-    }
+    const labelOf = (key: string) => draftFields.find(f => f.key === key)?.label ?? key
     return {
         selectedKey: editor.selectedKey ?? undefined,
         onSelect: editor.select,
-        renderHandle: key => <DragHandle fieldKey={key} drag={drag} />,
+        renderHandle: key => <DragHandle fieldKey={key} label={labelOf(key)} drag={drag} />,
         renderPageHeader: page => (
             <PageHeader
                 page={page}
@@ -145,7 +146,7 @@ function designOptionsFor({ editor, definition, draftFields, drag }: DesignInput
         ),
         renderPageFooter: page => (
             <KindPicker
-                onPick={kind => addFieldTo(page.key, kind)}
+                onPick={kind => onPickKind({ page: page.key, kind })}
                 testID={`form-add-field-${page.key}`}
             />
         ),
@@ -158,13 +159,35 @@ function designOptionsFor({ editor, definition, draftFields, drag }: DesignInput
     }
 }
 
+/** The field a picked kind becomes once its label is typed; cancelling adds nothing. */
+function useAddField(editor: Editor) {
+    // The kind waiting for its label is local UI state.
+    const [pending, setPending] = useState<PendingField | null>(null)
+    const add = (label: string) => {
+        if (!pending) return
+        const taken = new Set(editor.form.getValues('fields').map(f => f.key))
+        const field = newCustomField(pending.kind, label, pending.page, taken)
+        editor.apply(def => addField(def, field))
+        editor.select(field.key)
+        setPending(null)
+    }
+    return { isAsking: pending !== null, ask: setPending, cancel: () => setPending(null), add }
+}
+
 export function Canvas({ editor, context, drag }: CanvasProps) {
     const { definition, draftFields } = useCanvasDefinition(editor.form.control)
     // FormRenderer's inputs need a form instance; in design mode its values never matter.
     const inert = useForm<FormValues>({ defaultValues: {} })
+    const adding = useAddField(editor)
     const addNewPage = () => editor.apply(def => addPage(def, 'New page'))
     if (!editor.host || !definition) return null
-    const design = designOptionsFor({ editor, definition, draftFields, drag })
+    const design = designOptionsFor({
+        editor,
+        definition,
+        draftFields,
+        drag,
+        onPickKind: adding.ask,
+    })
     return (
         <View testID="form-canvas">
             <FormRenderer
@@ -185,6 +208,17 @@ export function Canvas({ editor, context, drag }: CanvasProps) {
             >
                 <ButtonText>Add page</ButtonText>
             </Button>
+            <PromptDialog
+                isOpen={adding.isAsking}
+                onClose={adding.cancel}
+                onSubmit={adding.add}
+                title="Field label"
+                placeholder="Severity"
+                confirmLabel="Add"
+                required
+                maxLength={120}
+                requiresServer={false}
+            />
         </View>
     )
 }

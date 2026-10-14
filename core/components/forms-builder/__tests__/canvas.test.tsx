@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render as renderBare } from '@testing-library/react'
+import { act, cleanup, fireEvent, render as renderBare, screen } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
@@ -97,9 +97,25 @@ function pointer(type: string, target: Element | Window, x: number, y: number) {
     )
 }
 
-function addSelectField(baseElement: HTMLElement) {
+function pickKind(baseElement: HTMLElement, kind: string) {
     fireEvent.click(q(baseElement, 'form-add-field-main') as HTMLElement)
-    fireEvent.click(q(baseElement, 'form-kind-select') as HTMLElement)
+    fireEvent.click(q(baseElement, `form-kind-${kind}`) as HTMLElement)
+}
+
+const labelInput = (baseElement: HTMLElement) =>
+    baseElement.querySelector(
+        'rn-textinput[accessibilityLabel="Field label"]'
+    ) as HTMLElement | null
+
+/** Picks a kind, types the label the canvas asks for, and adds the field. */
+async function addField(baseElement: HTMLElement, kind: string, label: string) {
+    pickKind(baseElement, kind)
+    await act(async () => {
+        fireEvent.input(labelInput(baseElement) as HTMLElement, { target: { value: label } })
+    })
+    await act(async () => {
+        fireEvent.click(screen.getByText('Add'))
+    })
 }
 
 describe('Canvas', () => {
@@ -111,17 +127,37 @@ describe('Canvas', () => {
         expect(q(container, 'form-field-due')?.getAttribute('class')).toContain('border-primary')
     })
 
-    it('adds a field of the picked kind at the end of the page and selects it', () => {
+    it('asks for a label, then adds a field of the picked kind keyed by it and selects it', async () => {
         const { baseElement } = render(<Harness />)
-        addSelectField(baseElement)
-        const added = q(baseElement, 'form-field-new_field')
+        await addField(baseElement, 'select', 'Severity')
+        const added = q(baseElement, 'form-field-severity')
         expect(added).toBeTruthy()
         expect(added?.getAttribute('class')).toContain('border-primary')
         expect(editor?.form.getValues('fields').at(-1)).toMatchObject({
-            key: 'new_field',
+            key: 'severity',
+            label: 'Severity',
             kind: 'select',
             page: 'main',
         })
+    })
+
+    it('adds nothing when the label prompt is cancelled', async () => {
+        const { baseElement } = render(<Harness />)
+        pickKind(baseElement, 'text')
+        expect(labelInput(baseElement)).toBeTruthy()
+        await act(async () => {
+            fireEvent.click(screen.getByText('Cancel'))
+        })
+        expect(labelInput(baseElement)).toBeNull()
+        expect(draftKeys()).toEqual(builtinKeys)
+        expect(editor?.isDirty).toBe(false)
+    })
+
+    it('names each drag handle after its field, as a button', () => {
+        const { container } = render(<Harness />)
+        const handle = q(container, 'form-handle-due') as HTMLElement
+        expect(handle.getAttribute('accessibilityRole')).toBe('button')
+        expect(handle.getAttribute('accessibilityLabel')).toBe('Drag Due')
     })
 
     it('adds a page and disables deleting a page that has fields', () => {
@@ -198,12 +234,12 @@ describe('Canvas', () => {
         expect(draftKeys()).toEqual(builtinKeys)
     })
 
-    it('keeps rendering the last valid canvas while a draft is invalid', () => {
+    it('keeps rendering the last valid canvas while a draft is invalid', async () => {
         const { baseElement, container } = render(<Harness />)
-        addSelectField(baseElement)
+        await addField(baseElement, 'select', 'Severity')
         const index = (editor?.form.getValues('fields').length ?? 0) - 1
         act(() => editor?.form.setValue(`fields.${index}.options`, []))
         expect(q(container, 'form-canvas')).toBeTruthy()
-        expect(q(container, 'form-field-new_field')).toBeTruthy()
+        expect(q(container, 'form-field-severity')).toBeTruthy()
     })
 })

@@ -2,7 +2,7 @@ import { useDragGesture } from '@tinycld/core/lib/gestures/use-drag-gesture'
 import { log } from '@tinycld/core/lib/logger'
 import type { MeasureRect } from '@tinycld/core/ui/forms/use-measure-rect'
 import { useRef, useState } from 'react'
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native'
+import { type NativeScrollEvent, type NativeSyntheticEvent, Platform } from 'react-native'
 
 export interface Rect {
     x: number
@@ -245,8 +245,15 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
 export type CanvasDrag = ReturnType<typeof useCanvasDrag>
 
 /** Gesture handlers for one cell's drag handle. */
+/**
+ * On native a drag starts after a 250 ms hold, so a swipe that begins on a
+ * handle still scrolls the canvas; web drags with a mouse or a pen at once.
+ */
+export const HANDLE_LONG_PRESS_MS = Platform.select({ native: 250 })
+
 export function useDragHandle(drag: CanvasDrag, key: string) {
     return useDragGesture({
+        longPressMs: HANDLE_LONG_PRESS_MS,
         onDragStart: () => {
             drag.begin(key)
             return true
