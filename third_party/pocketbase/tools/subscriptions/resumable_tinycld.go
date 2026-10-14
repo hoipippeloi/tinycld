@@ -19,6 +19,11 @@ import (
 // empty while a connection is attached. A message handed to a connection
 // that then died may never have reached the subscriber; the subscriber's
 // last received seq tells, and Attach refuses a resume that would skip it.
+//
+// A detached client also defers record changes (see Defer). Its connection
+// is gone, so a broadcast only notes which records changed, without the
+// per-subscription access checks a send needs. The resume takes the noted
+// changes (TakePending) and sends each record as it is then.
 
 // ResumableOptions configures a ResumableClient.
 type ResumableOptions struct {
@@ -32,10 +37,28 @@ type ResumableOptions struct {
 	// no shared bound.
 	Budget *QueueBudget
 
+	// MaxPending bounds the deferred changes. A client that defers more
+	// distinct records overflows. Zero means no bound.
+	MaxPending int
+
 	// OnOverflow is called, outside the client lock, when the client
 	// overflows. It should unregister the client from its broker. Nil
 	// discards the client.
 	OnOverflow func(client *ResumableClient)
+}
+
+// PendingChange is a record change that a detached client deferred.
+type PendingChange struct {
+	CollectionId string
+	RecordId     string
+
+	// Created reports whether the record was created while the client was
+	// detached, so the subscriber has never received it.
+	Created bool
+
+	// VisibleBefore holds the subscriptions that could see the record
+	// before a deferred write that could hide it.
+	VisibleBefore map[string]struct{}
 }
 
 type queuedMessage struct {
@@ -71,6 +94,12 @@ type ResumableClient struct {
 	att      *attachment
 	notify   chan struct{}
 	gone     bool
+
+	// deferring is set when a connection detaches and cleared when
+	// TakePending finds nothing left, after a resume.
+	deferring   bool
+	pending     map[string]*PendingChange
+	pendingKeys []string
 }
 
 // ensures that ResumableClient satisfies the Client interface
@@ -204,6 +233,8 @@ func (c *ResumableClient) Discard() {
 	c.queue = nil
 	c.bytes = 0
 	c.release()
+	c.pending = nil
+	c.pendingKeys = nil
 	c.mu.Unlock()
 
 	c.DefaultClient.Discard()
@@ -237,6 +268,7 @@ func (c *ResumableClient) detach(gen uint64) bool {
 		return false
 	}
 	c.att = nil
+	c.deferring = true
 	overflow := !c.reserve(c.bytes)
 	c.mu.Unlock()
 
@@ -306,6 +338,82 @@ func (c *ResumableClient) pump(att *attachment) {
 			return
 		}
 	}
+}
+
+// Defer notes a change of a record instead of a send, while the client is
+// deferring. It reports false when the client is not deferring, and the
+// caller must send the change as for an attached client.
+//
+// Changes of the same record merge: Created and VisibleBefore accumulate.
+func (c *ResumableClient) Defer(collectionId, recordId string, created bool, visibleBefore map[string]struct{}) bool {
+	c.mu.Lock()
+
+	if c.gone {
+		c.mu.Unlock()
+		return true
+	}
+	if !c.deferring {
+		c.mu.Unlock()
+		return false
+	}
+
+	key := collectionId + "/" + recordId
+	change, ok := c.pending[key]
+	if !ok {
+		if c.pending == nil {
+			c.pending = map[string]*PendingChange{}
+		}
+		change = &PendingChange{CollectionId: collectionId, RecordId: recordId}
+		c.pending[key] = change
+		c.pendingKeys = append(c.pendingKeys, key)
+	}
+	change.Created = change.Created || created
+	for sub := range visibleBefore {
+		if change.VisibleBefore == nil {
+			change.VisibleBefore = map[string]struct{}{}
+		}
+		change.VisibleBefore[sub] = struct{}{}
+	}
+
+	overflow := c.options.MaxPending > 0 && len(c.pending) > c.options.MaxPending
+
+	c.mu.Unlock()
+
+	if overflow {
+		c.overflow()
+	}
+
+	return true
+}
+
+// TakePending removes and returns the deferred changes, in the order the
+// records first changed. When there are none it stops deferring and returns
+// nil, so a change that Defer accepts is always in a later TakePending.
+func (c *ResumableClient) TakePending() []PendingChange {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.pendingKeys) == 0 {
+		c.deferring = false
+		return nil
+	}
+
+	changes := make([]PendingChange, 0, len(c.pendingKeys))
+	for _, key := range c.pendingKeys {
+		changes = append(changes, *c.pending[key])
+	}
+	c.pending = nil
+	c.pendingKeys = nil
+
+	return changes
+}
+
+// Deferring reports whether the client defers record changes.
+func (c *ResumableClient) Deferring() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.deferring
 }
 
 // exceedsLimits must be called with the lock held.
