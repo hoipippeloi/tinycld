@@ -102,4 +102,58 @@ test.describe('admin sign-in help', () => {
         const link = extractFirstLink(email, /https?:\/\/[^\s"'<>]+\/reset-password\/[^\s"'<>]+/)
         expect(link).toContain('/reset-password/')
     })
+
+    // On mobile, a passkey sign-in runs in the browser sheet on this page. A
+    // temporary password must be replaced there, with guidance, not end in
+    // an unexplained error.
+    test('the passkey sheet asks for a new password after a temporary one', async ({ page }) => {
+        const cdp = await inviteePage.context().newCDPSession(inviteePage)
+        await cdp.send('WebAuthn.enable')
+        await cdp.send('WebAuthn.addVirtualAuthenticator', {
+            options: {
+                protocol: 'ctap2',
+                transport: 'internal',
+                hasResidentKey: true,
+                hasUserVerification: true,
+                isUserVerified: true,
+                automaticPresenceSimulation: true,
+            },
+        })
+        await inviteePage.getByLabel('User menu').click()
+        await inviteePage.getByText('Settings', { exact: true }).click()
+        const accountGroup = inviteePage.getByText('Account', { exact: true }).locator('..')
+        await accountGroup.getByText('Security', { exact: true }).click()
+        await inviteePage.getByTestId('passkey-add').click()
+        await expect(inviteePage.getByTestId('passkey-row')).toHaveCount(1)
+
+        await openMember(page)
+        await page.getByTestId('member-set-password').click()
+        await page.getByTestId('member-temp-password').fill('Temporary123!')
+        await page.getByTestId('member-temp-password-confirm').fill('Temporary123!')
+        await page.getByTestId('member-temp-password-save').click()
+        await expect(page.getByText(/Temporary password set/)).toBeVisible()
+
+        // What the app opens in the sheet: a fresh browser on this page.
+        await inviteePage.evaluate(() => {
+            window.localStorage.clear()
+            window.sessionStorage.clear()
+        })
+        await inviteePage.goto(`/a/native-auth#mode=login&code_challenge=${'A'.repeat(43)}`)
+        await inviteePage.getByTestId('native-auth-continue').click()
+        await expect(inviteePage.getByText('Choose a new password', { exact: true })).toBeVisible()
+        await expect(inviteePage.getByText(/Something went wrong/)).toHaveCount(0)
+        await inviteePage.getByTestId('new-password').fill('MemberChose123!')
+        await inviteePage.getByTestId('new-password-confirm').fill('MemberChose123!')
+        const saved = inviteePage.waitForResponse(r => r.url().includes('/confirm-password-reset'))
+        await inviteePage.getByTestId('new-password-submit').click()
+        expect((await saved).status()).toBe(204)
+
+        // The new password now signs in; with a passkey on file the next step
+        // is the second factor, not another password change.
+        await inviteePage.goto('/')
+        await inviteePage.getByTestId('identifier').fill(invited.username)
+        await inviteePage.getByPlaceholder('Password').fill('MemberChose123!')
+        await inviteePage.getByTestId('login-submit').click()
+        await expect(inviteePage.getByTestId('mfa-step')).toBeVisible()
+    })
 })

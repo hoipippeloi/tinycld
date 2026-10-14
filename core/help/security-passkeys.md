@@ -23,6 +23,8 @@ On the sign-in screen, select **Sign in with a passkey** and confirm on your dev
 
 If you sign in with your password and two-step verification is on, you can also select **Use a passkey** instead of typing a code.
 
+If an administrator gave you a temporary password, signing in with a passkey first asks you to choose a new password. In the mobile app this happens in the browser sheet; after you save it, the app asks you to sign in again.
+
 ## Remove a passkey
 
 In **Settings → Security**, select the bin next to the passkey, then **Remove**. Also remove it from your device's password manager.

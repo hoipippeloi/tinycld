@@ -1,10 +1,15 @@
+import { PASSWORD_SET_NOTICE } from '@tinycld/core/components/workspace/sign-in/PasswordStep'
 import { useFinishSignIn } from '@tinycld/core/components/workspace/sign-in/use-finish-sign-in'
 import { errorToString } from '@tinycld/core/lib/errors'
 import { useMutation } from '@tinycld/core/lib/mutations'
-import { NativeAuthCancelled } from '@tinycld/core/lib/native-auth-errors'
+import {
+    NativeAuthCancelled,
+    NativeAuthPasswordChanged,
+} from '@tinycld/core/lib/native-auth-errors'
 import { passkeys } from '@tinycld/core/lib/passkey'
 import type { AuthResponse } from '@tinycld/core/lib/sign-in-step'
-import { advanceSignInStep } from '@tinycld/core/lib/stores/sign-in-step-store'
+import { useSignInNoticeStore } from '@tinycld/core/lib/stores/sign-in-notice-store'
+import { advanceSignInStep, useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { Text, View } from 'react-native'
 
@@ -32,6 +37,12 @@ export function PasskeySignInButton({ isVisible, label, testID, run }: Props) {
             } catch (error) {
                 // A temporary password still needs replacing after the passkey.
                 if (advanceSignInStep(error)) return
+                // On mobile the browser sheet already replaced it: sign in again.
+                if (error instanceof NativeAuthPasswordChanged) {
+                    useSignInStepStore.getState().clear()
+                    useSignInNoticeStore.getState().setNotice(PASSWORD_SET_NOTICE)
+                    return
+                }
                 throw error
             }
         },

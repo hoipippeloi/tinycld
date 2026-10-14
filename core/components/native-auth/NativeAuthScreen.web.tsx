@@ -5,11 +5,12 @@ import {
     type NativeAuthRequest,
     parseNativeAuthRequest,
 } from '@tinycld/core/components/native-auth/native-auth-params'
+import { NewPasswordForm } from '@tinycld/core/components/workspace/sign-in/NewPasswordForm'
 import { errorToString } from '@tinycld/core/lib/errors'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { passkeys, registerPasskey } from '@tinycld/core/lib/passkey.web'
 import { pb } from '@tinycld/core/lib/pocketbase'
-import type { AuthResponse } from '@tinycld/core/lib/sign-in-step'
+import { type AuthResponse, signInStepFromError } from '@tinycld/core/lib/sign-in-step'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
 import { KeyRound } from 'lucide-react-native'
@@ -52,6 +53,14 @@ const TITLES: Record<NativeAuthRequest['mode'], string> = {
     register: 'Add a passkey',
 }
 
+// An admin-set temporary password: the passkey worked, but the server wants
+// a new password before it issues a session. That step is finished here, on
+// the same page, and the app is told to ask for a fresh sign-in.
+function passwordStepToken(error: unknown): string | null {
+    const step = signInStepFromError(error)
+    return step?.kind === 'password' ? step.token : null
+}
+
 function useNativeAuth() {
     const request = parseNativeAuthRequest(fragmentParams(window.location.hash))
     const run = useMutation({
@@ -62,18 +71,39 @@ function useNativeAuth() {
         // The error shows on the page; the default toast would repeat it.
         onError: () => {},
     })
+    const resetToken = passwordStepToken(run.error)
     return {
         request,
         start: () => run.mutate(),
         isWorking: run.isPending || run.isSuccess,
-        error: run.error ? errorToString(run.error, 'The passkey did not work. Try again.') : null,
+        resetToken,
+        error:
+            run.error && !resetToken
+                ? errorToString(run.error, 'The passkey did not work. Try again.')
+                : null,
         cancelHref: callbackUrl({ error: 'cancelled' }),
+        passwordChanged: () => {
+            window.location.href = callbackUrl({ result: 'password_changed' })
+        },
     }
 }
 
 export function NativeAuthScreen() {
     const fgColor = useThemeColor('foreground')
-    const { request, start, isWorking, error, cancelHref } = useNativeAuth()
+    const { request, start, isWorking, error, cancelHref, resetToken, passwordChanged } =
+        useNativeAuth()
+
+    if (resetToken) {
+        return (
+            <Page title="Choose a new password">
+                <Text className="text-center text-sm text-muted-foreground">
+                    An administrator gave you a temporary password. Choose your own to continue.
+                    Then sign in again in the app.
+                </Text>
+                <NewPasswordForm token={resetToken} onDone={passwordChanged} />
+            </Page>
+        )
+    }
 
     if (!request) {
         return (

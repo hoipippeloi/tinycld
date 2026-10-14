@@ -26,10 +26,24 @@ vi.mock('@tinycld/core/lib/account-password', () => ({
         confirmPasswordReset(token, pw, confirm),
 }))
 
+// The passkey ceremony is the platform's (browser or sheet); tests choose its
+// outcome.
+const passkeySignIn = vi.fn()
+vi.mock('@tinycld/core/lib/passkey', () => ({
+    passkeys: {
+        isAvailable: () => true,
+        signIn: () => passkeySignIn(),
+        secondStep: vi.fn(),
+        add: vi.fn(),
+        enroll: vi.fn(),
+    },
+}))
+
 // Pre-auth branding lookup — irrelevant to the notice behavior under test.
 vi.mock('@tinycld/core/lib/use-org-info', () => ({ useOrgInfo: () => ({ org: null }) }))
 
 import { LoginModal } from '@tinycld/core/components/workspace/LoginModal'
+import { NativeAuthPasswordChanged } from '@tinycld/core/lib/native-auth-errors'
 import { useSignInNoticeStore } from '@tinycld/core/lib/stores/sign-in-notice-store'
 import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 
@@ -223,6 +237,21 @@ describe('LoginModal — second sign-in step', () => {
             'MyOwnPass123!'
         )
         expect(byTestId(container, 'sign-in-notice')?.textContent).toContain('new password is set')
+    })
+
+    // On mobile the browser sheet replaces a temporary password itself; the
+    // app then guides the user to sign in again instead of showing an error.
+    it('asks for a fresh sign-in after the passkey sheet changed the password', async () => {
+        passkeySignIn.mockRejectedValue(new NativeAuthPasswordChanged())
+        const { container } = render(<LoginModal />, { wrapper: QueryWrapper })
+        await click(byTestId(container, 'login-passkey'))
+
+        await vi.waitFor(() =>
+            expect(byTestId(container, 'sign-in-notice')?.textContent).toContain(
+                'new password is set'
+            )
+        )
+        expect(container.textContent).not.toContain('Sign-in was cancelled')
     })
 
     it('shows the enrollment step when the organization requires MFA', () => {

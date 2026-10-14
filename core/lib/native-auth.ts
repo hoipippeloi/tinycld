@@ -1,4 +1,7 @@
-import { NativeAuthCancelled } from '@tinycld/core/lib/native-auth-errors'
+import {
+    NativeAuthCancelled,
+    NativeAuthPasswordChanged,
+} from '@tinycld/core/lib/native-auth-errors'
 import { PB_SERVER_ADDR, pb } from '@tinycld/core/lib/pocketbase'
 import type { AuthResponse } from '@tinycld/core/lib/sign-in-step'
 import * as Crypto from 'expo-crypto'
@@ -47,7 +50,8 @@ export function readCallbackQuery(url: string): Record<string, string> {
  * Opens the server's /a/native-auth page in the system browser sheet and
  * waits for it to send the user back. Resolves to the query of the callback
  * URL. A dismissed sheet, or the page's "Back to the app" link, rejects with
- * NativeAuthCancelled.
+ * NativeAuthCancelled; a sheet that replaced a temporary password instead of
+ * signing in rejects with NativeAuthPasswordChanged.
  */
 export async function openNativeAuthSheet(params: SheetParams): Promise<Record<string, string>> {
     // In the fragment, not the query: the browser never sends a fragment to
@@ -60,6 +64,7 @@ export async function openNativeAuthSheet(params: SheetParams): Promise<Record<s
     if (result.type !== 'success') throw new NativeAuthCancelled()
     const returned = readCallbackQuery(result.url)
     if (returned.error) throw new NativeAuthCancelled()
+    if (returned.result === 'password_changed') throw new NativeAuthPasswordChanged()
     return returned
 }
 

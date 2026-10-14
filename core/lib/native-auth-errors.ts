@@ -9,3 +9,14 @@ export class NativeAuthCancelled extends Error {
         this.name = 'NativeAuthCancelled'
     }
 }
+
+/**
+ * The sheet replaced an admin-set temporary password instead of signing in.
+ * The app asks the user to sign in again with the new password.
+ */
+export class NativeAuthPasswordChanged extends Error {
+    constructor() {
+        super('Your new password is set. Sign in with it.')
+        this.name = 'NativeAuthPasswordChanged'
+    }
+}
