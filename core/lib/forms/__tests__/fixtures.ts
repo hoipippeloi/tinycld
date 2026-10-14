@@ -1,4 +1,5 @@
 import type { FormDefinition } from '../definition'
+import type { FormHostDef } from '../host'
 
 export const bugDefinition: FormDefinition = {
     version: 1,
@@ -55,4 +56,42 @@ export const bugDefinition: FormDefinition = {
     ],
     defaults: { severity: 'low' },
     submit: { required: ['title'] },
+}
+
+export const widgetHost: FormHostDef = {
+    key: 'gizmos:widget',
+    label: 'Widget',
+    collection: 'gizmos_widgets',
+    formColumn: 'form',
+    fieldsColumn: 'fields',
+    columns: ['name', 'notes', 'due', 'owner', 'position'],
+    builtin: [
+        { key: 'name', label: 'Name', kind: 'text', storage: 'column', required: true },
+        {
+            key: 'notes',
+            label: 'Notes',
+            kind: 'markdown',
+            storage: 'column',
+            collaborative: true,
+            component: 'NotesField',
+        },
+        { key: 'due', label: 'Due', kind: 'date', storage: 'column' },
+        { key: 'owner', label: 'Owner', kind: 'user', storage: 'column' },
+        { key: 'tasks', label: 'Tasks', kind: 'checklist', storage: 'rows', mapper: 'tasksMapper' },
+        {
+            key: 'comments',
+            label: 'Comments',
+            kind: 'section',
+            storage: 'none',
+            component: 'CommentsSection',
+        },
+    ],
+    files: {
+        collection: 'gizmos_files',
+        recordColumn: 'widget',
+        fieldColumn: 'field',
+        sizeColumn: 'size',
+        uploaderColumn: 'uploaded_by',
+    },
+    collaborative: { fragment: 'widget:{record}:{format}:{key}' },
 }

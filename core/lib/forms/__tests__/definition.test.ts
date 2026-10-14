@@ -24,6 +24,12 @@ describe('definitionSchema', () => {
         expect(r.success).toBe(false)
         expect(JSON.stringify(r.error?.issues)).toContain('duplicate')
     })
+    it('rejects a duplicate rule key', () => {
+        const rules = [bugDefinition.rules[0], { ...bugDefinition.rules[0] }]
+        const r = definitionSchema.safeParse({ ...bugDefinition, rules })
+        expect(r.success).toBe(false)
+        expect(JSON.stringify(r.error?.issues)).toContain('duplicate rule key r1')
+    })
     it('rejects a key that is not a slug', () => {
         const bad = { ...bugDefinition.fields[1], key: 'Bad Key' }
         expect(

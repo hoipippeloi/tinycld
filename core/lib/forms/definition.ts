@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { FormHostDef } from './host'
 
 export const FIELD_WIDTHS = ['full', 'half', 'third', 'quarter'] as const
 export type FieldWidth = (typeof FIELD_WIDTHS)[number]
@@ -188,6 +189,16 @@ export const definitionSchema = z
                 })
             pages.add(p.key)
         })
+        const ruleKeys = new Set<string>()
+        def.rules.forEach((r, i) => {
+            if (ruleKeys.has(r.key))
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['rules', i, 'key'],
+                    message: `duplicate rule key ${r.key}`,
+                })
+            ruleKeys.add(r.key)
+        })
         const kinds = new Map<string, string>()
         def.fields.forEach((f, i) => {
             if (kinds.has(f.key))
@@ -241,3 +252,66 @@ export const definitionSchema = z
 
 export type FormDefinition = z.infer<typeof definitionSchema>
 export type FormDefinitionInput = z.input<typeof definitionSchema>
+
+export interface DefinitionIssue {
+    path: (string | number)[]
+    message: string
+}
+
+/** Checks a definition against the host it belongs to. Mirrored in Go (server/forms/definition.go). */
+export function validateDefinitionForHost(
+    def: FormDefinition,
+    host: FormHostDef
+): DefinitionIssue[] {
+    const issues: DefinitionIssue[] = []
+    const builtins = new Map(host.builtin.map(b => [b.key, b]))
+    const seen = new Set<string>()
+    def.fields.forEach((f, i) => {
+        if (f.kind === 'builtin') {
+            const b = builtins.get(f.key)
+            if (!b)
+                issues.push({
+                    path: ['fields', i, 'key'],
+                    message: `${f.key} is not a built-in field of ${host.label}`,
+                })
+            else if (b.required && f.hidden)
+                issues.push({
+                    path: ['fields', i, 'hidden'],
+                    message: `${f.key} is required by the record and cannot be hidden`,
+                })
+            seen.add(f.key)
+            return
+        }
+        if (builtins.has(f.key))
+            issues.push({
+                path: ['fields', i, 'key'],
+                message: `${f.key} is a built-in field and cannot be a custom field`,
+            })
+        else if (host.columns.includes(f.key))
+            issues.push({
+                path: ['fields', i, 'key'],
+                message: `${f.key} is a column of the record and cannot be a custom field`,
+            })
+        if ('collaborative' in f && f.collaborative && !host.collaborative) {
+            issues.push({
+                path: ['fields', i, 'collaborative'],
+                message: `${host.label} does not support collaborative fields`,
+            })
+        }
+    })
+    for (const b of host.builtin)
+        if (!seen.has(b.key))
+            issues.push({ path: ['fields'], message: `missing built-in field ${b.key}` })
+    def.rules.forEach((r, ri) => {
+        r.when.forEach((c, ci) => {
+            const b = builtins.get(c.field)
+            if (b && !OPERATORS_BY_KIND[b.kind]?.includes(c.op)) {
+                issues.push({
+                    path: ['rules', ri, 'when', ci, 'op'],
+                    message: `${c.op} is not valid for a ${b.kind} field`,
+                })
+            }
+        })
+    })
+    return issues
+}
