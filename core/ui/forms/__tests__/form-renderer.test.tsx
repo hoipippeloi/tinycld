@@ -248,3 +248,30 @@ describe('FormRenderer rules and modes', () => {
         expect(formRef.current?.getValues('due')).toBe('2026-02-02')
     })
 })
+
+describe('FormRenderer wizard keyboard and errors', () => {
+    it('moves to the next page on Enter in a single-line input', async () => {
+        const { container } = render(<Harness layout="wizard" />)
+        const input = byTestId(container, 'form-input-name') as HTMLInputElement
+        fireEvent.input(input, { target: { value: 'Login fails' } })
+        input.dispatchEvent(new Event('SubmitEditing'))
+        await waitFor(() => expect(byTestId(container, 'form-field-steps')).toBeTruthy())
+    })
+    it('shows the error summary after a Next that fails', async () => {
+        const { container, queryByText } = render(<Harness layout="wizard" />)
+        expect(queryByText('Please fix the following errors:')).toBeNull()
+        fireEvent.click(byTestId(container, 'form-wizard-next') as Element)
+        await waitFor(() => expect(queryByText('Please fix the following errors:')).toBeTruthy())
+    })
+})
+
+describe('FormRenderer labels', () => {
+    it('lets a single-choice list show its own label instead of the cell', () => {
+        const { container } = render(<Harness layout="sections" />)
+        const severity = byTestId(container, 'form-field-severity')
+        expect(severity?.querySelector('[nativeID="form-label-severity"]')).toBeNull()
+        expect(severity?.textContent).toContain('Severity')
+        const name = byTestId(container, 'form-field-name')
+        expect(name?.querySelector('[nativeID="form-label-name"]')?.textContent).toBe('Name')
+    })
+})

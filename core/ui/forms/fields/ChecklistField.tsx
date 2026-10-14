@@ -15,6 +15,7 @@ export interface ChecklistFieldProps {
     recordId?: string
     disabled?: boolean
     testID?: string
+    accessibilityLabel?: string
 }
 
 interface Store {
@@ -52,6 +53,7 @@ interface ViewProps {
     store: Store
     disabled?: boolean
     testID: string
+    accessibilityLabel?: string
 }
 
 function Row({ item, store, disabled, testID }: ViewProps & { item: ChecklistItem }) {
@@ -121,9 +123,9 @@ function Composer({ store, disabled, testID }: ViewProps) {
     )
 }
 
-function ChecklistBody({ store, disabled, testID }: ViewProps) {
+function ChecklistBody({ store, disabled, testID, accessibilityLabel }: ViewProps) {
     return (
-        <View testID={testID}>
+        <View testID={testID} accessibilityLabel={accessibilityLabel}>
             <Rows store={store} disabled={disabled} testID={testID} />
             <Composer store={store} disabled={disabled} testID={testID} />
         </View>
@@ -135,9 +137,17 @@ function LocalChecklist({
     onChange,
     disabled,
     testID,
+    accessibilityLabel,
 }: ChecklistFieldProps & { testID: string }) {
     const store = useLocalStore(value, onChange)
-    return <ChecklistBody store={store} disabled={disabled} testID={testID} />
+    return (
+        <ChecklistBody
+            store={store}
+            disabled={disabled}
+            testID={testID}
+            accessibilityLabel={accessibilityLabel}
+        />
+    )
 }
 
 function MapperChecklist({
@@ -145,14 +155,23 @@ function MapperChecklist({
     recordId,
     disabled,
     testID,
+    accessibilityLabel,
 }: {
     mapper: RowMapper
     recordId: string
     disabled?: boolean
     testID: string
+    accessibilityLabel?: string
 }) {
     const store = useMapperStore(mapper, recordId)
-    return <ChecklistBody store={store} disabled={disabled} testID={testID} />
+    return (
+        <ChecklistBody
+            store={store}
+            disabled={disabled}
+            testID={testID}
+            accessibilityLabel={accessibilityLabel}
+        />
+    )
 }
 
 export function ChecklistField(props: ChecklistFieldProps) {
@@ -164,6 +183,7 @@ export function ChecklistField(props: ChecklistFieldProps) {
                 recordId={props.recordId}
                 disabled={props.disabled}
                 testID={testID}
+                accessibilityLabel={props.accessibilityLabel}
             />
         )
     }

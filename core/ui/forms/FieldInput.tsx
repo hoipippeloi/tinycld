@@ -34,6 +34,8 @@ export interface FieldInputProps {
     /** Options from a set_options rule, overriding the field's own. */
     options?: SelectOption[]
     collab?: CollabDoc | null
+    /** Enter in a single-line input; the wizard moves to the next page. */
+    onSubmitEditing?: () => void
 }
 
 type Resolved = ReturnType<typeof resolveKind>
@@ -42,6 +44,8 @@ interface KindProps extends FieldInputProps {
     resolved: Resolved
     disabled: boolean
     testID: string
+    /** The field's label, read by assistive technology as the input's name. */
+    label: string
 }
 
 function Uncontrolled<T>({
@@ -95,15 +99,17 @@ function CheckboxRows({
     onToggle,
     disabled,
     testID,
+    label,
 }: {
     options: SelectOption[]
     selected: string[]
     onToggle: (v: string) => void
     disabled: boolean
     testID: string
+    label: string
 }) {
     return (
-        <View testID={testID}>
+        <View testID={testID} accessibilityLabel={label}>
             {options.map(o => (
                 <CheckboxRow
                     key={o.value}
@@ -123,12 +129,14 @@ function CheckboxGroup({
     options,
     disabled,
     testID,
+    label,
 }: {
     name: string
     control: Control<FormValues>
     options: SelectOption[]
     disabled: boolean
     testID: string
+    label: string
 }) {
     return (
         <Uncontrolled<string[] | null>
@@ -147,6 +155,7 @@ function CheckboxGroup({
                         onToggle={toggle}
                         disabled={disabled}
                         testID={testID}
+                        label={label}
                     />
                 )
             }}
@@ -154,7 +163,7 @@ function CheckboxGroup({
     )
 }
 
-function NumberKind({ field, control, resolved, disabled, testID }: KindProps) {
+function NumberKind({ field, control, resolved, disabled, testID, label }: KindProps) {
     const { custom } = resolved
     const num = custom?.kind === 'number' ? custom : undefined
     return (
@@ -166,17 +175,34 @@ function NumberKind({ field, control, resolved, disabled, testID }: KindProps) {
             increment={num?.step}
             disabled={disabled}
             testID={testID}
+            accessibilityLabel={label}
         />
     )
 }
 
-function SelectKind({ field, control, resolved, options, disabled, testID }: KindProps) {
+function selectDisplay(resolved: Resolved): 'dropdown' | 'radio' | 'checkbox' {
     const { custom, builtin } = resolved
     const sel = custom?.kind === 'select' ? custom : undefined
-    const opts = options ?? sel?.options ?? []
-    const display = sel?.display ?? 'dropdown'
     const multiple = sel?.multiple ?? builtin?.multiple ?? false
-    if (multiple || display === 'checkbox') {
+    return multiple ? 'checkbox' : (sel?.display ?? 'dropdown')
+}
+
+/**
+ * True when the input renders the field's label itself (a toggle, a radio
+ * list, a single-choice list), so the cell does not repeat it.
+ */
+export function rendersOwnLabel(host: FormHost, field: FormField, ui: FormHostUi | null): boolean {
+    const resolved = resolveKind(host, field)
+    if (hasHostComponent(resolved, ui)) return false
+    if (resolved.kind === 'toggle') return true
+    return resolved.kind === 'select' && selectDisplay(resolved) !== 'checkbox'
+}
+
+function SelectKind({ field, control, resolved, options, disabled, testID, label }: KindProps) {
+    const sel = resolved.custom?.kind === 'select' ? resolved.custom : undefined
+    const opts = options ?? sel?.options ?? []
+    const display = selectDisplay(resolved)
+    if (display === 'checkbox') {
         return (
             <CheckboxGroup
                 name={field.key}
@@ -184,6 +210,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID }: Kin
                 options={opts}
                 disabled={disabled}
                 testID={testID}
+                label={label}
             />
         )
     }
@@ -192,7 +219,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID }: Kin
             <RadioInput
                 control={control}
                 name={field.key}
-                label=""
+                label={label}
                 options={opts}
                 disabled={disabled}
                 wrapperProps={{ testID }}
@@ -203,7 +230,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID }: Kin
         <SelectInput
             control={control}
             name={field.key}
-            label=""
+            label={label}
             options={opts}
             disabled={disabled}
             wrapperProps={{ testID }}
@@ -211,7 +238,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID }: Kin
     )
 }
 
-function DateKind({ field, control, resolved, disabled, testID }: KindProps) {
+function DateKind({ field, control, resolved, disabled, testID, label }: KindProps) {
     const withTime = resolved.custom?.kind === 'date' && resolved.custom.time
     return (
         <Uncontrolled<string | null>
@@ -224,13 +251,14 @@ function DateKind({ field, control, resolved, disabled, testID }: KindProps) {
                     withTime={withTime}
                     disabled={disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )}
         />
     )
 }
 
-function UserKind({ field, control, resolved, disabled, testID }: KindProps) {
+function UserKind({ field, control, resolved, disabled, testID, label }: KindProps) {
     const multiple =
         (resolved.custom?.kind === 'user' && resolved.custom.multiple) ||
         resolved.builtin?.multiple ||
@@ -246,6 +274,7 @@ function UserKind({ field, control, resolved, disabled, testID }: KindProps) {
                     multiple={multiple}
                     disabled={disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )}
         />
@@ -261,6 +290,7 @@ function ChecklistKind({
     recordId,
     disabled,
     testID,
+    label,
 }: KindProps) {
     const { builtin } = resolved
     const hostBacked = mode === 'edit' || mode === 'read'
@@ -277,13 +307,23 @@ function ChecklistKind({
                     recordId={recordId}
                     disabled={disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )}
         />
     )
 }
 
-function FileKind({ host, field, control, resolved, recordId, disabled, testID }: KindProps) {
+function FileKind({
+    host,
+    field,
+    control,
+    resolved,
+    recordId,
+    disabled,
+    testID,
+    label,
+}: KindProps) {
     const file = resolved.custom?.kind === 'file' ? resolved.custom : undefined
     if (!recordId) return <Text className="text-muted-foreground">Add files after creating.</Text>
     return (
@@ -301,6 +341,7 @@ function FileKind({ host, field, control, resolved, recordId, disabled, testID }
                     accept={file?.accept ?? []}
                     disabled={disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )}
         />
@@ -322,6 +363,7 @@ function RichTextKind({
     collab,
     disabled,
     testID,
+    label,
 }: KindProps) {
     const isMarkdown = resolved.kind === 'markdown'
     const template = host.collaborative?.fragment
@@ -343,6 +385,7 @@ function RichTextKind({
                     fragment={fragment}
                     disabled={disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )}
         />
@@ -378,7 +421,7 @@ function hasHostComponent(resolved: Resolved, ui: FormHostUi | null): boolean {
 }
 
 function KindInput(props: KindProps) {
-    const { field, control, resolved, disabled, testID } = props
+    const { field, control, resolved, disabled, testID, label } = props
     switch (resolved.kind) {
         case 'text':
             return (
@@ -388,6 +431,8 @@ function KindInput(props: KindProps) {
                     placeholder={field.placeholder}
                     editable={!disabled}
                     testID={testID}
+                    accessibilityLabel={label}
+                    onSubmitEditing={props.onSubmitEditing}
                 />
             )
         case 'textarea':
@@ -398,6 +443,7 @@ function KindInput(props: KindProps) {
                     placeholder={field.placeholder}
                     editable={!disabled}
                     testID={testID}
+                    accessibilityLabel={label}
                 />
             )
         case 'number':
@@ -407,7 +453,7 @@ function KindInput(props: KindProps) {
                 <Toggle
                     control={control}
                     name={field.key}
-                    label=""
+                    label={label}
                     disabled={disabled}
                     wrapperProps={{ testID }}
                 />
@@ -437,6 +483,7 @@ export function FieldInput(props: FieldInputProps) {
         resolved,
         disabled: props.mode === 'read' || props.mode === 'design',
         testID: `form-input-${props.field.key}`,
+        label: props.field.label,
     }
     if (hasHostComponent(resolved, props.ui)) {
         // A section is host chrome with no value of its own; it has nothing to show before the record exists.

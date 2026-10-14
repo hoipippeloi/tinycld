@@ -11,6 +11,7 @@ export interface UserFieldProps {
     multiple: boolean
     disabled?: boolean
     testID?: string
+    accessibilityLabel?: string
 }
 
 function UserChip({
@@ -64,7 +65,14 @@ function toIds(value: string | string[] | null): string[] {
     return value ? [value] : []
 }
 
-export function UserField({ value, onChange, multiple, disabled, testID }: UserFieldProps) {
+export function UserField({
+    value,
+    onChange,
+    multiple,
+    disabled,
+    testID,
+    accessibilityLabel,
+}: UserFieldProps) {
     const ids = toIds(value)
     const add = (id: string) => {
         if (!id) return
@@ -73,7 +81,7 @@ export function UserField({ value, onChange, multiple, disabled, testID }: UserF
     }
     const remove = (id: string) => (multiple ? onChange(ids.filter(x => x !== id)) : onChange(null))
     return (
-        <View testID={testID}>
+        <View testID={testID} accessibilityLabel={accessibilityLabel}>
             <Chips ids={ids} onRemove={remove} disabled={disabled} />
             <View pointerEvents={disabled ? 'none' : 'auto'}>
                 <RelationRecordPicker

@@ -13,6 +13,7 @@ export interface DateFieldProps {
     withTime: boolean
     disabled?: boolean
     testID?: string
+    accessibilityLabel?: string
 }
 
 function toDate(value: string | null): Date {
@@ -28,7 +29,14 @@ function toIso(date: Date, time: string): string {
     return time ? `${day}T${time}` : day
 }
 
-export function DateField({ value, onChange, withTime, disabled, testID }: DateFieldProps) {
+export function DateField({
+    value,
+    onChange,
+    withTime,
+    disabled,
+    testID,
+    accessibilityLabel = 'Date',
+}: DateFieldProps) {
     const [isOpen, setIsOpen] = useState(false)
     const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
@@ -46,7 +54,7 @@ export function DateField({ value, onChange, withTime, disabled, testID }: DateF
                 placeholderTextColor={muted}
                 style={{ color: fg, flex: 1 }}
                 editable={!disabled}
-                accessibilityLabel="Date"
+                accessibilityLabel={accessibilityLabel}
                 testID={testID}
             />
             <Popover

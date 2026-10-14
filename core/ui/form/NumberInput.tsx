@@ -13,6 +13,8 @@ export type NumberInputProps<T extends FieldValues = Record<string, unknown>> = 
     max?: number
     disabled?: boolean
     testID?: string
+    /** Names the input for assistive technology when no visible label is passed. */
+    accessibilityLabel?: string
     wrapperProps?: ViewProps
 }
 
@@ -26,6 +28,7 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
     max,
     disabled = false,
     testID,
+    accessibilityLabel,
     wrapperProps = {},
 }: NumberInputProps<T>) {
     const placeholderColor = useThemeColor('field-placeholder')
@@ -86,7 +89,7 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
                     onBlur={field.onBlur}
                     keyboardType="numeric"
                     editable={!disabled}
-                    accessibilityLabel={label}
+                    accessibilityLabel={accessibilityLabel ?? label}
                     testID={testID ?? name}
                     placeholderTextColor={placeholderColor}
                     className={`flex-1 border rounded-lg px-3 py-2.5 text-center text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}

@@ -1,15 +1,19 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useForm, useWatch } from 'react-hook-form'
 import { Text } from 'react-native'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import type { FormField } from '../../../lib/forms/definition'
 import type { CollabDoc, FormHostUi } from '../../../lib/forms/host-ui'
 import type { FormValues } from '../../../lib/forms/logic'
-import { FieldInput } from '../FieldInput'
+import { FieldInput, rendersOwnLabel } from '../FieldInput'
 
 afterEach(cleanup)
+
+// FileField stamps the uploader; the signed-in user is all it reads from auth.
+vi.mock('@tinycld/core/lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
 
 const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
 
@@ -108,14 +112,10 @@ describe('FieldInput', () => {
     it('is read-only for a collaborative field in edit mode with no room', () => {
         const field: FormField = { ...base, key: 'notes', kind: 'builtin' }
         const editable = render(<Harness field={field} mode="create" />)
-        const editableCount = editable.container.querySelectorAll(
-            '[accessibilityLabel="Edit text"]'
-        ).length
+        const editableCount = editable.container.querySelectorAll('[accessibilityLabel="L"]').length
         cleanup()
         const noRoom = render(<Harness field={field} mode="edit" recordId="r1" collab={null} />)
-        const noRoomCount = noRoom.container.querySelectorAll(
-            '[accessibilityLabel="Edit text"]'
-        ).length
+        const noRoomCount = noRoom.container.querySelectorAll('[accessibilityLabel="L"]').length
         expect(editableCount).toBeGreaterThan(0)
         expect(noRoomCount).toBe(0)
     })
@@ -154,5 +154,56 @@ describe('FieldInput', () => {
         cleanup()
         const create = render(<Harness field={field} mode="create" />)
         expect(editableOf(create.container)).toBe(true)
+    })
+
+    it.each([
+        ['text', { kind: 'text' as const }, ''],
+        ['textarea', { kind: 'textarea' as const }, ''],
+        ['number', { kind: 'number' as const }, 0],
+        ['date', { kind: 'date' as const, time: false }, null],
+        ['checklist', { kind: 'checklist' as const }, []],
+        ['richtext', { kind: 'richtext' as const, collaborative: false }, ''],
+        ['user', { kind: 'user' as const, multiple: false }, null],
+        ['checkbox select', { ...select, display: 'checkbox' as const }, []],
+    ])('names the %s input with the field label', (_, kind, initial) => {
+        const field = { ...base, key: 'k', label: 'Due by', ...kind } as FormField
+        const { container } = render(<Harness field={field} initial={initial} />)
+        expect(container.querySelector('[accessibilityLabel="Due by"]')).toBeTruthy()
+    })
+
+    it('names the file field with the field label once the record exists', () => {
+        const field: FormField = {
+            ...base,
+            key: 'f',
+            label: 'Shots',
+            kind: 'file',
+            multiple: true,
+            accept: [],
+        }
+        const client = new QueryClient()
+        const { container } = render(
+            <QueryClientProvider client={client}>
+                <Harness field={field} mode="edit" recordId="r1" initial={[]} />
+            </QueryClientProvider>
+        )
+        expect(container.querySelector('[accessibilityLabel="Shots"]')).toBeTruthy()
+    })
+
+    it.each([
+        ['toggle', { kind: 'toggle' as const }],
+        ['radio select', { ...select, display: 'radio' as const }],
+        ['dropdown select', { ...select, display: 'dropdown' as const }],
+    ])('shows the label inside the %s input, which renders its own', (_, kind) => {
+        const field = { ...base, key: 'k', label: 'Urgent', ...kind } as FormField
+        const { getByText } = render(<Harness field={field} />)
+        expect(getByText('Urgent')).toBeTruthy()
+        expect(rendersOwnLabel(host, field, null)).toBe(true)
+    })
+
+    it('lets the cell show the label for inputs that do not render one', () => {
+        const field: FormField = { ...base, key: 'k', kind: 'text' }
+        expect(rendersOwnLabel(host, field, null)).toBe(false)
+        const checkbox = { ...base, ...select, display: 'checkbox' as const } as FormField
+        expect(rendersOwnLabel(host, checkbox, null)).toBe(false)
     })
 })

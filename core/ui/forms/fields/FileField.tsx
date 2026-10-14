@@ -23,6 +23,7 @@ export interface FileFieldProps {
     accept: string[]
     disabled?: boolean
     testID?: string
+    accessibilityLabel?: string
 }
 
 type FileRow = { id: string; [column: string]: unknown }
@@ -120,6 +121,7 @@ export function FileField({
     accept,
     disabled,
     testID,
+    accessibilityLabel,
 }: FileFieldProps) {
     const { user } = useAuth()
     const { pickFiles } = usePickFiles()
@@ -167,7 +169,7 @@ export function FileField({
     if (!files)
         return <Text className="text-muted-foreground">{host.label} has no file storage.</Text>
     return (
-        <View testID={testID}>
+        <View testID={testID} accessibilityLabel={accessibilityLabel}>
             <FileRows
                 rows={rows}
                 nameColumn={files.nameColumn}

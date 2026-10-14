@@ -16,6 +16,8 @@ export interface FieldCellProps {
     /** The builder's drag handle, rendered before the label. */
     handle?: ReactNode
     isSelected?: boolean
+    /** The input shows the label itself (a toggle, a radio or choice list), so the cell does not. */
+    hideLabel?: boolean
 }
 
 // A border on both platforms; the border is always present so selecting a cell never shifts its layout.
@@ -25,6 +27,23 @@ const UNSELECTED_CLASS = 'border-transparent'
 function RequiredMark({ isVisible }: { isVisible: boolean }) {
     if (!isVisible) return null
     return <Text className="text-destructive ml-0.5">*</Text>
+}
+
+function CellLabel({
+    fieldKey,
+    label,
+    isVisible,
+}: {
+    fieldKey: string
+    label: string
+    isVisible: boolean
+}) {
+    if (!isVisible) return null
+    return (
+        <Text className="text-foreground text-sm font-medium" nativeID={`form-label-${fieldKey}`}>
+            {label}
+        </Text>
+    )
 }
 
 function CellError({ message }: { message?: string }) {
@@ -53,6 +72,7 @@ export function FieldCell({
     testID,
     handle,
     isSelected,
+    hideLabel = false,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
     const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
@@ -63,12 +83,7 @@ export function FieldCell({
         >
             <View className="flex-row items-center mb-1">
                 {handle}
-                <Text
-                    className="text-foreground text-sm font-medium"
-                    nativeID={`form-label-${fieldKey}`}
-                >
-                    {label}
-                </Text>
+                <CellLabel fieldKey={fieldKey} label={label} isVisible={!hideLabel} />
                 <RequiredMark isVisible={required} />
             </View>
             <CellDescription text={description} />

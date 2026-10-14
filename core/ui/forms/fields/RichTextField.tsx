@@ -13,6 +13,7 @@ export interface RichTextFieldProps {
     fragment?: string
     disabled?: boolean
     testID?: string
+    accessibilityLabel?: string
 }
 
 // Core has no HTML renderer, so the read view shows the text content only.
@@ -41,6 +42,7 @@ export function RichTextField({
     fragment,
     disabled,
     testID,
+    accessibilityLabel = 'Edit text',
 }: RichTextFieldProps) {
     const collabOptions = collabOptionsFor(collab, fragment)
     const { body } = useLazyEditor({
@@ -55,7 +57,7 @@ export function RichTextField({
         onCommit: collabOptions ? () => {} : onChange,
         renderEditor: slots => <slots.EditorComponent />,
         testID,
-        accessibilityLabel: 'Edit text',
+        accessibilityLabel,
     })
     return <View>{body}</View>
 }

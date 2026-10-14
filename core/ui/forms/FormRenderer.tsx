@@ -8,7 +8,7 @@ import { type MutableRefObject, type ReactNode, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
-import { FieldInput } from './FieldInput'
+import { FieldInput, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
@@ -46,6 +46,8 @@ interface BodyProps extends FormRendererProps {
     state: FormState
     containerWidth: number
     mode: FieldMode
+    /** Enter in a single-line input; set by the wizard. */
+    onSubmitEditing?: () => void
 }
 
 interface PageProps extends BodyProps {
@@ -69,6 +71,7 @@ function visibleFieldsOf(
 
 function Cell(props: CellProps) {
     const { field, state, containerWidth, host, ui, form, mode, recordId, collab, design } = props
+    const hideLabel = rendersOwnLabel(host, field, ui)
     const fieldState = state.fields[field.key]
     const error = form.formState.errors[field.key]?.message
     const cell = (
@@ -82,6 +85,7 @@ function Cell(props: CellProps) {
             containerWidth={containerWidth}
             handle={design?.renderHandle?.(field.key)}
             isSelected={design?.selectedKey === field.key}
+            hideLabel={hideLabel}
         >
             <FieldInput
                 host={host}
@@ -92,6 +96,7 @@ function Cell(props: CellProps) {
                 recordId={recordId}
                 options={fieldState?.options}
                 collab={collab}
+                onSubmitEditing={props.onSubmitEditing}
             />
         </FieldCell>
     )
@@ -127,9 +132,16 @@ function SectionTitle({ page, isVisible }: { page: FormPage; isVisible: boolean 
     )
 }
 
-function SubmitErrors({ form }: { form: UseFormReturn<FormValues> }) {
+function SubmitErrors({
+    form,
+    attempted = false,
+}: {
+    form: UseFormReturn<FormValues>
+    /** A wizard Next that failed counts as an attempt, before any submit. */
+    attempted?: boolean
+}) {
     const { errors, isSubmitted } = form.formState
-    return <FormErrorSummary errors={errors} isEnabled={isSubmitted} />
+    return <FormErrorSummary errors={errors} isEnabled={isSubmitted || attempted} />
 }
 
 function Sections(props: BodyProps) {
@@ -149,22 +161,26 @@ function Sections(props: BodyProps) {
 }
 
 function useWizard(props: BodyProps) {
-    // The current step is local, synchronous UI state: nothing else needs it.
-    const [index, setIndex] = useState(0)
+    // The current step and whether Next failed on it: local, synchronous UI
+    // state that nothing else needs.
+    const [step, setStep] = useState({ index: 0, attemptedNext: false })
     const { definition, state, form, onSubmit } = props
     const pages = definition.pages.filter(p => state.pages[p.key]?.visible)
-    const current = Math.min(index, pages.length - 1)
+    const current = Math.min(step.index, pages.length - 1)
     const page = pages[current]
     const isLast = current >= pages.length - 1
     const pageKeys = definition.fields.filter(f => f.page === page?.key).map(f => f.key)
     const next = async () => {
         const ok = await form.trigger(pageKeys)
-        if (!ok) return
+        if (!ok) {
+            setStep({ index: current, attemptedNext: true })
+            return
+        }
         if (isLast) await form.handleSubmit(() => onSubmit?.())()
-        else setIndex(current + 1)
+        else setStep({ index: current + 1, attemptedNext: false })
     }
-    const back = () => setIndex(Math.max(0, current - 1))
-    return { pages, page, index: current, isLast, next, back }
+    const back = () => setStep({ index: Math.max(0, current - 1), attemptedNext: false })
+    return { pages, page, index: current, isLast, next, back, attemptedNext: step.attemptedNext }
 }
 
 function BackButton({ isVisible, onPress }: { isVisible: boolean; onPress: () => void }) {
@@ -204,8 +220,8 @@ function Wizard(props: BodyProps) {
     return (
         <View>
             <WizardSteps pages={w.pages} index={w.index} />
-            <SubmitErrors form={props.form} />
-            <PageFields {...props} page={w.page} />
+            <SubmitErrors form={props.form} attempted={w.attemptedNext} />
+            <PageFields {...props} page={w.page} onSubmitEditing={w.next} />
             <WizardFooter
                 isFirst={w.index === 0}
                 isLast={w.isLast}
