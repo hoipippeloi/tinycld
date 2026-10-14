@@ -27,6 +27,10 @@ type Files struct {
 	FieldColumn    string `json:"fieldColumn"`
 	SizeColumn     string `json:"sizeColumn"`
 	UploaderColumn string `json:"uploaderColumn"`
+	// NameColumn holds the file's display name; defaults to "name".
+	NameColumn string `json:"nameColumn"`
+	// FileColumn is the PocketBase file field; defaults to "file".
+	FileColumn string `json:"fileColumn"`
 }
 
 type Collab struct {
@@ -65,6 +69,16 @@ func ParseHosts(raw []byte) (*Defs, error) {
 	var defs Defs
 	if err := json.Unmarshal(raw, &defs); err != nil {
 		return nil, fmt.Errorf("forms: parse hosts: %w", err)
+	}
+	for i := range defs.Hosts {
+		if f := defs.Hosts[i].Files; f != nil {
+			if f.NameColumn == "" {
+				f.NameColumn = "name"
+			}
+			if f.FileColumn == "" {
+				f.FileColumn = "file"
+			}
+		}
 	}
 	return &defs, nil
 }

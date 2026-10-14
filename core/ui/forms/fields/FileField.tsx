@@ -25,7 +25,7 @@ export interface FileFieldProps {
     testID?: string
 }
 
-type FileRow = { id: string; name?: string; [column: string]: unknown }
+type FileRow = { id: string; [column: string]: unknown }
 
 // The file collection is named by the host at runtime, so its columns cannot be keys of any one row type.
 function column(ref: object, name: string): string {
@@ -54,15 +54,17 @@ function useFieldFiles(host: FormHost, fieldKey: string, recordId: string) {
 
 function FileRowView({
     row,
+    nameColumn,
     onRemove,
     disabled,
 }: {
     row: FileRow
+    nameColumn: string
     onRemove: () => void
     disabled?: boolean
 }) {
     const fg = useThemeColor('foreground')
-    const label = String(row.name ?? row.id)
+    const label = String(row[nameColumn] ?? row.id)
     return (
         <View className="flex-row items-center py-1">
             <Text className="flex-1 text-foreground">{label}</Text>
@@ -79,10 +81,12 @@ function FileRowView({
 
 function FileRows({
     rows,
+    nameColumn,
     onRemove,
     disabled,
 }: {
     rows: FileRow[]
+    nameColumn: string
     onRemove: (id: string) => void
     disabled?: boolean
 }) {
@@ -92,6 +96,7 @@ function FileRows({
                 <FileRowView
                     key={row.id}
                     row={row}
+                    nameColumn={nameColumn}
                     onRemove={() => onRemove(row.id)}
                     disabled={disabled}
                 />
@@ -140,9 +145,10 @@ export function FileField({
                         [files.fieldColumn]: fieldKey,
                         [files.sizeColumn]: String(file.size),
                         [files.uploaderColumn]: user.id,
-                        name: file.name,
+                        [files.nameColumn]: file.name,
                     },
                     file,
+                    fileField: files.fileColumn,
                 })
                 ids.push(id)
             }
@@ -162,7 +168,12 @@ export function FileField({
         return <Text className="text-muted-foreground">{host.label} has no file storage.</Text>
     return (
         <View testID={testID}>
-            <FileRows rows={rows} onRemove={id => remove.mutate(id)} disabled={disabled} />
+            <FileRows
+                rows={rows}
+                nameColumn={files.nameColumn}
+                onRemove={id => remove.mutate(id)}
+                disabled={disabled}
+            />
             <Button
                 onPress={pick}
                 isDisabled={disabled || upload.isPending}

@@ -139,6 +139,17 @@ describe('validateDefinitionForHost', () => {
     })
 })
 
+describe('hostDefSchema files', () => {
+    it('defaults the name and file columns', () => {
+        expect(widgetHost.files).toMatchObject({ nameColumn: 'name', fileColumn: 'file' })
+        const parsed = hostDefSchema.parse({
+            ...widgetHost,
+            files: { ...widgetHost.files, nameColumn: 'title', fileColumn: 'blob' },
+        })
+        expect(parsed.files).toMatchObject({ nameColumn: 'title', fileColumn: 'blob' })
+    })
+})
+
 describe('resolveFragment', () => {
     it('substitutes record, format and key', () => {
         expect(resolveFragment('widget:{record}:{format}:{key}', 'abc', 'notes', 'md')).toBe(

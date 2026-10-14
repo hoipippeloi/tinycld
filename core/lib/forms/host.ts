@@ -64,6 +64,10 @@ export const hostDefSchema = z
                 fieldColumn: z.string().min(1),
                 sizeColumn: z.string().min(1),
                 uploaderColumn: z.string().min(1),
+                /** Holds the file's display name. */
+                nameColumn: z.string().min(1).default('name'),
+                /** The PocketBase file field. */
+                fileColumn: z.string().min(1).default('file'),
             })
             .optional(),
         collaborative: z

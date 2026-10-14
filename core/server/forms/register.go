@@ -1,7 +1,8 @@
-// replace tinycld/core/server/forms/register.go
 package forms
 
 import (
+	"fmt"
+
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/logging"
@@ -18,17 +19,12 @@ type Options struct {
 
 // Register reads the host registry and binds the forms hooks. With no hosts
 // it stays inert, so a lean shell binds nothing (composition_parity_test).
+// A hosts file that exists but cannot be read is a broken build, not a lean
+// shell: Register panics rather than start with every form write unchecked.
 func Register(app *pocketbase.PocketBase, opts Options) {
-	defs, err := LoadHosts(opts.HostsPath)
+	defs, err := resolveHosts(opts)
 	if err != nil {
-		log.Error("form hosts unreadable, forms disabled", "err", err)
-		return
-	}
-	if len(defs.Hosts) == 0 && len(opts.HostsJSON) > 0 {
-		if defs, err = ParseHosts(opts.HostsJSON); err != nil {
-			log.Error("embedded form hosts unreadable, forms disabled", "err", err)
-			return
-		}
+		panic(fmt.Sprintf("forms: cannot start with an unreadable host registry (%s): %v", opts.HostsPath, err))
 	}
 	if len(defs.Hosts) == 0 {
 		return
@@ -40,6 +36,21 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 		}
 		return se.Next()
 	})
+}
+
+// resolveHosts reads the generator's hosts file, falling back to the
+// embedded copy when the file is absent or empty. A missing file with no
+// embedded copy is an empty registry; a file or copy that does not parse is
+// an error.
+func resolveHosts(opts Options) (*Defs, error) {
+	defs, err := LoadHosts(opts.HostsPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(defs.Hosts) == 0 && len(opts.HostsJSON) > 0 {
+		return ParseHosts(opts.HostsJSON)
+	}
+	return defs, nil
 }
 
 func registerCore(app core.App, defs *Defs) {
