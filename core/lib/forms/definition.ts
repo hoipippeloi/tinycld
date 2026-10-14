@@ -1,0 +1,243 @@
+import { z } from 'zod'
+
+export const FIELD_WIDTHS = ['full', 'half', 'third', 'quarter'] as const
+export type FieldWidth = (typeof FIELD_WIDTHS)[number]
+
+export const CUSTOM_KINDS = [
+    'text',
+    'textarea',
+    'number',
+    'date',
+    'toggle',
+    'select',
+    'user',
+    'checklist',
+    'richtext',
+    'markdown',
+    'file',
+] as const
+export type CustomKind = (typeof CUSTOM_KINDS)[number]
+export const FIELD_KINDS = [...CUSTOM_KINDS, 'builtin'] as const
+export type FieldKind = (typeof FIELD_KINDS)[number]
+
+export const keySchema = z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{0,39}$/, 'Use lowercase letters, digits and underscores')
+
+export const CONDITION_OPS = [
+    'eq',
+    'neq',
+    'contains',
+    'starts_with',
+    'is_empty',
+    'not_empty',
+    'gt',
+    'lt',
+    'gte',
+    'lte',
+    'before',
+    'after',
+    'is_true',
+    'is_false',
+    'is',
+    'is_not',
+    'is_any_of',
+    'all_done',
+    'any_open',
+] as const
+export type ConditionOp = (typeof CONDITION_OPS)[number]
+
+/** Operators the builder offers and the schema accepts, by the kind a condition reads. */
+export const OPERATORS_BY_KIND: Record<string, readonly ConditionOp[]> = {
+    text: ['eq', 'neq', 'contains', 'starts_with', 'is_empty', 'not_empty'],
+    textarea: ['eq', 'neq', 'contains', 'starts_with', 'is_empty', 'not_empty'],
+    richtext: ['is_empty', 'not_empty'],
+    markdown: ['is_empty', 'not_empty'],
+    number: ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'is_empty', 'not_empty'],
+    date: ['before', 'after', 'is_empty', 'not_empty'],
+    toggle: ['is_true', 'is_false'],
+    select: ['is', 'is_not', 'is_any_of', 'is_empty', 'not_empty'],
+    user: ['is', 'is_not', 'is_any_of', 'is_empty', 'not_empty'],
+    checklist: ['all_done', 'any_open', 'is_empty'],
+    file: ['is_empty', 'not_empty'],
+    custom: ['is_empty', 'not_empty'],
+    section: [],
+}
+
+const optionSchema = z.object({
+    value: z.string().min(1).max(100),
+    label: z.string().min(1).max(120),
+})
+export type SelectOption = z.infer<typeof optionSchema>
+
+const base = {
+    key: keySchema,
+    page: keySchema,
+    label: z.string().trim().min(1).max(120),
+    description: z.string().max(500).optional(),
+    width: z.enum(FIELD_WIDTHS).default('full'),
+    required: z.boolean().default(false),
+    hidden: z.boolean().default(false),
+    placeholder: z.string().max(200).optional(),
+}
+
+const customFieldSchema = z.discriminatedUnion('kind', [
+    z.object({
+        ...base,
+        kind: z.literal('text'),
+        maxLength: z.number().int().positive().max(10000).optional(),
+    }),
+    z.object({
+        ...base,
+        kind: z.literal('textarea'),
+        rows: z.number().int().min(1).max(40).optional(),
+    }),
+    z.object({
+        ...base,
+        kind: z.literal('number'),
+        min: z.number().optional(),
+        max: z.number().optional(),
+        step: z.number().positive().optional(),
+    }),
+    z.object({ ...base, kind: z.literal('date'), time: z.boolean().default(false) }),
+    z.object({ ...base, kind: z.literal('toggle') }),
+    z.object({
+        ...base,
+        kind: z.literal('select'),
+        options: z.array(optionSchema).min(1),
+        display: z.enum(['dropdown', 'radio', 'checkbox']).default('dropdown'),
+        multiple: z.boolean().default(false),
+    }),
+    z.object({ ...base, kind: z.literal('user'), multiple: z.boolean().default(false) }),
+    z.object({ ...base, kind: z.literal('checklist') }),
+    z.object({ ...base, kind: z.literal('richtext'), collaborative: z.boolean().default(false) }),
+    z.object({ ...base, kind: z.literal('markdown'), collaborative: z.boolean().default(false) }),
+    z.object({
+        ...base,
+        kind: z.literal('file'),
+        multiple: z.boolean().default(false),
+        accept: z.array(z.string()).default([]),
+    }),
+])
+export type CustomField = z.infer<typeof customFieldSchema>
+
+/** A host built-in placed on the form. Kind, storage and component come from the host at render time. */
+const builtinRefSchema = z.object({ ...base, kind: z.literal('builtin') })
+export type BuiltinFieldRef = z.infer<typeof builtinRefSchema>
+
+const fieldSchema = z.union([customFieldSchema, builtinRefSchema])
+export type FormField = z.infer<typeof fieldSchema>
+
+const pageSchema = z.object({
+    key: keySchema,
+    title: z.string().trim().min(1).max(120),
+    description: z.string().max(500).optional(),
+})
+export type FormPage = z.infer<typeof pageSchema>
+
+const conditionValue = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
+const conditionSchema = z.object({
+    field: keySchema,
+    op: z.enum(CONDITION_OPS),
+    value: conditionValue.optional(),
+})
+export type RuleCondition = z.infer<typeof conditionSchema>
+
+const fieldTarget = z.object({ field: keySchema, page: z.undefined().optional() })
+const pageTarget = z.object({ page: keySchema, field: z.undefined().optional() })
+const target = z.union([fieldTarget, pageTarget])
+const actionSchema = z.union([
+    z.object({ action: z.literal('show') }).and(target),
+    z.object({ action: z.literal('hide') }).and(target),
+    z.object({ action: z.literal('require'), field: keySchema }),
+    z.object({
+        action: z.literal('set_options'),
+        field: keySchema,
+        options: z.array(optionSchema).min(1),
+    }),
+    z.object({ action: z.literal('set_value'), field: keySchema, value: z.unknown() }),
+])
+export type RuleAction = z.infer<typeof actionSchema>
+
+const ruleSchema = z.object({
+    key: keySchema,
+    match: z.enum(['all', 'any']).default('all'),
+    when: z.array(conditionSchema).min(1),
+    actions: z.array(actionSchema).min(1),
+})
+export type FormRule = z.infer<typeof ruleSchema>
+
+export const definitionSchema = z
+    .object({
+        version: z.literal(1),
+        pages: z.array(pageSchema).min(1),
+        fields: z.array(fieldSchema),
+        rules: z.array(ruleSchema).default([]),
+        /** key → literal or JSON Logic expression */
+        defaults: z.record(keySchema, z.unknown()).default({}),
+        submit: z.object({ required: z.array(keySchema).default([]) }).default({ required: [] }),
+    })
+    .superRefine((def, ctx) => {
+        const pages = new Set<string>()
+        def.pages.forEach((p, i) => {
+            if (pages.has(p.key))
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['pages', i, 'key'],
+                    message: `duplicate page key ${p.key}`,
+                })
+            pages.add(p.key)
+        })
+        const kinds = new Map<string, string>()
+        def.fields.forEach((f, i) => {
+            if (kinds.has(f.key))
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['fields', i, 'key'],
+                    message: `duplicate field key ${f.key}`,
+                })
+            kinds.set(f.key, f.kind)
+            if (!pages.has(f.page))
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['fields', i, 'page'],
+                    message: `unknown page ${f.page}`,
+                })
+        })
+        const requireField = (key: string, path: (string | number)[]) => {
+            if (!kinds.has(key))
+                ctx.addIssue({ code: 'custom', path, message: `unknown field ${key}` })
+        }
+        def.rules.forEach((r, ri) => {
+            r.when.forEach((c, ci) => {
+                requireField(c.field, ['rules', ri, 'when', ci, 'field'])
+                const kind = kinds.get(c.field)
+                // A builtin's real kind is only known with the host; validateDefinitionForHost rechecks it.
+                if (kind && kind !== 'builtin' && !OPERATORS_BY_KIND[kind]?.includes(c.op)) {
+                    ctx.addIssue({
+                        code: 'custom',
+                        path: ['rules', ri, 'when', ci, 'op'],
+                        message: `${c.op} is not valid for a ${kind} field`,
+                    })
+                }
+            })
+            r.actions.forEach((a, ai) => {
+                if ('field' in a && a.field)
+                    requireField(a.field, ['rules', ri, 'actions', ai, 'field'])
+                if ('page' in a && a.page && !pages.has(a.page)) {
+                    ctx.addIssue({
+                        code: 'custom',
+                        path: ['rules', ri, 'actions', ai, 'page'],
+                        message: `unknown page ${a.page}`,
+                    })
+                }
+            })
+        })
+        for (const key of Object.keys(def.defaults)) requireField(key, ['defaults', key])
+        def.submit.required.forEach((key, i) => {
+            requireField(key, ['submit', 'required', i])
+        })
+    })
+
+export type FormDefinition = z.infer<typeof definitionSchema>
+export type FormDefinitionInput = z.input<typeof definitionSchema>
