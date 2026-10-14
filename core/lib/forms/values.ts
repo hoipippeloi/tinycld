@@ -54,7 +54,7 @@ function schemaFor(
         case 'markdown': {
             let t = z.string()
             if (custom?.kind === 'text' && custom.maxLength) t = t.max(custom.maxLength)
-            s = required ? t.trim().min(1, missing) : t
+            s = required ? t.trim().min(1, missing) : t.nullable()
             break
         }
         case 'number': {
@@ -76,7 +76,10 @@ function schemaFor(
             const allowed = (options ?? (custom?.kind === 'select' ? custom.options : [])).map(
                 o => o.value
             )
-            const one = allowed.length > 0 ? z.enum(allowed as [string, ...string[]]) : z.string()
+            const one =
+                allowed.length > 0
+                    ? z.enum(allowed as [string, ...string[]])
+                    : z.never({ message: `${field.label} has no options` })
             if (multiple) {
                 const many = z.array(one)
                 s = required ? many.min(1, missing) : many.nullable()
@@ -116,6 +119,8 @@ export function buildSchema(def: FormDefinition, host: FormHostDef, state: FormS
         if (!st?.visible) continue
         shape[f.key] = schemaFor(host, f, st.required, st.options)
     }
+    // Passthrough keeps hidden, row and collaborative values in the output, so the resolver can
+    // hand them to splitValues. Only the keys in `shape` are validated.
     return z.object(shape).passthrough()
 }
 

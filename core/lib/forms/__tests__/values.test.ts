@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { definitionSchema } from '../definition'
 import { defaultDefinitionFor } from '../host'
 import { evaluate } from '../logic'
-import { buildSchema, mergeValues, splitValues } from '../values'
+import { buildSchema, isSubmittedKind, mergeValues, splitValues } from '../values'
 import { widgetHost } from './fixtures'
 
 const def = definitionSchema.parse({
@@ -118,5 +118,158 @@ describe('mergeValues', () => {
     it('tolerates a null json column', () => {
         const record = { id: 'w1', name: 'N', fields: null }
         expect(mergeValues(widgetHost, def, record)).toMatchObject({ name: 'N' })
+    })
+})
+
+const wide = definitionSchema.parse({
+    ...defaultDefinitionFor(widgetHost),
+    fields: [
+        ...defaultDefinitionFor(widgetHost).fields,
+        {
+            key: 'severity',
+            kind: 'select',
+            page: 'main',
+            label: 'Severity',
+            options: [
+                { value: 'low', label: 'Low' },
+                { value: 'high', label: 'High' },
+            ],
+        },
+        {
+            key: 'count',
+            kind: 'number',
+            page: 'main',
+            label: 'Count',
+            min: 0,
+            max: 10,
+            required: true,
+        },
+        { key: 'nick', kind: 'text', page: 'main', label: 'Nick' },
+        { key: 'extra', kind: 'checklist', page: 'main', label: 'Extra' },
+        {
+            key: 'tags',
+            kind: 'select',
+            page: 'main',
+            label: 'Tags',
+            multiple: true,
+            options: [
+                { value: 'a', label: 'A' },
+                { value: 'b', label: 'B' },
+            ],
+        },
+        { key: 'flag', kind: 'toggle', page: 'main', label: 'Flag', required: true },
+    ],
+    rules: [
+        {
+            key: 'hide',
+            when: [{ field: 'severity', op: 'is', value: 'low' }],
+            actions: [{ action: 'hide', field: 'count' }],
+        },
+        {
+            key: 'narrow',
+            when: [{ field: 'name', op: 'eq', value: 'x' }],
+            actions: [
+                {
+                    action: 'set_options',
+                    field: 'severity',
+                    options: [{ value: 'low', label: 'Low' }],
+                },
+            ],
+        },
+    ],
+})
+const base = { name: 'n', count: 2, flag: true }
+
+describe('buildSchema, hidden and passthrough', () => {
+    it('keeps hidden and row values in the output and does not validate them', () => {
+        const schema = buildSchema(wide, widgetHost, evaluate(wide, { severity: 'low' }, ctx))
+        const r = schema.safeParse({
+            name: 'n',
+            severity: 'low',
+            count: 3,
+            flag: true,
+            tasks: [{ id: 't1', text: 'a', done: false }],
+        })
+        expect(r.success).toBe(true)
+        expect(r.data).toMatchObject({ count: 3, tasks: [{ id: 't1', text: 'a', done: false }] })
+        expect(
+            schema.safeParse({ name: 'n', severity: 'low', count: 'x', flag: true }).success
+        ).toBe(true)
+    })
+    it('does not require a field hidden by a rule even when it is required', () => {
+        const low = buildSchema(wide, widgetHost, evaluate(wide, { severity: 'low' }, ctx))
+        expect(low.safeParse({ name: 'n', severity: 'low', flag: true }).success).toBe(true)
+        const high = buildSchema(wide, widgetHost, evaluate(wide, { severity: 'high' }, ctx))
+        const r = high.safeParse({ name: 'n', severity: 'high', flag: true })
+        expect(r.error?.issues.map(i => i.path.join('.'))).toContain('count')
+    })
+    it('accepts null for an empty text or date column and an empty json field', () => {
+        const values = mergeValues(widgetHost, wide, {
+            id: 'w1',
+            name: 'N',
+            due: null,
+            notes: null,
+            owner: null,
+            nick: null,
+            fields: { count: 2, flag: true },
+        })
+        expect(
+            buildSchema(wide, widgetHost, evaluate(wide, values, ctx)).safeParse(values).success
+        ).toBe(true)
+    })
+})
+
+describe('buildSchema, rule-driven options', () => {
+    it('narrows select values to the options a set_options rule sets', () => {
+        const schema = buildSchema(wide, widgetHost, evaluate(wide, { name: 'x' }, ctx))
+        expect(schema.safeParse({ ...base, name: 'x', severity: 'high' }).success).toBe(false)
+        expect(schema.safeParse({ ...base, name: 'x', severity: 'low' }).success).toBe(true)
+    })
+    it('rejects every select value when a set_options list is empty', () => {
+        const state = evaluate(wide, {}, ctx)
+        const noOptions = {
+            ...state,
+            fields: { ...state.fields, severity: { ...state.fields.severity, options: [] } },
+        }
+        const schema = buildSchema(wide, widgetHost, noOptions)
+        expect(schema.safeParse({ ...base, severity: 'low' }).success).toBe(false)
+        expect(schema.safeParse(base).success).toBe(true)
+    })
+})
+
+describe('buildSchema, field kinds', () => {
+    const schema = buildSchema(wide, widgetHost, evaluate(wide, {}, ctx))
+    it('validates a multiple select against its options and accepts an empty list', () => {
+        expect(schema.safeParse({ ...base, tags: ['zzz'] }).success).toBe(false)
+        expect(schema.safeParse({ ...base, tags: [] }).success).toBe(true)
+        expect(schema.safeParse({ ...base, tags: ['a'] }).success).toBe(true)
+    })
+    it('rejects false for a required toggle', () => {
+        const r = schema.safeParse({ ...base, flag: false })
+        expect(r.error?.issues.map(i => i.path.join('.'))).toContain('flag')
+        expect(schema.safeParse({ ...base, flag: true }).success).toBe(true)
+    })
+    it('validates checklist items', () => {
+        expect(
+            schema.safeParse({ ...base, extra: [{ id: 'e1', text: 'b', done: true }] }).success
+        ).toBe(true)
+        const r = schema.safeParse({ ...base, extra: [{ id: '', text: 'b', done: true }] })
+        expect(r.error?.issues.map(i => i.path.join('.'))).toContain('extra.0.id')
+    })
+})
+
+describe('isSubmittedKind', () => {
+    const field = (key: string) => {
+        const f = wide.fields.find(x => x.key === key)
+        if (!f) throw new Error(`no field ${key}`)
+        return f
+    }
+    it('excludes sections, row builtins and collaborative builtins', () => {
+        expect(isSubmittedKind(widgetHost, field('comments'))).toBe(false)
+        expect(isSubmittedKind(widgetHost, field('tasks'))).toBe(false)
+        expect(isSubmittedKind(widgetHost, field('notes'))).toBe(false)
+    })
+    it('includes a plain column builtin', () => {
+        expect(isSubmittedKind(widgetHost, field('name'))).toBe(true)
     })
 })
