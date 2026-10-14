@@ -18,6 +18,10 @@ export interface FieldCellProps {
     isSelected?: boolean
 }
 
+// A border on both platforms; the border is always present so selecting a cell never shifts its layout.
+const SELECTED_CLASS = 'border-primary'
+const UNSELECTED_CLASS = 'border-transparent'
+
 function RequiredMark({ isVisible }: { isVisible: boolean }) {
     if (!isVisible) return null
     return <Text className="text-destructive ml-0.5">*</Text>
@@ -51,10 +55,10 @@ export function FieldCell({
     isSelected,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
-    const ring = isSelected ? ' rounded-md ring-2 ring-primary' : ''
+    const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
     return (
         <View
-            className={`${basis} grow-0 shrink-0 px-1.5 mb-3${ring}`}
+            className={`${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`}
             testID={testID ?? `form-field-${fieldKey}`}
         >
             <View className="flex-row items-center mb-1">

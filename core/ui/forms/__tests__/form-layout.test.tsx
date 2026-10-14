@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from '@testing-library/react'
+import { View } from 'react-native'
 import { afterEach, describe, expect, it } from 'vitest'
 import { FieldCell } from '../FieldCell'
 import { FormLayout } from '../FormLayout'
@@ -24,7 +25,7 @@ describe('FieldCell', () => {
                     containerWidth={1000}
                     error="Severity is required"
                 >
-                    <></>
+                    <View testID="child" />
                 </FieldCell>
             </FormLayout>
         )
@@ -42,9 +43,50 @@ describe('FieldCell', () => {
                 width="quarter"
                 containerWidth={400}
             >
-                <></>
+                <View testID="child" />
             </FieldCell>
         )
         expect(cellOf(container).getAttribute('class')).toContain('basis-1/2')
+    })
+    it('renders the child inside the cell', () => {
+        const { container } = render(
+            <FieldCell
+                fieldKey="sev"
+                label="Severity"
+                required={false}
+                width="full"
+                containerWidth={1000}
+            >
+                <View testID="child" />
+            </FieldCell>
+        )
+        expect(cellOf(container).querySelector('[testID="child"]')).toBeTruthy()
+    })
+    it('shows a primary border only when selected', () => {
+        const { container, rerender } = render(
+            <FieldCell
+                fieldKey="sev"
+                label="Severity"
+                required={false}
+                width="full"
+                containerWidth={1000}
+            >
+                <View testID="child" />
+            </FieldCell>
+        )
+        expect(cellOf(container).getAttribute('class')).toContain('border-transparent')
+        rerender(
+            <FieldCell
+                fieldKey="sev"
+                label="Severity"
+                required={false}
+                width="full"
+                containerWidth={1000}
+                isSelected
+            >
+                <View testID="child" />
+            </FieldCell>
+        )
+        expect(cellOf(container).getAttribute('class')).toContain('border-primary')
     })
 })
