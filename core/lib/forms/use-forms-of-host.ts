@@ -40,3 +40,12 @@ export function useFormsOfHost(hostKey: string | undefined) {
 }
 
 export type FormRow = ReturnType<typeof useFormsOfHost>['forms'][number]
+
+export function useFormRow(formId: string | undefined) {
+    const [formsCollection] = useStore('forms')
+    const { data, isReady } = useLiveQuery({
+        query: query => query.from({ f: formsCollection }).where(({ f }) => eq(f.id, formId ?? '')),
+    })
+    const row = useMemo(() => parseFormRows(data ?? [])[0], [data])
+    return { row, isReady: Boolean(isReady) }
+}
