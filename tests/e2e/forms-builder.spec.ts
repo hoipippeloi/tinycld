@@ -1,0 +1,289 @@
+import { expect, type Locator, type Page, test } from '@playwright/test'
+import { login } from './helpers'
+
+/**
+ * The forms builder (Settings → Forms) end to end, against the forms-host
+ * stub scaffolded by tests/scripts/scaffold-forms-host-stub.ts. App-shell CI
+ * installs no feature package, and the builder only appears when a package
+ * declares a form host, so the stub is the host.
+ *
+ * Stub fixtures this file depends on (keep in sync with the scaffolder):
+ *   host "Widget" (forms-stub:widget), the only host, so the list opens on it;
+ *   built-in fields `name` (required), `notes`, `due`.
+ */
+
+const HOST_LABEL = 'Widget'
+
+async function openFormsSettings(page: Page) {
+    await page.getByTestId('nav-settings').click()
+    await page.getByText('Forms', { exact: true }).first().click()
+    await expect(page.getByTestId('forms-new')).toBeVisible()
+}
+
+function formRow(page: Page, name: string): Locator {
+    return page.locator('[data-testid^="forms-row-"]').filter({
+        has: page.getByText(name, { exact: true }),
+    })
+}
+
+async function formIdOf(page: Page, name: string): Promise<string> {
+    const testId = await formRow(page, name).getAttribute('data-testid')
+    if (!testId) throw new Error(`no row for form ${name}`)
+    return testId.replace('forms-row-', '')
+}
+
+/** Answers a PromptDialog: its input is labelled by the dialog title. */
+async function answerPrompt(page: Page, title: string, value: string) {
+    const input = page.getByLabel(title, { exact: true })
+    await expect(input).toBeVisible()
+    await input.fill(value)
+    await input.press('Enter')
+    await expect(input).toBeHidden()
+}
+
+async function createForm(page: Page, name: string) {
+    await page.getByTestId('forms-new').click()
+    await answerPrompt(page, 'New form', name)
+    await expect(page.getByTestId('form-editor')).toBeVisible()
+}
+
+/** The editor's canvas, not the rules tab's read-only picture of the form. */
+function canvas(page: Page): Locator {
+    return page.getByTestId('form-canvas')
+}
+
+async function pageKeys(page: Page): Promise<string[]> {
+    const ids = await canvas(page)
+        .locator('[data-testid^="form-page-header-"]')
+        .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''))
+    return ids.map(id => id.replace('form-page-header-', ''))
+}
+
+/** Field keys in canvas order on one page; drop bars and inputs share the prefix, so match whole ids. */
+async function fieldOrder(page: Page, pageKey: string): Promise<string[]> {
+    const ids = await canvas(page)
+        .getByTestId(`form-page-${pageKey}`)
+        .locator('[data-testid^="form-field-"]')
+        .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''))
+    return ids.filter(id => /^form-field-[a-z0-9_]+$/.test(id)).map(id => id.slice(11))
+}
+
+async function addField(page: Page, pageKey: string, kind: string, label: string) {
+    await page.getByTestId(`form-add-field-${pageKey}`).click()
+    await page.getByTestId(`form-kind-${kind}`).click()
+    await answerPrompt(page, 'Field label', label)
+}
+
+/** Picks a row from a builder PickMenu: the chip, then the `${testID}-${id}` item. */
+async function pick(page: Page, testId: string, id: string) {
+    await page.getByTestId(testId).click()
+    await page.getByTestId(`${testId}-${id}`).click()
+}
+
+/**
+ * A real pointer drag: press on the handle, move in steps, release at `at`
+ * (relative to the target's box), once the expected drop bar shows.
+ */
+async function dragTo(
+    page: Page,
+    handle: Locator,
+    target: Locator,
+    dropBar: Locator,
+    at: (box: { x: number; y: number; width: number; height: number }) => [number, number]
+) {
+    const from = await handle.boundingBox()
+    const to = await target.boundingBox()
+    if (!from || !to) throw new Error('drag handle or target is not laid out')
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await page.mouse.down()
+    const [x, y] = at(to)
+    await page.mouse.move(x, y, { steps: 12 })
+    await expect(dropBar).toBeVisible()
+    await page.mouse.up()
+}
+
+/** Releases over the target's left half. */
+function dragBefore(page: Page, handle: Locator, target: Locator, dropBar: Locator) {
+    return dragTo(page, handle, target, dropBar, box => [
+        box.x + Math.min(12, box.width / 4),
+        box.y + box.height / 2,
+    ])
+}
+
+/** Releases over the target's middle. */
+function dragOnto(page: Page, handle: Locator, target: Locator, dropBar: Locator) {
+    return dragTo(page, handle, target, dropBar, box => [
+        box.x + box.width / 2,
+        box.y + box.height / 2,
+    ])
+}
+
+/** How much of the container's width the cell takes. */
+async function widthShare(cell: Locator, container: Locator): Promise<number> {
+    const [a, b] = await Promise.all([cell.boundingBox(), container.boundingBox()])
+    return a && b ? a.width / b.width : 1
+}
+
+function properties(page: Page): Locator {
+    return page.getByTestId('form-properties')
+}
+
+/** The properties panel's control for `fields.<i>.<suffix>`, whichever index the field has. */
+function propControl(page: Page, suffix: string): Locator {
+    return properties(page).locator(`[data-testid$=".${suffix}"]`)
+}
+
+test.describe('Forms builder', () => {
+    test.beforeEach(async ({ page }) => {
+        await login(page)
+        await openFormsSettings(page)
+    })
+
+    test('builds a form with fields, pages, a drag and a rule, saves it and previews it', async ({
+        page,
+    }) => {
+        await expect(formRow(page, HOST_LABEL)).toBeVisible()
+
+        await createForm(page, 'Bug')
+        const [firstPage] = await pageKeys(page)
+        expect(firstPage).toBeTruthy()
+
+        // A choice list: the new cell is selected and the panel shows its options.
+        await addField(page, firstPage, 'select', 'Severity')
+        const severity = canvas(page).getByTestId('form-field-severity')
+        await expect(severity).toBeVisible()
+        await expect(properties(page).getByTestId('form-prop-key')).toContainText('severity')
+        await expect(properties(page).getByText('Options', { exact: true })).toBeVisible()
+
+        await properties(page).getByTestId('form-option-add').click()
+        await propControl(page, 'options.1.label').fill('High')
+        await propControl(page, 'options.1.value').fill('high')
+        await propControl(page, 'width-third').click()
+        await expect.poll(() => widthShare(severity, canvas(page))).toBeLessThan(0.4)
+
+        // A second page, renamed, with a text field on it.
+        await page.getByTestId('form-add-page').click()
+        const [, secondPage] = await pageKeys(page)
+        expect(secondPage).toBeTruthy()
+        const title = page.getByTestId(`form-page-title-${secondPage}`)
+        await title.fill('Repro')
+        await title.press('Enter')
+        await expect(title).toHaveValue('Repro')
+        await addField(page, secondPage, 'text', 'Steps')
+        await expect(canvas(page).getByTestId('form-field-steps')).toBeVisible()
+        expect(await fieldOrder(page, secondPage)).toEqual(['steps'])
+
+        // Drag Steps onto the first page, before Severity.
+        const before = await fieldOrder(page, firstPage)
+        expect(before.at(-1)).toBe('severity')
+        await dragBefore(
+            page,
+            page.getByTestId('form-handle-steps'),
+            severity,
+            canvas(page).getByTestId('form-field-severity-drop-before')
+        )
+        await expect
+            .poll(() => fieldOrder(page, firstPage))
+            .toEqual([...before.slice(0, -1), 'steps', 'severity'])
+        expect(await fieldOrder(page, secondPage)).toEqual([])
+
+        // Let go over the page's title, above every cell: it lands first, not last.
+        await dragOnto(
+            page,
+            page.getByTestId('form-handle-steps'),
+            page.getByTestId(`form-page-header-${firstPage}`),
+            canvas(page).getByTestId(`form-field-${before[0]}-drop-before`)
+        )
+        await expect
+            .poll(() => fieldOrder(page, firstPage))
+            .toEqual(['steps', ...before.slice(0, -1), 'severity'])
+
+        // Back to its page with the panel's page picker, which needs no pointer drag.
+        await canvas(page)
+            .getByTestId('form-field-steps')
+            .getByText('Steps', { exact: true })
+            .click()
+        await expect(properties(page).getByTestId('form-prop-key')).toContainText('steps')
+        await pick(page, 'form-prop-page', secondPage)
+        await expect.poll(() => fieldOrder(page, secondPage)).toEqual(['steps'])
+        expect(await fieldOrder(page, firstPage)).toEqual(before)
+
+        // Rules: when severity is high, require steps.
+        await page.getByTestId('form-tab-rules').click()
+        await page.getByTestId('form-rule-add').click()
+        await page.getByTestId('form-cond-add-0').click()
+        await pick(page, 'form-cond-field-0-0', 'severity')
+        await page.getByTestId('form-cond-value-0-0-high').click()
+        await page.getByTestId('form-action-add-0').click()
+        await pick(page, 'form-action-target-0-0', 'steps')
+        await pick(page, 'form-action-kind-0-0', 'require')
+        const affected = page.getByTestId('form-rule-affected')
+        await expect(affected.getByTestId('form-field-severity')).toContainText('when')
+        await expect(affected.getByTestId('form-field-steps')).toContainText('Require')
+
+        // Save, then reload: what was saved comes back.
+        const save = page.getByTestId('form-save')
+        await save.click()
+        await expect(save).toBeDisabled()
+        await page.reload()
+        await expect(page.getByTestId('form-editor')).toBeVisible()
+        await expect(canvas(page).getByTestId('form-field-severity')).toBeVisible()
+        expect(await fieldOrder(page, secondPage)).toEqual(['steps'])
+        await expect(page.getByTestId(`form-page-title-${secondPage}`)).toHaveValue('Repro')
+        await page.getByTestId('form-tab-rules').click()
+        await expect(page.getByTestId('form-cond-field-0-0')).toContainText('Severity')
+        await expect(page.getByTestId('form-action-kind-0-0')).toContainText('Require')
+        await expect(page.getByTestId('form-action-target-0-0')).toContainText('Steps')
+
+        // Preview: a two-step wizard where High makes Steps required.
+        await page.getByTestId('form-preview').click()
+        const dialog = page.getByTestId('form-preview-dialog')
+        await expect(dialog.getByTestId('form-wizard-steps')).toBeVisible()
+        await expect(dialog.getByTestId('form-wizard-steps')).toContainText('Repro')
+        await dialog.getByTestId('form-input-name').fill('Crash on save')
+        await dialog.getByTestId('form-input-severity').getByText('High', { exact: true }).click()
+        await dialog.getByTestId('form-wizard-next').click()
+        const steps = dialog.getByTestId('form-field-steps')
+        await expect(steps).toBeVisible()
+        await expect(steps.getByText('*', { exact: true })).toBeVisible()
+        await dialog.getByTestId('form-wizard-next').click()
+        await expect(steps.getByRole('alert')).toBeVisible()
+        await expect(dialog).toBeVisible()
+    })
+
+    test('renames, makes default and deletes forms from the list', async ({ page }) => {
+        await expect(formRow(page, HOST_LABEL)).toContainText('Default')
+
+        await createForm(page, 'Task')
+        await page.getByTestId('form-back').click()
+        await createForm(page, 'Scratch')
+        await page.getByTestId('form-back').click()
+        await expect(formRow(page, 'Scratch')).toBeVisible()
+
+        const taskId = await formIdOf(page, 'Task')
+        await page.getByTestId(`forms-menu-${taskId}`).click()
+        await page.getByTestId(`forms-rename-${taskId}`).click()
+        await answerPrompt(page, 'Rename form', 'Chore')
+        await expect(page.getByTestId(`forms-row-${taskId}`)).toContainText('Chore')
+
+        await page.getByTestId(`forms-menu-${taskId}`).click()
+        await page.getByTestId(`forms-default-${taskId}`).click()
+        await expect(page.getByTestId(`forms-row-${taskId}`)).toContainText('Default')
+        await expect(formRow(page, HOST_LABEL)).not.toContainText('Default')
+
+        // The default form cannot be deleted; the menu item says why.
+        await page.getByTestId(`forms-menu-${taskId}`).click()
+        const deleteDefault = page.getByTestId(`forms-delete-${taskId}`)
+        await expect(deleteDefault).toHaveAttribute('aria-disabled', 'true')
+        await expect(deleteDefault).toContainText('default form')
+        await page.keyboard.press('Escape')
+        await expect(deleteDefault).toBeHidden()
+
+        const scratchId = await formIdOf(page, 'Scratch')
+        await page.getByTestId(`forms-menu-${scratchId}`).click()
+        await page.getByTestId(`forms-delete-${scratchId}`).click()
+        await page.getByText('Delete', { exact: true }).last().click()
+        await expect(page.getByTestId(`forms-row-${scratchId}`)).toBeHidden()
+        await expect(page.getByTestId(`forms-row-${taskId}`)).toBeVisible()
+    })
+})
