@@ -85,6 +85,10 @@ export function DropZone({
 
     return (
         <div
+            // A static drop target on purpose: drag-and-drop is a pointer-only
+            // convenience with no keyboard equivalent by nature, so the div
+            // carries no interactive role. Each caller must offer a keyboard
+            // path to the same action (a button that opens the file picker).
             role="none"
             data-testid={testID}
             // A data attribute, not aria-disabled: aria-disabled is inherited,
