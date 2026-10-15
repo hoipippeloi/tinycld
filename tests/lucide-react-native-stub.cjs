@@ -99,6 +99,8 @@ const knownIcons = {
     SignalHigh: Icon,
     SignalLow: Icon,
     SignalMedium: Icon,
+    // boards: the card detail body, mounted whole (tests/card-detail.mount.test.tsx)
+    SmilePlus: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,
