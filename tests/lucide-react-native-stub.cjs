@@ -85,6 +85,8 @@ const knownIcons = {
     // calc and other package icons
     FilePlus: Icon,
     Plus: Icon,
+    // boards: the card composer's expand button, mounted in package tests
+    Maximize2: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,
