@@ -15,8 +15,6 @@ const builtinSchema = z
         collaborative: z.boolean().default(false),
         /** Export name in the host's UI module `components` map. */
         component: z.string().min(1).optional(),
-        /** Key in the host's UI module `mappers` map; required for rows storage. */
-        mapper: z.string().min(1).optional(),
         /**
          * `bare`: on a record (edit and read) the host component draws
          * everything; core passes it no error, required mark or description, so
@@ -27,12 +25,6 @@ const builtinSchema = z
         chrome: z.enum(['cell', 'bare']).default('cell'),
     })
     .superRefine((b, ctx) => {
-        if (b.storage === 'rows' && !b.mapper)
-            ctx.addIssue({
-                code: 'custom',
-                path: ['mapper'],
-                message: 'rows storage needs a mapper',
-            })
         if (b.kind === 'section' && b.storage !== 'none')
             ctx.addIssue({ code: 'custom', path: ['storage'], message: 'a section has no storage' })
         if (b.kind === 'section' && !b.component)

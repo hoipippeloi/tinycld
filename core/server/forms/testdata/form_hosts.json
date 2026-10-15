@@ -13,7 +13,7 @@
                 { "key": "notes", "label": "Notes", "kind": "markdown", "storage": "column", "collaborative": true, "component": "NotesField", "chrome": "bare" },
                 { "key": "due", "label": "Due", "kind": "date", "storage": "column" },
                 { "key": "owner", "label": "Owner", "kind": "user", "storage": "column" },
-                { "key": "tasks", "label": "Tasks", "kind": "checklist", "storage": "rows", "mapper": "tasksMapper" },
+                { "key": "tasks", "label": "Tasks", "kind": "checklist", "storage": "rows" },
                 { "key": "comments", "label": "Comments", "kind": "section", "storage": "none", "component": "CommentsSection" }
             ],
             "collaborative": { "fragment": "widget:{record}:{format}:{key}" }

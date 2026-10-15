@@ -43,10 +43,8 @@ const save = vi.fn(async () => {})
 const hostUi = vi.hoisted(() => ({
     load: async (): Promise<{
         components: Record<string, never>
-        mappers: Record<string, never>
     }> => ({
         components: {},
-        mappers: {},
     }),
 }))
 const host = { ...widgetHost, pkgSlug: 'gizmos', pkgName: 'Gizmos', ui: () => hostUi.load() }
@@ -105,7 +103,7 @@ beforeEach(() => {
     guard.dispatch.mockClear()
     live.row = undefined
     live.isMissing = false
-    hostUi.load = async () => ({ components: {}, mappers: {} })
+    hostUi.load = async () => ({ components: {} })
     vi.mocked(router.back).mockReset()
     vi.mocked(router.back).mockImplementation(leave)
 })
@@ -259,8 +257,7 @@ describe('FormEditor', () => {
     // The canvas draws "Shown by <package>" only for a built-in the host UI has a component for.
     describe('host UI isolation', () => {
         it('draws the placeholder for a component the host loads', async () => {
-            hostUi.load = async () =>
-                ({ components: { NotesField: () => null }, mappers: {} }) as never
+            hostUi.load = async () => ({ components: { NotesField: () => null } }) as never
             const { findAllByText } = render(<FormEditor formId="f1" />)
             expect((await findAllByText('Shown by Gizmos')).length).toBeGreaterThan(0)
         })

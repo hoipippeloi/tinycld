@@ -18,7 +18,6 @@ type Builtin struct {
 	Multiple      bool   `json:"multiple"`
 	Collaborative bool   `json:"collaborative"`
 	Component     string `json:"component,omitempty"`
-	Mapper        string `json:"mapper,omitempty"`
 	// Chrome is presentation only ("cell" or "bare"); the server decodes it
 	// so the host file round-trips, and never reads it.
 	Chrome string `json:"chrome,omitempty"`

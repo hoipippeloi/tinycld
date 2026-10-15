@@ -64,7 +64,7 @@ const hostWithFiles = {
     ...hostDefSchema.parse({ ...widgetHost, files }),
     pkgSlug: 'gizmos',
     pkgName: 'Gizmos',
-    ui: async () => ({ components: {}, mappers: {} }),
+    ui: async () => ({ components: {} }),
 }
 
 function seedWidget(row: { id: string } & Record<string, unknown>) {

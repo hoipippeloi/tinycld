@@ -4,7 +4,7 @@ import { widgetHost } from './fixtures'
 
 describe('deriveFormHosts', () => {
     it('collects hosts with their package slug and ui loader', async () => {
-        const ui = { components: {}, mappers: {} }
+        const ui = { components: {} }
         const hosts = deriveFormHosts([
             {
                 manifest: { name: 'Gizmos', slug: 'gizmos' },
@@ -22,7 +22,7 @@ describe('deriveFormHosts', () => {
         const hosts = deriveFormHosts([
             { manifest: { name: 'Gizmos', slug: 'gizmos' }, formHosts: [widgetHost] },
         ])
-        await expect(hosts[0].ui()).resolves.toEqual({ components: {}, mappers: {} })
+        await expect(hosts[0].ui()).resolves.toEqual({ components: {} })
     })
     it('applies schema defaults to hand-authored input', () => {
         const hosts = deriveFormHosts([

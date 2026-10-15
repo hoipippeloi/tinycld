@@ -19,7 +19,7 @@ const host = {
     ...widgetHost,
     pkgSlug: 'gizmos',
     pkgName: 'Gizmo Works',
-    ui: async () => ({ components: {}, mappers: {} }),
+    ui: async () => ({ components: {} }),
 }
 
 function Harness({
@@ -102,7 +102,6 @@ describe('FieldInput', () => {
     it('renders a host section in edit mode and nothing in create mode', () => {
         const ui: FormHostUi = {
             components: { CommentsSection: () => <Text>Comments body</Text> },
-            mappers: {},
         }
         const field: FormField = { ...base, key: 'comments', kind: 'builtin' }
         const edit = render(<Harness field={field} ui={ui} mode="edit" recordId="r1" />)
@@ -286,7 +285,6 @@ describe('FieldInput', () => {
                     return <Text testID="host-notes">host</Text>
                 },
             },
-            mappers: {},
         }
         const collab = { doc: {} as never, awareness: null, user: null, canEdit: true }
         const { container } = render(
@@ -311,7 +309,7 @@ describe('FieldInput', () => {
     })
 
     it('shows a placeholder for a host component in design mode', () => {
-        const ui = { components: { NotesField: () => <Text>never</Text> }, mappers: {} }
+        const ui = { components: { NotesField: () => <Text>never</Text> } }
         const { getByText, queryByText } = render(
             <Harness
                 field={{ ...base, key: 'notes', kind: 'builtin' }}

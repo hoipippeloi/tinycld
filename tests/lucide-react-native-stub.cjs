@@ -20,6 +20,11 @@ function Icon({ children, ...props }) {
     return null
 }
 
+// Check draws a marker so a test can tell a selected row from an unselected one.
+function Check() {
+    return React.createElement('span', { 'data-check': 'true' })
+}
+
 // Seed target with all icon names that unit tests reference by value (not just render).
 // The Proxy's get-trap still handles any unknown name so JSX rendering always works.
 const knownIcons = {
@@ -57,7 +62,7 @@ const knownIcons = {
     AlertTriangle: Icon,
     AlignJustify: Icon,
     Ban: Icon,
-    Check: Icon,
+    Check,
     Square: Icon,
     CheckSquare: Icon,
     CalendarDays: Icon,
@@ -148,6 +153,7 @@ const handler = {
                 return Icon
             }
         }
+        if (prop === 'Check') return Check
         // Any named icon export (ChevronDown, Plus, etc.)
         return Icon
     },

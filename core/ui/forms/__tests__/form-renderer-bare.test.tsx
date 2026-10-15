@@ -30,7 +30,6 @@ function NotesField({ fieldKey }: BuiltinFieldProps) {
 
 const ui: FormHostUi = {
     components: { NotesField, CommentsSection: () => null },
-    mappers: {},
 }
 
 const definition = defaultDefinitionFor(bareHost)
@@ -87,7 +86,7 @@ describe('a bare built-in', () => {
     })
 
     it('keeps the labelled cell when its component is missing', () => {
-        const noNotes: FormHostUi = { components: { CommentsSection: () => null }, mappers: {} }
+        const noNotes: FormHostUi = { components: { CommentsSection: () => null } }
         const { container, queryByText } = render(<Harness layout="sections" hostUi={noNotes} />)
         expect(byId(container, 'form-field-notes-box')).toBeTruthy()
         expect(queryByText('Notes')).toBeTruthy()

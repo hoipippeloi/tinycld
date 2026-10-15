@@ -10,7 +10,7 @@ const host = {
     ...widgetHost,
     pkgSlug: 'gizmos',
     pkgName: 'Gizmos',
-    ui: async () => ({ components: {}, mappers: {} }),
+    ui: async () => ({ components: {} }),
 }
 const bug = {
     id: 'f2',

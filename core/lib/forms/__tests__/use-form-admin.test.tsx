@@ -57,7 +57,7 @@ vi.mock('@tinycld/core/lib/forms/use-form-hosts', () => ({
         ...widgetHost,
         pkgSlug: 'gizmos',
         pkgName: 'Gizmos',
-        ui: async () => ({ components: {}, mappers: {} }),
+        ui: async () => ({ components: {} }),
     }),
 }))
 

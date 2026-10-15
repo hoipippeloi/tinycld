@@ -38,7 +38,6 @@ function PinnedHeader({ fieldKey }: BuiltinFieldProps) {
 const ui: FormHostUi = {
     components: { NotesField, CommentsSection: NotesField },
     pinned: { NotesField: PinnedHeader },
-    mappers: {},
 }
 
 const bothPinned: FormHostUi = {

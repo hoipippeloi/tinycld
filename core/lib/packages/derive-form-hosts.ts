@@ -13,7 +13,7 @@ type FormHostEntryLike = {
     formHostsUi?: () => Promise<{ default: FormHostUi }>
 }
 
-const EMPTY_UI: FormHostUi = { components: {}, mappers: {} }
+const EMPTY_UI: FormHostUi = { components: {} }
 
 export function deriveFormHosts(entries: readonly FormHostEntryLike[]): FormHost[] {
     const out: FormHost[] = []

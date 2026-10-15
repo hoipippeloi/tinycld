@@ -29,7 +29,7 @@ const admin = {
         ...widgetHost,
         pkgSlug: 'gizmos',
         pkgName: 'Gizmos',
-        ui: async () => ({ components: {}, mappers: {} }),
+        ui: async () => ({ components: {} }),
     },
     forms: [plain, bug],
     defaultForm: plain,

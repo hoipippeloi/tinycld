@@ -373,20 +373,7 @@ function UserKind({ field, control, resolved, disabled, testID, label }: KindPro
     )
 }
 
-function ChecklistKind({
-    field,
-    control,
-    resolved,
-    ui,
-    mode,
-    recordId,
-    disabled,
-    testID,
-    label,
-}: KindProps) {
-    const { builtin } = resolved
-    const hostBacked = mode === 'edit' || mode === 'read'
-    const mapper = builtin?.mapper && ui && hostBacked ? ui.mappers[builtin.mapper] : undefined
+function ChecklistKind({ field, control, disabled, testID, label }: KindProps) {
     return (
         <Uncontrolled<ChecklistItem[] | null>
             name={field.key}
@@ -395,8 +382,6 @@ function ChecklistKind({
                 <ChecklistField
                     value={v}
                     onChange={set}
-                    mapper={mapper}
-                    recordId={recordId}
                     disabled={disabled}
                     testID={testID}
                     accessibilityLabel={label}

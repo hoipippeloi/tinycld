@@ -177,7 +177,7 @@ describe('useAutoPatch with the real useFormEdit', () => {
         ...widgetHost,
         pkgSlug: 'gizmos',
         pkgName: 'Gizmos',
-        ui: async () => ({ components: {}, mappers: {} }),
+        ui: async () => ({ components: {} }),
     }
     const record = {
         id: 'w1',
