@@ -13,6 +13,10 @@
 // HTML is not preserved: constructs the editor schema cannot hold degrade to
 // paragraphs or are dropped.
 //
+// Link hrefs and image srcs are carried verbatim and are not scheme-checked; a
+// consumer that renders the output must sanitize it (see
+// `server/render/sanitize.go`).
+//
 // The node and mark vocabulary is the one in package markdown, which in turn
 // mirrors the shared editor's schema.
 package html
