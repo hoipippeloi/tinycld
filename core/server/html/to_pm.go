@@ -10,8 +10,10 @@ import (
 )
 
 // ToPM parses HTML into a ProseMirror document. Markup the editor schema has no
-// node for degrades: unknown containers keep their text as paragraphs, unknown
-// inline tags keep their text unstyled, and empty paragraphs are dropped.
+// node for degrades: unknown containers keep their text as paragraphs and
+// unknown inline tags keep their text unstyled. An explicit <p></p> is kept
+// (a blank line is editor state); only the paragraphs ToPM synthesizes itself,
+// from loose inline content or an unknown container, are dropped when blank.
 func ToPM(src string) *markdown.PMNode {
 	doc := &markdown.PMNode{Type: markdown.NodeDoc}
 	nodes, err := nethtml.ParseFragment(strings.NewReader(src), &nethtml.Node{
