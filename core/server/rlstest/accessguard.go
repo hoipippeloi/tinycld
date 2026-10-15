@@ -33,8 +33,6 @@ func CorePublicPaths() []PublicPath {
 	return []PublicPath{
 		{"org_branding", "list", "the login screen shows the org's branding before anyone signs in"},
 		{"org_branding", "view", "the login screen shows the org's branding before anyone signs in"},
-		{"forms", "list", "a form definition holds labels and rules, never user data; the public share and intake screens render it with no session"},
-		{"forms", "view", "a form definition holds labels and rules, never user data; the public share and intake screens render it with no session"},
 	}
 }
 

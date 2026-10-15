@@ -51,7 +51,7 @@ func TestFormsRLS_AdminCanCreateMemberCannot(t *testing.T) {
 	for _, sc := range []tests.ApiScenario{
 		{Name: "admin creates", Method: http.MethodPost, URL: "/api/collections/forms/records", Body: body(formBody("gizmos:widget", "bug")), Headers: map[string]string{"Authorization": adminToken}, ExpectedStatus: 200, ExpectedContent: []string{`"slug":"bug"`}, TestAppFactory: factory, DisableTestAppCleanup: true},
 		{Name: "member cannot create", Method: http.MethodPost, URL: "/api/collections/forms/records", Body: body(formBody("gizmos:widget", "task")), Headers: map[string]string{"Authorization": memberToken}, ExpectedStatus: 400, ExpectedContent: []string{`"Failed to create record."`}, TestAppFactory: factory, DisableTestAppCleanup: true},
-		{Name: "anonymous can list", Method: http.MethodGet, URL: "/api/collections/forms/records", ExpectedStatus: 200, ExpectedContent: []string{`"slug":"bug"`}, TestAppFactory: factory, DisableTestAppCleanup: true},
+		{Name: "anonymous cannot list", Method: http.MethodGet, URL: "/api/collections/forms/records", ExpectedStatus: 200, ExpectedContent: []string{`"totalItems":0`}, NotExpectedContent: []string{`"slug":"bug"`}, TestAppFactory: factory, DisableTestAppCleanup: true},
 	} {
 		sc.Test(t)
 	}

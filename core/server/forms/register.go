@@ -18,14 +18,24 @@ type Options struct {
 }
 
 // Register reads the host registry and binds the forms hooks. With no hosts
-// it stays inert, so a lean shell binds nothing (composition_parity_test).
-// A hosts file that exists but cannot be read is a broken build, not a lean
-// shell: Register panics rather than start with every form write unchecked.
+// the hooks stay unbound (composition_parity_test). A hosts file that exists
+// but cannot be read is a broken build, not a lean shell: Register panics
+// rather than start with every form write unchecked.
+//
+// The read rules are composed on serve whatever the hosts: a package that
+// registered a public-reader clause gets it applied, and with none the rule
+// stays the signed-in text the migration wrote.
 func Register(app *pocketbase.PocketBase, opts Options) {
 	defs, err := resolveHosts(opts)
 	if err != nil {
 		panic(fmt.Sprintf("forms: cannot start with an unreadable host registry (%s): %v", opts.HostsPath, err))
 	}
+	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		if err := ApplyPublicReaders(se.App); err != nil {
+			log.Error("compose the forms read rules failed", "err", err)
+		}
+		return se.Next()
+	})
 	if len(defs.Hosts) == 0 {
 		return
 	}

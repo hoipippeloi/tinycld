@@ -85,8 +85,14 @@ const knownIcons = {
     // calc and other package icons
     FilePlus: Icon,
     Plus: Icon,
-    // boards: the card composer's expand button, mounted in package tests
+    // boards: CardHeaderToolbar's overflow table holds the icon by value
     Maximize2: Icon,
+    // boards: ColumnMenu, mounted whole (tests/column-menu.mount.test.tsx);
+    // ArrowLeft, FilePlus, Pencil, Plus and Trash2 are seeded elsewhere
+    ArrowRight: Icon,
+    FoldHorizontal: Icon,
+    Gauge: Icon,
+    MoreHorizontal: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,

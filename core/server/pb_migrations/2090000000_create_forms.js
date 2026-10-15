@@ -1,11 +1,16 @@
 /// <reference path="../pb_data/types.d.ts" />
 // Form definitions a package's records carry (see
-// docs/superpowers/specs/2026-10-14-forms-engine-design.md). List and view
-// are public: a definition holds labels and rules, never user data, and the
-// public share and intake screens render it with no session.
-const ADMIN =
-    '@request.auth.id != "" && @request.auth.disabled != true && ' +
-    '(@request.auth.role = "owner" || @request.auth.role = "admin")'
+// docs/superpowers/specs/2026-10-14-forms-engine-design.md).
+//
+// List and view need a session. A package whose screens render a form for an
+// anonymous visitor (a share link) registers the clause that vouches for that
+// visitor (forms.RegisterPublicReader), and core composes it into these two
+// rules on serve. Core cannot name the package, so it cannot write that
+// clause here. SIGNED_IN must equal signedInReadRule in
+// core/server/forms/public_readers.go: a boot with no clause then saves
+// nothing, and a test holds the two equal.
+const SIGNED_IN = '@request.auth.id != "" && @request.auth.disabled != true'
+const ADMIN = `${SIGNED_IN} && (@request.auth.role = "owner" || @request.auth.role = "admin")`
 
 migrate(
     app => {
@@ -14,8 +19,8 @@ migrate(
             name: 'forms',
             type: 'base',
             system: false,
-            listRule: '',
-            viewRule: '',
+            listRule: SIGNED_IN,
+            viewRule: SIGNED_IN,
             createRule: ADMIN,
             updateRule: ADMIN,
             deleteRule: ADMIN,
