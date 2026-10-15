@@ -12,7 +12,15 @@ import { FormEditor } from '../FormEditor'
 
 // Menus and dialogs render through the overlay host the app mounts once.
 // The canvas loads the host's UI through React Query.
-const queryClient = new QueryClient()
+// One client per test: a host-UI result cached by one test must not reach the next.
+let queryClient: QueryClient
+beforeEach(() => {
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+})
+afterEach(() => {
+    cleanup()
+    queryClient.clear()
+})
 const Providers = ({ children }: { children: ReactElement }) => (
     <QueryClientProvider client={queryClient}>
         <OverlayProvider>{children}</OverlayProvider>
@@ -20,7 +28,6 @@ const Providers = ({ children }: { children: ReactElement }) => (
 )
 const render = (ui: ReactElement) => renderBare(<Providers>{ui}</Providers>)
 
-afterEach(cleanup)
 const plain = {
     id: 'f1',
     host: 'gizmos:widget',
@@ -32,7 +39,17 @@ const plain = {
     definition: defaultDefinitionFor(widgetHost),
 }
 const save = vi.fn(async () => {})
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+// A test swaps the module the host loads, to tell a fresh query from a cached one.
+const hostUi = vi.hoisted(() => ({
+    load: async (): Promise<{
+        components: Record<string, never>
+        mappers: Record<string, never>
+    }> => ({
+        components: {},
+        mappers: {},
+    }),
+}))
+const host = { ...widgetHost, pkgSlug: 'gizmos', ui: () => hostUi.load() }
 const admin = {
     host,
     forms: [plain],
@@ -88,6 +105,7 @@ beforeEach(() => {
     guard.dispatch.mockClear()
     live.row = undefined
     live.isMissing = false
+    hostUi.load = async () => ({ components: {}, mappers: {} })
     vi.mocked(router.back).mockReset()
     vi.mocked(router.back).mockImplementation(leave)
 })
@@ -237,5 +255,20 @@ describe('FormEditor', () => {
         expect(summary).toContain("Field 'x', label: too long")
         expect(summary).toContain('Rule 1, condition 2: bad value')
         expect(summary).not.toContain('fields.2')
+    })
+    // The canvas draws "Shown by <package>" only for a built-in the host UI has a component for.
+    describe('host UI isolation', () => {
+        it('draws the placeholder for a component the host loads', async () => {
+            hostUi.load = async () =>
+                ({ components: { NotesField: () => null }, mappers: {} }) as never
+            const { findAllByText } = render(<FormEditor formId="f1" />)
+            expect((await findAllByText('Shown by Gizmos')).length).toBeGreaterThan(0)
+        })
+        it('draws none when its own host UI has no component, whatever the test before cached', async () => {
+            const { container, queryByText } = render(<FormEditor formId="f1" />)
+            await act(async () => {})
+            expect(q(container, 'form-canvas')).toBeTruthy()
+            expect(queryByText('Shown by Gizmos')).toBeNull()
+        })
     })
 })
