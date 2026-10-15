@@ -93,6 +93,13 @@ const knownIcons = {
     FoldHorizontal: Icon,
     Gauge: Icon,
     MoreHorizontal: Icon,
+    // boards: CardHeaderToolbar, CardActionsMenu and ColumnMenu's icon tables
+    ArrowRightLeft: Icon,
+    Expand: Icon,
+    Link: Icon,
+    Link2: Icon,
+    PanelRight: Icon,
+    Shapes: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,

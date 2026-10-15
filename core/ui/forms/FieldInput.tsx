@@ -195,13 +195,22 @@ function selectDisplay(resolved: Resolved): 'dropdown' | 'radio' | 'checkbox' {
 }
 
 /**
- * True when a built-in declared `chrome: 'bare'` and the form shows a record
- * (edit or read): the host component draws its own chrome, and the cell is only
- * the width wrapper. The design canvas keeps the labelled cell.
+ * True when a built-in declared `chrome: 'bare'`, its host component is
+ * present, and the form shows a record (edit or read): the host component draws
+ * everything and the cell is only the width wrapper. Core passes it no error,
+ * required mark or description, so a bare built-in must validate and label
+ * itself. Without the component the labelled cell stays, so the field is not
+ * an empty gap. The design canvas keeps the labelled cell.
  */
-export function rendersBare(host: FormHost, field: FormField, mode: FieldMode): boolean {
+export function rendersBare(
+    host: FormHost,
+    field: FormField,
+    ui: FormHostUi | null,
+    mode: FieldMode
+): boolean {
     if (mode !== 'edit' && mode !== 'read') return false
-    return resolveKind(host, field).builtin?.chrome === 'bare'
+    const resolved = resolveKind(host, field)
+    return resolved.builtin?.chrome === 'bare' && hasHostComponent(resolved, ui)
 }
 
 /**
@@ -215,7 +224,7 @@ export function rendersOwnLabel(
     ui: FormHostUi | null,
     mode?: FieldMode
 ): boolean {
-    if (mode && rendersBare(host, field, mode)) return true
+    if (mode && rendersBare(host, field, ui, mode)) return true
     const resolved = resolveKind(host, field)
     if (hasHostComponent(resolved, ui)) return false
     if (resolved.kind === 'toggle') return true

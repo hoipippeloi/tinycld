@@ -18,9 +18,11 @@ const builtinSchema = z
         /** Key in the host's UI module `mappers` map; required for rows storage. */
         mapper: z.string().min(1).optional(),
         /**
-         * `bare`: on a record (edit and read) the host component draws its own
-         * label, spacing and errors, and the cell is only the width wrapper.
-         * The design canvas still draws the labelled cell.
+         * `bare`: on a record (edit and read) the host component draws
+         * everything; core passes it no error, required mark or description, so
+         * a bare built-in must validate and label itself. The cell is only the
+         * width wrapper, and only when the component exists. The design canvas
+         * still draws the labelled cell.
          */
         chrome: z.enum(['cell', 'bare']).default('cell'),
     })
