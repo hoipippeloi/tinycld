@@ -48,7 +48,8 @@ export interface FormHostUi {
      * sections layout gives it a row of its own; when the renderer owns the
      * scroll view (`scroll`), that row pins to the top while the field scrolls
      * past. Edit and read modes only: the create wizard and the design canvas
-     * never render it.
+     * never render it. A pinned field splits its page into separate rows, so
+     * half-width cells before and after it do not share a line.
      */
     pinned?: Record<string, ComponentType<BuiltinFieldProps>>
     useDoc?: (recordId: string) => CollabDoc | null

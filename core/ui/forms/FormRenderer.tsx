@@ -291,13 +291,15 @@ type PageRow =
 /**
  * A page as rows: its title, then its fields in runs that break at every
  * field the host pins a row above. A run is keyed by the pinned field that
- * opens it, so hiding a field never remounts its neighbours' cells.
+ * opens it, so hiding a field never remounts its neighbours' cells. Every key
+ * starts with its row's kind, so a field named like a row (`title`) cannot
+ * collide with one.
  */
 function pageRowsOf(props: BodyProps, page: FormPage, isTitleVisible: boolean): PageRow[] {
     const { definition, state, mode, host, ui } = props
-    const rows: PageRow[] = isTitleVisible ? [{ kind: 'title', key: `${page.key}:title` }] : []
+    const rows: PageRow[] = isTitleVisible ? [{ kind: 'title', key: `title:${page.key}` }] : []
     let run: FormField[] = []
-    let runKey = `${page.key}:start`
+    let runKey = `run:${page.key}:^`
     const closeRun = () => {
         if (run.length > 0) rows.push({ kind: 'run', key: runKey, fields: run })
         run = []
@@ -306,7 +308,7 @@ function pageRowsOf(props: BodyProps, page: FormPage, isTitleVisible: boolean): 
         if (hasPinnedRow(host, field, ui, mode)) {
             closeRun()
             rows.push({ kind: 'pinned', key: `pinned:${field.key}`, field })
-            runKey = `${page.key}:${field.key}`
+            runKey = `run:${page.key}:${field.key}`
         }
         run.push(field)
     }

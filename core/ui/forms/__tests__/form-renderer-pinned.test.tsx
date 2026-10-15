@@ -61,6 +61,28 @@ const nameIsHalf = definitionSchema.parse({
     fields: builtins.fields.map(f => (f.key === 'name' ? { ...f, width: 'half' } : f)),
 })
 
+// The pinned built-in keyed `title`, like the row a page title gets.
+const titleHost = {
+    ...hostDefSchema.parse({
+        ...widgetHost,
+        columns: [...widgetHost.columns, 'title'],
+        builtin: widgetHost.builtin.map(b => (b.key === 'notes' ? { ...b, key: 'title' } : b)),
+    }),
+    pkgSlug: 'gizmos',
+    ui: async () => ui,
+}
+
+const titleBuiltins = defaultDefinitionFor(titleHost)
+
+const titleTwoPages = definitionSchema.parse({
+    ...titleBuiltins,
+    pages: [
+        { key: 'main', title: 'Main' },
+        { key: 'more', title: 'More' },
+    ],
+    fields: titleBuiltins.fields.map(f => (f.key === 'comments' ? { ...f, page: 'more' } : f)),
+})
+
 const ctx = { today: '2026-01-01', userId: 'u' }
 
 type Form = UseFormReturn<Record<string, unknown>>
@@ -72,6 +94,7 @@ const failingResolver: Resolver<Record<string, unknown>> = async () => ({
 })
 
 interface HarnessProps {
+    formHost?: typeof host
     layout?: FormLayoutKind
     recordId?: string
     readOnly?: boolean
@@ -82,6 +105,7 @@ interface HarnessProps {
 }
 
 function Harness({
+    formHost = host,
     layout = 'sections',
     recordId = 'r1',
     readOnly,
@@ -94,7 +118,7 @@ function Harness({
     if (formRef) formRef.current = form
     return (
         <FormRenderer
-            host={host}
+            host={formHost}
             ui={hostUi}
             definition={definition}
             layout={layout}
@@ -183,6 +207,23 @@ describe('a pinned host row', () => {
         })
         expect(getAllByText('Name is required').length).toBeGreaterThan(0)
         expect(stickyRowIds(container)).toEqual(['form-pinned-notes', 'form-pinned-comments'])
+    })
+
+    it('keys its rows apart from the title row, even for a field keyed `title`', () => {
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const { container } = render(
+            <Harness
+                formHost={titleHost}
+                definition={titleTwoPages}
+                scroll={{ rowClassName: 'px-6' }}
+            />
+        )
+        const duplicateKeys = errors.mock.calls.filter(args => String(args[0]).includes('same key'))
+        errors.mockRestore()
+        expect(duplicateKeys).toEqual([])
+        expect(byId(container, 'form-page-main')?.textContent).toContain('Main')
+        expect(byId(container, 'form-pinned-title')).toBeTruthy()
+        expect(byId(container, 'body-title')).toBeTruthy()
     })
 
     it('keeps the page testID on the page first row', () => {
