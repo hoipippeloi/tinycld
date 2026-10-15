@@ -11,14 +11,15 @@ The app can hold several servers at once — a work server and a home one, or tw
 organizations you belong to. Each keeps its **own account, its own data, and its
 own sign-in**. Switching between them doesn't sign you out of any of the others.
 
-This is the app on your phone or tablet. In a web browser the address bar already
-decides which server you're on, so there's nothing to switch — see
-[Organizations](help://core:organizations) for how that works.
+In a web browser each server opens at its own address, and you sign in to each one
+separately. The browser keeps a list of servers too — see **In a web
+browser** below.
 
 ## Adding a server
 
 Open the **More** menu (the ⋯ tab at the bottom on a phone) and choose **Add
-server** under **Servers**. Type the address and tap **Connect**.
+server** under **Servers**. Type the address and tap **Connect**. You can also go
+to **Settings → This device → Servers** and select **Add server**.
 
 You can type just the hostname — `acme.tinycld.org` is enough, and the app fills
 in the rest. If you host your own server, use the full address you'd type in a
@@ -43,16 +44,31 @@ re-entered.
 
 ## Removing a server
 
-Go to **Settings → This device → Servers** and use the trash icon beside a
-server. Removing signs you out of that server on this device and forgets its
+On a tablet or in a web browser, open the user menu and choose **Remove server**,
+then the server to remove. You can also go to **Settings → This device → Servers**
+and use the trash icon beside a server. Removing signs you out of that server on this device and forgets its
 address; your account on the server itself is untouched, and you can add it again
 later.
 
 If you remove the server you're currently using, the app switches to another one
 you've saved. Remove the last one and you'll be asked to connect somewhere.
 
-Removing is deliberately kept out of the quick-switch menu so it isn't a mis-tap
-away from the server you meant to switch to.
+Removing always asks you to confirm, so a mis-tap does not remove the server you
+meant to switch to.
+
+## In a web browser
+
+A browser cannot share one sign-in between two addresses, so switching in a
+browser opens the other server in the same tab. If you are not signed in there
+yet, you sign in once.
+
+To add a server, go to **Settings → This device → Servers**, select **Add
+server**, and type its address. The browser opens that server. When you switch
+from one server to another, the server you arrive on adds the one you came from
+to its list. After that, the user menu on each server shows the other.
+
+Removing a server in a browser only removes it from the list. It does not sign
+you out of that server.
 
 ## Disconnecting from this server
 
