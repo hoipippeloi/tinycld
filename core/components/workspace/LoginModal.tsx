@@ -2,13 +2,20 @@ import { ChangeServerLink } from '@tinycld/core/components/ChangeServerLink'
 import { ReviewModeHints } from '@tinycld/core/components/connect/ReviewModeHints'
 import { OrgLogo } from '@tinycld/core/components/OrgLogo'
 import { loginSchema, resetRequestSchema } from '@tinycld/core/components/workspace/login-schemas'
+import { EnrollStep } from '@tinycld/core/components/workspace/sign-in/EnrollStep'
+import { MfaStep } from '@tinycld/core/components/workspace/sign-in/MfaStep'
+import { PasskeySignInButton } from '@tinycld/core/components/workspace/sign-in/PasskeySignInButton'
+import { PasswordStep } from '@tinycld/core/components/workspace/sign-in/PasswordStep'
 import { requestPasswordReset } from '@tinycld/core/lib/account-password'
 import { useAuth } from '@tinycld/core/lib/auth'
+import { passkeys } from '@tinycld/core/lib/passkey'
 import { takePendingRoute } from '@tinycld/core/lib/pending-route'
+import type { SignInStep } from '@tinycld/core/lib/sign-in-step'
 import {
     useSignInNotice,
     useSignInNoticeStore,
 } from '@tinycld/core/lib/stores/sign-in-notice-store'
+import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import type { OrgBranding as OrgBrandingInfo } from '@tinycld/core/lib/use-org-info'
 import { useOrgInfo } from '@tinycld/core/lib/use-org-info'
@@ -39,6 +46,9 @@ export function LoginModal() {
     const backdropColor = useThemeColor('overlay-backdrop')
     const [mode, setMode] = useState<Mode>('login')
     const insets = useDeviceInsets()
+    // The server asked for a second step; it replaces the password form until
+    // the step finishes or the user goes back.
+    const step = useSignInStepStore(s => s.step)
 
     return (
         <KeyboardAvoidingView
@@ -69,8 +79,12 @@ export function LoginModal() {
                     elevation: 8,
                 }}
             >
-                <LoginForm isVisible={mode === 'login'} onForgotPassword={() => setMode('reset')} />
-                <ResetForm isVisible={mode === 'reset'} onBack={() => setMode('login')} />
+                <SignInStepView step={step} />
+                <LoginForm
+                    isVisible={!step && mode === 'login'}
+                    onForgotPassword={() => setMode('reset')}
+                />
+                <ResetForm isVisible={!step && mode === 'reset'} onBack={() => setMode('login')} />
             </View>
         </KeyboardAvoidingView>
     )
@@ -85,7 +99,7 @@ function useLoginForm() {
         mode: 'onChange',
     })
 
-    const onSubmit = form.handleSubmit(async ({ identifier, password }) => {
+    const submitForm = form.handleSubmit(async ({ identifier, password }) => {
         const result = await login(identifier, password)
         if (result.error) {
             form.setError('root', { type: 'server', message: result.error })
@@ -104,6 +118,18 @@ function useLoginForm() {
         // signed-in user to the app root.
         router.replace(takePendingRoute() ?? '/')
     })
+
+    // A second step (code, passkey, enrollment, new password) now shows in
+    // place of this form. Reset it once the submit has finished: a reset
+    // inside the submit is overwritten by handleSubmit's own "succeeded"
+    // state, which would leave the form busy and read-only when the user
+    // comes back to it. The password is cleared so it does not sit there.
+    const onSubmit = async () => {
+        await submitForm()
+        if (useSignInStepStore.getState().step) {
+            form.reset({ identifier: form.getValues('identifier'), password: '' })
+        }
+    }
 
     const prefill = (identifier: string, password: string) => {
         form.setValue('identifier', identifier, { shouldValidate: true })
@@ -217,6 +243,15 @@ function LoginForm({
                 <SubmitLabel isBusy={isBusy} color={primaryFg} label="Sign in" />
             </ServerActionButton>
 
+            <View className="mt-3">
+                <PasskeySignInButton
+                    isVisible
+                    testID="login-passkey"
+                    label="Sign in with a passkey"
+                    run={passkeys.signIn}
+                />
+            </View>
+
             <ReviewModeHints onPrefill={prefill} />
 
             <View className="mt-4 flex-row justify-around">
@@ -233,6 +268,13 @@ function LoginForm({
             </View>
         </>
     )
+}
+
+function SignInStepView({ step }: { step: SignInStep | null }) {
+    if (step?.kind === 'mfa') return <MfaStep step={step} />
+    if (step?.kind === 'enroll') return <EnrollStep step={step} />
+    if (step?.kind === 'password') return <PasswordStep step={step} />
+    return null
 }
 
 function SubmitLabel({ isBusy, color, label }: { isBusy: boolean; color: string; label: string }) {

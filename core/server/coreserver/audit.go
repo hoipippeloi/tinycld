@@ -29,4 +29,9 @@ func RegisterAuditHooks(app *pocketbase.PocketBase) {
 		ExtractLabel: audit.LabelFromField("name"),
 	})
 	audit.RegisterCollections(app, []string{"group_members"}, nil)
+
+	// An owner or admin removing a member's authenticator app (a recovery
+	// reset) is a collection delete. Passkeys and app passwords register
+	// with their own packages.
+	audit.RegisterCollections(app, []string{"mfa_totp"}, nil)
 }

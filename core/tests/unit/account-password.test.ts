@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { ClientResponseError } from 'pocketbase'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const update = vi.fn()
@@ -7,7 +8,10 @@ const requestPasswordReset = vi.fn()
 const confirmPasswordReset = vi.fn()
 const captureException = vi.fn()
 
-const authStore = { record: { id: 'user_1' } as { id: string } | null }
+const authStore = {
+    record: { id: 'user_1' } as { id: string } | null,
+    clear: vi.fn(),
+}
 
 vi.mock('@tinycld/core/lib/pocketbase', () => ({
     pb: {
@@ -71,6 +75,29 @@ describe('changeMyPassword', () => {
 
         await expect(changeMyPassword(args)).rejects.toThrow('old password is invalid')
         expect(authWithPassword).not.toHaveBeenCalled()
+        expect(captureException).not.toHaveBeenCalled()
+    })
+
+    // With MFA on, the re-auth answers with a second step, not a session. The
+    // old session is dead, so it is dropped and the step is handed to the
+    // login overlay; the change itself succeeded and must not throw.
+    it('hands the second step to the login overlay when MFA is on', async () => {
+        authWithPassword.mockRejectedValueOnce(
+            new ClientResponseError({
+                status: 401,
+                response: { mfaToken: 'tok', methods: ['totp'] },
+            })
+        )
+        const changeMyPassword = await importChangePassword()
+        await expect(changeMyPassword(args)).resolves.toBeUndefined()
+
+        const { useSignInStepStore } = await import('@tinycld/core/lib/stores/sign-in-step-store')
+        expect(useSignInStepStore.getState().step).toEqual({
+            kind: 'mfa',
+            token: 'tok',
+            methods: ['totp'],
+        })
+        expect(authStore.clear).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
     })
 

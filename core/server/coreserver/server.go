@@ -21,9 +21,12 @@ import (
 	"tinycld.org/core/backup"
 	"tinycld.org/core/groups"
 	"tinycld.org/core/logging"
+	"tinycld.org/core/mfa"
+	"tinycld.org/core/nativeauth"
 	"tinycld.org/core/notify"
 	"tinycld.org/core/oauth"
 	"tinycld.org/core/offboard"
+	"tinycld.org/core/passkey"
 	"tinycld.org/core/pkgaccess"
 	"tinycld.org/core/quota"
 	"tinycld.org/core/readonly"
@@ -434,6 +437,8 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterPasswordResetMailer(app)
 	RegisterAuditHooks(app)
 	RegisterAccountDelete(app)
+	RegisterAppPasswords(app)
+	RegisterAdminPasswordReset(app)
 	RegisterAdminOffboard(app)
 	offboard.Register(app)
 	webhookin.RegisterRoutes(app)
@@ -441,6 +446,12 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterLastOwnerGuard(app)
 	RegisterUsersDemoAuditHook(app)
 	RegisterDisabledUserGuard(app)
+	// The second sign-in step. Binds onto the same users auth tail as the
+	// disabled guard, so a disabled account is refused before it is asked
+	// for a code.
+	mfa.Register(app)
+	passkey.Register(app)
+	nativeauth.Register(app)
 	pkgaccess.Register(app)
 	groups.Register(app)
 

@@ -29,6 +29,8 @@ export const eventRegistry: Record<NotifyEventName, EventConfig> = {
     'import.failed': { channels: ['toast', 'bell'], variant: 'error' },
     'mutation.error': { channels: ['toast'], variant: 'error' },
     'account.password_changed': { channels: ['toast'], variant: 'success' },
+    'account.security_changed': { channels: ['toast'], variant: 'success' },
+    'account.security_copied': { channels: ['toast'], variant: 'success' },
     'settings.avatar_upload_failed': { channels: ['toast'], variant: 'error' },
     'settings.branding_upload_failed': { channels: ['toast'], variant: 'error' },
 }
