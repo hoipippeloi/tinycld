@@ -153,6 +153,7 @@ const handler = {
                 return Icon
             }
         }
+        // The trap ignores the seeded target, so Check needs its own branch.
         if (prop === 'Check') return Check
         // Any named icon export (ChevronDown, Plus, etc.)
         return Icon
