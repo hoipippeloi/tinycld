@@ -10,7 +10,7 @@
             "columns": ["name", "notes", "due", "owner", "position", "form", "fields"],
             "builtin": [
                 { "key": "name", "label": "Name", "kind": "text", "storage": "column", "required": true },
-                { "key": "notes", "label": "Notes", "kind": "markdown", "storage": "column", "collaborative": true, "component": "NotesField" },
+                { "key": "notes", "label": "Notes", "kind": "markdown", "storage": "column", "collaborative": true, "component": "NotesField", "chrome": "bare" },
                 { "key": "due", "label": "Due", "kind": "date", "storage": "column" },
                 { "key": "owner", "label": "Owner", "kind": "user", "storage": "column" },
                 { "key": "tasks", "label": "Tasks", "kind": "checklist", "storage": "rows", "mapper": "tasksMapper" },

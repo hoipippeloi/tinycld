@@ -1,5 +1,5 @@
 export { FieldCell, type FieldCellProps } from './FieldCell'
-export { FieldInput, type FieldInputProps, rendersOwnLabel } from './FieldInput'
+export { FieldInput, type FieldInputProps, rendersBare, rendersOwnLabel } from './FieldInput'
 export { FormLayout } from './FormLayout'
 export {
     type DesignOptions,

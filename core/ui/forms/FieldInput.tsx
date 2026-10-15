@@ -190,10 +190,27 @@ function selectDisplay(resolved: Resolved): 'dropdown' | 'radio' | 'checkbox' {
 }
 
 /**
- * True when the input renders the field's label itself (a toggle, a radio
- * list, a single-choice list), so the cell does not repeat it.
+ * True when a built-in declared `chrome: 'bare'` and the form shows a record
+ * (edit or read): the host component draws its own chrome, and the cell is only
+ * the width wrapper. The design canvas keeps the labelled cell.
  */
-export function rendersOwnLabel(host: FormHost, field: FormField, ui: FormHostUi | null): boolean {
+export function rendersBare(host: FormHost, field: FormField, mode: FieldMode): boolean {
+    if (mode !== 'edit' && mode !== 'read') return false
+    return resolveKind(host, field).builtin?.chrome === 'bare'
+}
+
+/**
+ * True when the input renders the field's label itself (a toggle, a radio
+ * list, a single-choice list, a bare built-in on a record), so the cell does
+ * not repeat it.
+ */
+export function rendersOwnLabel(
+    host: FormHost,
+    field: FormField,
+    ui: FormHostUi | null,
+    mode?: FieldMode
+): boolean {
+    if (mode && rendersBare(host, field, mode)) return true
     const resolved = resolveKind(host, field)
     if (hasHostComponent(resolved, ui)) return false
     if (resolved.kind === 'toggle') return true

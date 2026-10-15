@@ -17,6 +17,12 @@ const builtinSchema = z
         component: z.string().min(1).optional(),
         /** Key in the host's UI module `mappers` map; required for rows storage. */
         mapper: z.string().min(1).optional(),
+        /**
+         * `bare`: on a record (edit and read) the host component draws its own
+         * label, spacing and errors, and the cell is only the width wrapper.
+         * The design canvas still draws the labelled cell.
+         */
+        chrome: z.enum(['cell', 'bare']).default('cell'),
     })
     .superRefine((b, ctx) => {
         if (b.storage === 'rows' && !b.mapper)

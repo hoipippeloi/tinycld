@@ -8,7 +8,7 @@ import { type MutableRefObject, type ReactNode, useRef, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
 import { Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
-import { FieldInput, rendersOwnLabel } from './FieldInput'
+import { FieldInput, rendersBare, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
@@ -105,7 +105,7 @@ function visibleFieldsOf(
 
 function Cell(props: CellProps) {
     const { field, state, containerWidth, host, ui, form, mode, recordId, collab, design } = props
-    const hideLabel = rendersOwnLabel(host, field, ui)
+    const hideLabel = rendersOwnLabel(host, field, ui, mode)
     const onCellMeasure = design?.onCellMeasure
     const fieldState = state.fields[field.key]
     const formError = form.formState.errors[field.key]?.message
@@ -123,6 +123,7 @@ function Cell(props: CellProps) {
             handle={design?.renderHandle?.(field.key)}
             isSelected={design?.selectedKey === field.key}
             hideLabel={hideLabel}
+            isBare={rendersBare(host, field, mode)}
             badge={design?.badges?.[field.key]}
             dropIndicator={dropSideFor(design, field.key)}
             isDragging={design?.draggingKey === field.key}

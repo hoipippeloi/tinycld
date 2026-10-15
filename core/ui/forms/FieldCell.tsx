@@ -19,6 +19,13 @@ export interface FieldCellProps {
     isSelected?: boolean
     /** The input shows the label itself (a toggle, a radio or choice list), so the cell does not. */
     hideLabel?: boolean
+    /**
+     * The field draws all of its own chrome: the cell is only the width
+     * wrapper (basis and the side padding FormLayout's negative margin
+     * cancels) — no label, description, required mark, border, error or
+     * bottom margin. A field that draws nothing then takes no height.
+     */
+    isBare?: boolean
     /** The builder's per-cell marker (e.g. a rule badge), right of the label. */
     badge?: ReactNode
     /** Which edge shows the drop bar while a field is dragged over this cell. */
@@ -130,6 +137,7 @@ export function FieldCell({
     handle,
     isSelected = false,
     hideLabel = false,
+    isBare = false,
     badge,
     dropIndicator,
     isDragging = false,
@@ -141,6 +149,18 @@ export function FieldCell({
     const basis = widthClass(effective)
     const { ref, onLayout } = useMeasuredRect(onLayoutRect, registerMeasure)
     const cellTestID = testID ?? `form-field-${fieldKey}`
+    if (isBare) {
+        return (
+            <View
+                ref={ref}
+                onLayout={onLayout}
+                className={`${basis} grow-0 shrink-0 px-1.5`}
+                testID={cellTestID}
+            >
+                {children}
+            </View>
+        )
+    }
     const root = {
         ref,
         onLayout,
