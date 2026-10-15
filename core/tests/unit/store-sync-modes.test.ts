@@ -52,6 +52,9 @@ const CORE_COLLECTIONS = [
     'automation_catalog',
     'comment_mentions',
     'forms',
+    'app_passwords',
+    'mfa_totp',
+    'passkeys',
 ] as const
 
 describe('core collection sync modes', () => {

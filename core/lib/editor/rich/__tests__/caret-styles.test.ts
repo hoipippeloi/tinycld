@@ -68,6 +68,8 @@ describe('editor caret styles', () => {
         // The selection comes from y-tiptap, not the caret extension, and uses
         // `ProseMirror-yjs-selection` rather than a `collaboration-carets__`
         // name. Easy to miss when adding the caret rules by hand.
+        // A full awareness user: y-tiptap 3.0.10 types the argument as CursorUser,
+        // which requires `name` as well as `color`.
         const { class: selectionClass } = defaultSelectionBuilder({ name: 'Ada', color: '#ff0000' })
         expect(EDITOR_CONTENT_STYLES).toContain(`.${selectionClass}`)
     })

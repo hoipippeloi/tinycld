@@ -18,6 +18,9 @@ export type NotificationEvents = {
     'import.failed': { source: string; error: string }
     'mutation.error': { operation: string; error: string }
     'account.password_changed': Record<string, never>
+    // A second factor, passkey or app password was added or removed.
+    'account.security_changed': Record<string, never>
+    'account.security_copied': Record<string, never>
     'settings.avatar_upload_failed': { error: string }
     'settings.branding_upload_failed': { error: string }
 }

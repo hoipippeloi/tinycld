@@ -1,4 +1,5 @@
 import { pb, refreshAuth } from '@tinycld/core/lib/pocketbase'
+import type { SignInStep } from '@tinycld/core/lib/sign-in-step'
 import { useAuthStore } from '@tinycld/core/lib/stores/auth-store'
 import type { ReactNode } from 'react'
 import { useEffect } from 'react'
@@ -25,6 +26,8 @@ type AuthActions = {
     ) => Promise<{
         user: UserShape | null
         error: string | null
+        // The password was right and the server wants a second step first.
+        step?: SignInStep
     }>
     logout: () => void
 }

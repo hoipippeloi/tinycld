@@ -22,12 +22,14 @@ import {
     Image,
     Info,
     KeyRound,
+    LockKeyhole,
     Package,
     Palette,
     ScrollText,
     Send,
     Server,
     ShieldAlert,
+    ShieldCheck,
     Sliders,
     Tag,
     User,
@@ -86,6 +88,7 @@ export default function SettingsIndex() {
 // sees the whole group.
 const ACCOUNT_LINKS = [
     { label: 'Profile', route: 'settings/profile', Icon: User },
+    { label: 'Security', route: 'settings/security', Icon: ShieldCheck },
     { label: 'Appearance', route: 'settings/appearance', Icon: Palette },
     { label: 'Notifications', route: 'settings/notifications', Icon: Bell },
     { label: 'Rules', route: 'settings/rules', Icon: Workflow },
@@ -159,6 +162,11 @@ function AdminSettings({ isVisible, isOwner }: { isVisible: boolean; isOwner: bo
                     isVisible={packageFormHosts.length > 0}
                     onPress={() => router.push(orgHref('settings/forms'))}
                     color={foregroundColor}
+                />
+                <SettingsLink
+                    label="Sign-in security"
+                    onPress={() => router.push(orgHref('settings/sign-in-security'))}
+                    icon={<LockKeyhole size={20} color={foregroundColor} />}
                 />
                 <SettingsLink
                     label="OAuth Clients"

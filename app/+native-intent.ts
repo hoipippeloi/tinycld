@@ -29,6 +29,16 @@ export function redirectSystemPath({ path }: { path: string; initial: boolean })
     if (pathname === '/demo' || pathname.startsWith('/demo/')) {
         return '/p/demo'
     }
+    // The browser-sheet passkey flow returns on tinycld://auth/callback. The
+    // sheet's promise carries the result; on Android the link also reaches
+    // the router, and this route just steps back (see core/lib/native-auth.ts).
+    if (
+        isSchemeUrl &&
+        pathname === '/callback' &&
+        path.toLowerCase().startsWith('tinycld://auth/')
+    ) {
+        return '/a/native-auth/callback'
+    }
     // App routes moved under APP_PREFIX. Universal links minted before the move
     // — notably emailed invite and reset links opened on a phone — still arrive
     // unprefixed, so rewrite them rather than dropping the user on +not-found.
