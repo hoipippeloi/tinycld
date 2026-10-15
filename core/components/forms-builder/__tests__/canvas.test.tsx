@@ -29,7 +29,12 @@ const plain = {
     order: 0,
     definition: defaultDefinitionFor(widgetHost),
 }
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 const admin = {
     host,
     forms: [plain],

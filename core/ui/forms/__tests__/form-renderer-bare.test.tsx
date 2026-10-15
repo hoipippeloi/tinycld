@@ -20,6 +20,7 @@ const bareHost = {
         ),
     }),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 

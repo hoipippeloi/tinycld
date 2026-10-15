@@ -6,7 +6,12 @@ import { definitionSchema } from '../../../lib/forms/definition'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { useFormCreate } from '../use-form-create'
 
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 const plain = {
     id: 'f1',
     host: host.key,

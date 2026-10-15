@@ -25,7 +25,12 @@ const plain = {
     definition: defaultDefinitionFor(widgetHost),
 }
 const save = vi.fn(async () => {})
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 const admin = {
     host,
     forms: [plain],

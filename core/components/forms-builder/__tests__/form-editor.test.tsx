@@ -49,7 +49,7 @@ const hostUi = vi.hoisted(() => ({
         mappers: {},
     }),
 }))
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: () => hostUi.load() }
+const host = { ...widgetHost, pkgSlug: 'gizmos', pkgName: 'Gizmos', ui: () => hostUi.load() }
 const admin = {
     host,
     forms: [plain],

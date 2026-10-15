@@ -6,7 +6,12 @@ import { definitionSchema } from '../../../lib/forms/definition'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { useFormEdit } from '../use-form-edit'
 
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 const bug = {
     id: 'f2',
     host: host.key,

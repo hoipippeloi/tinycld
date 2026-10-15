@@ -25,7 +25,12 @@ const plain = {
 }
 const bug = { ...plain, id: 'f2', name: 'Bug', slug: 'bug', is_default: false, order: 1 }
 const admin = {
-    host: { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) },
+    host: {
+        ...widgetHost,
+        pkgSlug: 'gizmos',
+        pkgName: 'Gizmos',
+        ui: async () => ({ components: {}, mappers: {} }),
+    },
     forms: [plain, bug],
     defaultForm: plain,
     isReady: true,

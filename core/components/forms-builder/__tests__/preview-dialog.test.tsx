@@ -57,7 +57,12 @@ const plain = {
     definition: def,
 }
 const admin = {
-    host: { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) },
+    host: {
+        ...widgetHost,
+        pkgSlug: 'gizmos',
+        pkgName: 'Gizmos',
+        ui: async () => ({ components: {}, mappers: {} }),
+    },
     forms: [plain],
     defaultForm: plain,
     isReady: true,

@@ -23,6 +23,7 @@ afterEach(cleanup)
 const host = {
     ...hostDefSchema.parse(widgetHost),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 
@@ -69,6 +70,7 @@ const titleHost = {
         builtin: widgetHost.builtin.map(b => (b.key === 'notes' ? { ...b, key: 'title' } : b)),
     }),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 

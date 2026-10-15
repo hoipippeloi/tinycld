@@ -15,6 +15,7 @@ describe('deriveFormHosts', () => {
         ])
         expect(hosts).toHaveLength(1)
         expect(hosts[0]).toMatchObject({ key: 'gizmos:widget', pkgSlug: 'gizmos' })
+        expect(hosts[0].pkgName).toBe('Gizmos')
         await expect(hosts[0].ui()).resolves.toBe(ui)
     })
     it('returns an empty ui when a package declares hosts without a ui module', async () => {

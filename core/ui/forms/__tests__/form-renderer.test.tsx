@@ -12,7 +12,12 @@ import { useSchemaRefResolver } from '../use-schema-ref-resolver'
 
 afterEach(cleanup)
 
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 const ctx = { today: '2026-01-01', userId: 'u' }
 
 // Two pages: Details (name, severity) and Reproduction (steps), with the host's builtins folded in.

@@ -63,6 +63,7 @@ const files = {
 const hostWithFiles = {
     ...hostDefSchema.parse({ ...widgetHost, files }),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ({ components: {}, mappers: {} }),
 }
 

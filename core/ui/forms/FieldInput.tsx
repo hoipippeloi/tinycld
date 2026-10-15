@@ -553,16 +553,11 @@ function hasHostComponent(resolved: Resolved, ui: FormHostUi | null): boolean {
     return Boolean(name && ui?.components[name])
 }
 
-function packageLabel(host: FormHost) {
-    const slug = host.pkgSlug
-    return slug.charAt(0).toUpperCase() + slug.slice(1)
-}
-
 /** The canvas never mounts a host component: it stands in for the package's own UI. */
 function DesignPlaceholder({ host }: { host: FormHost }) {
     return (
         <View className="rounded-md border border-dashed border-border px-3 py-2">
-            <Text className="text-muted-foreground text-sm">Shown by {packageLabel(host)}</Text>
+            <Text className="text-muted-foreground text-sm">Shown by {host.pkgName}</Text>
         </View>
     )
 }

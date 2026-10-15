@@ -15,7 +15,12 @@ afterEach(cleanup)
 // FileField stamps the uploader; the signed-in user is all it reads from auth.
 vi.mock('@tinycld/core/lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
 
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmo Works',
+    ui: async () => ({ components: {}, mappers: {} }),
+}
 
 function Harness({
     field,
@@ -314,7 +319,7 @@ describe('FieldInput', () => {
                 ui={ui as unknown as FormHostUi}
             />
         )
-        expect(getByText('Shown by Gizmos')).toBeTruthy()
+        expect(getByText('Shown by Gizmo Works')).toBeTruthy()
         expect(queryByText('never')).toBeNull()
     })
 })
