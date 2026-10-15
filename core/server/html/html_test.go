@@ -182,3 +182,10 @@ func TestToPM_DecodesEntities(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestPlainText(t *testing.T) {
+	got := PlainText("<p>a &amp; b</p><script>x()</script><ul><li>one</li><li>two</li></ul>")
+	if want := "a & b one two"; got != want {
+		t.Fatalf("PlainText = %q, want %q", got, want)
+	}
+}

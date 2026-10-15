@@ -181,7 +181,11 @@ func TestStripHTML(t *testing.T) {
 		{"", ""},
 		{"plain text", "plain text"},
 		{"<p>hello</p>", "hello"},
-		{"<div><b>VIP</b> client</div>", "VIP  client"},
+		{"<div><b>VIP</b> client</div>", "VIP client"},
+		{"<p>a</p><script>var x=1</script>", "a"},
+		{"<style>p{}</style>b", "b"},
+		{"a &amp; b", "a & b"},
+		{"<p>a</p><noscript>n</noscript><template>t</template>", "a"},
 		{"  <span>trim me</span>  ", "trim me"},
 	}
 	for _, tc := range cases {
