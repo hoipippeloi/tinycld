@@ -6,9 +6,8 @@ import { create } from 'zustand'
 const h = vi.hoisted(() => ({ isFocused: true }))
 
 const setParams = vi.fn()
-const push = vi.fn()
 vi.mock('expo-router', () => ({
-    useRouter: () => ({ setParams, push }),
+    useRouter: () => ({ setParams }),
     useNavigation: () => ({ isFocused: () => h.isFocused }),
 }))
 
@@ -39,32 +38,15 @@ function useSync({
     onChangeWhileBlurred?: (value: string | null) => void
 }) {
     useUrlStateSync<string | null>({
-        ...syncOptions(params, isReady),
-        onChangeWhileBlurred,
-    })
-}
-
-// The same item, as a navigation: each change is a history entry of its own.
-function usePushSync({ params }: { params: { item: string } }) {
-    useUrlStateSync<string | null>({
-        ...syncOptions(params, true),
-        history: 'push',
-        href: value => (value ? `/items/${value}` : '/items'),
-    })
-}
-
-function syncOptions(params: { item: string }, isReady: boolean) {
-    return {
         isReady,
         urlValue: isReady ? resolve(params.item) || null : undefined,
         params,
-        format: (value: string | null) => ({
-            item: value ? `${value}${spelling.suffix}` : undefined,
-        }),
+        format: value => ({ item: value ? `${value}${spelling.suffix}` : undefined }),
         read: () => useStore.getState().item,
-        write: (value: string | null) => useStore.getState().open(value),
+        write: value => useStore.getState().open(value),
         subscribe: useStore.subscribe,
-    }
+        onChangeWhileBlurred,
+    })
 }
 
 describe('useUrlStateSync', () => {
@@ -228,44 +210,5 @@ describe('useUrlStateSync', () => {
         spelling.suffix = '-1'
         rerender({ params: { item: 'b-draft' } })
         expect(setParams).toHaveBeenCalledTimes(1)
-    })
-
-    // A card peek is a navigation: Back walks the cards that were opened, which
-    // a setParams (a history replace on web) cannot give.
-    it('pushes a history entry per state change when history is push', () => {
-        renderHook(() => usePushSync({ params: { item: '' } }))
-        act(() => useStore.getState().open('b'))
-        expect(push).toHaveBeenCalledWith('/items/b')
-        expect(setParams).not.toHaveBeenCalled()
-        act(() => useStore.getState().open('c'))
-        expect(push).toHaveBeenCalledTimes(2)
-        expect(push).toHaveBeenLastCalledWith('/items/c')
-    })
-
-    // Back moves the URL first; the store follows it, and that write must not
-    // push the entry Back just left.
-    it('a URL change (Back) writes the state without pushing again', () => {
-        const { rerender } = renderHook(({ params }) => usePushSync({ params }), {
-            initialProps: { params: { item: 'b' } },
-        })
-        rerender({ params: { item: 'a' } })
-        expect(item()).toBe('a')
-        expect(push).not.toHaveBeenCalled()
-        expect(setParams).not.toHaveBeenCalled()
-    })
-
-    // Respelling is the same entry written differently, not a navigation.
-    it('respells a pushed URL in place rather than pushing again', () => {
-        spelling.suffix = '-draft'
-        const { rerender } = renderHook(({ params }) => usePushSync({ params }), {
-            initialProps: { params: { item: '' } },
-        })
-        act(() => useStore.getState().open('b'))
-        rerender({ params: { item: 'b-draft' } })
-
-        spelling.suffix = '-1'
-        rerender({ params: { item: 'b-draft' } })
-        expect(push).toHaveBeenCalledTimes(1)
-        expect(setParams).toHaveBeenLastCalledWith({ item: 'b-1' })
     })
 })

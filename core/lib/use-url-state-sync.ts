@@ -1,4 +1,4 @@
-import { type Href, useNavigation, useRouter } from 'expo-router'
+import { useNavigation, useRouter } from 'expo-router'
 import { useEffect, useRef } from 'react'
 
 /**
@@ -38,22 +38,10 @@ import { useEffect, useRef } from 'react'
  *
  * Writes go through `setParams`, never `replace`: REPLACE mints a new route
  * key and remounts the screen, while SET_PARAMS keeps the key and swaps the
- * params. `setParams` is a replace on web; a screen whose state is a
- * navigation (a card peek) asks for `history: 'push'` so Back walks it. A
- * push never answers a URL change, so Back does not push the entry it left,
- * and a respelling stays a `setParams`: it rewrites the entry, not a new one.
+ * params. The web history layer treats a same-route param change as a
+ * replace, so Back leaves the screen rather than walking the state's history.
  */
-export type UrlStateSyncOptions<T> = UrlStateSyncBaseOptions<T> &
-    (
-        | { history?: 'params'; href?: never }
-        | {
-              history: 'push'
-              /** The full href to push for `value`; `format` still spells the params. */
-              href: (value: T) => Href
-          }
-    )
-
-interface UrlStateSyncBaseOptions<T> {
+export interface UrlStateSyncOptions<T> {
     /**
      * Off until whatever the URL resolves against has loaded. Neither
      * direction runs before this — a URL naming a record that has not synced
@@ -85,7 +73,7 @@ interface UrlStateSyncBaseOptions<T> {
     subscribe: (listener: () => void) => () => void
     isEqual?: (a: T, b: T) => boolean
     /**
-     * Called INSTEAD of the write when this route is not the focused one —
+     * Called INSTEAD of `setParams` when this route is not the focused one —
      * a screen stays mounted under a route pushed over it, and `setParams`
      * would then change the covering route's params. Boards navigates back to
      * the board with the card peeked, which pops the page; omit it to write
@@ -124,8 +112,7 @@ export function useUrlStateSync<T>(options: UrlStateSyncOptions<T>): void {
     useEffect(() => {
         if (!isReady) return
         const sync = () => {
-            const latest = latestRef.current
-            const { read, format, params, onChangeWhileBlurred } = latest
+            const { read, format, params, onChangeWhileBlurred } = latestRef.current
             const value = read()
             if (syncedRef.current && isEqual(syncedRef.current.value, value)) return
             // Nothing has been read from the URL yet, so there is nothing to
@@ -143,8 +130,7 @@ export function useUrlStateSync<T>(options: UrlStateSyncOptions<T>): void {
             const want = format(value)
             if (carries(params, want)) return
             writtenRef.current = want
-            if (latest.history === 'push') router.push(latest.href(value))
-            else router.setParams(want)
+            router.setParams(want)
         }
         // A change made before this subscription attached — a value written
         // in the same commit the data arrived in.
