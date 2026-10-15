@@ -344,9 +344,65 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 	return nil
 }
 
+// keepRoomOwnedValues puts back the stored value of every collaborative
+// custom field of the record's current form. The collaboration room is the
+// only writer of those keys (its flush is a plain app.Save, which never
+// reaches this request hook); a client patch carries a copy that may be older
+// than the room's last flush and must not overwrite it.
+func keepRoomOwnedValues(e *core.RecordRequestEvent, host *Host) error {
+	stored := e.Record.Original()
+	formID := stored.GetString(host.FormColumn)
+	if formID == "" {
+		return nil
+	}
+	_, def, err := loadForm(e.App, host, formID)
+	if err != nil {
+		// Without the stored form there is no way to tell which keys the room
+		// owns; the write goes on and validateHostRecord checks it against
+		// the form it names.
+		log.WarnContext(e.Request.Context(), "stored form unreadable; collaborative keys unguarded", "form", formID, "err", err)
+		return nil
+	}
+	prev, err := fieldsOf(stored, host.FieldsColumn)
+	if err != nil {
+		return fmt.Errorf("forms: read stored record: %w", err)
+	}
+	incoming, err := fieldsOf(e.Record, host.FieldsColumn)
+	if err != nil {
+		return fieldErr(host.FieldsColumn, "validation_invalid_json", "Custom fields are not valid JSON.")
+	}
+	changed := false
+	for _, f := range def.Fields {
+		if f.Kind == "builtin" || !f.Collaborative {
+			continue
+		}
+		old, had := prev[f.Key]
+		now, has := incoming[f.Key]
+		if had == has && reflect.DeepEqual(old, now) {
+			continue
+		}
+		changed = true
+		if had {
+			incoming[f.Key] = old
+		} else {
+			delete(incoming, f.Key)
+		}
+	}
+	if changed {
+		e.Record.Set(host.FieldsColumn, incoming)
+	}
+	return nil
+}
+
 func bindHostHooks(app core.App, defs *Defs) {
 	for i := range defs.Hosts {
 		host := &defs.Hosts[i]
+		app.OnRecordUpdateRequest(host.Collection).BindFunc(func(e *core.RecordRequestEvent) error {
+			if err := keepRoomOwnedValues(e, host); err != nil {
+				return err
+			}
+			return e.Next()
+		})
 		app.OnRecordCreate(host.Collection).BindFunc(func(e *core.RecordEvent) error {
 			if err := validateHostRecord(e.App, host, e, true); err != nil {
 				return err

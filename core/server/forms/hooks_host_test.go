@@ -3,10 +3,12 @@ package forms
 import (
 	"database/sql"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
 )
 
 const bugDef = `{"version":1,"pages":[{"key":"main","title":"Bug"},{"key":"repro","title":"Repro"}],"fields":[
@@ -370,5 +372,111 @@ func TestHostHook_DateValuesMatchTheStoredShape(t *testing.T) {
 		if _, err := e.widget(t, form.Id, `{"when":`+bad+`}`); err == nil || !strings.Contains(err.Error(), "when") {
 			t.Fatalf("%s must be refused, got %v", bad, err)
 		}
+	}
+}
+
+// openWidgets lets an anonymous request write gizmos_widgets, so the
+// request-only hooks run through the real record API.
+func (e *env) openWidgets(t *testing.T) {
+	t.Helper()
+	col, err := e.app.FindCollectionByNameOrId("gizmos_widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := ""
+	col.CreateRule = &open
+	col.UpdateRule = &open
+	if err := e.app.Save(col); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (e *env) storedFields(t *testing.T, id string) map[string]any {
+	t.Helper()
+	rec, err := e.app.FindRecordById("gizmos_widgets", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := fieldsOf(rec, "fields")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func (e *env) request(t *testing.T, method, url, payload string) {
+	t.Helper()
+	sc := tests.ApiScenario{
+		Method:                method,
+		URL:                   url,
+		Body:                  strings.NewReader(payload),
+		ExpectedStatus:        200,
+		ExpectedContent:       []string{`"id":`},
+		TestAppFactory:        func(testing.TB) *tests.TestApp { return e.app },
+		DisableTestAppCleanup: true,
+	}
+	sc.Test(t)
+}
+
+func TestHostHook_UpdateRequestKeepsTheRoomsCollaborativeValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.openWidgets(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"body":"room"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.request(t, http.MethodPatch, "/api/collections/gizmos_widgets/records/"+w.Id, `{"fields":{"body":"stale","count":3}}`)
+	got := e.storedFields(t, w.Id)
+	if got["body"] != "room" {
+		t.Fatalf("a client patch overwrote the room's text: body = %v", got["body"])
+	}
+	if got["count"] != float64(3) {
+		t.Fatalf("the rest of the patch must still write: count = %v", got["count"])
+	}
+}
+
+func TestHostHook_UpdateRequestCannotAddACollaborativeValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.openWidgets(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"count":1}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.request(t, http.MethodPatch, "/api/collections/gizmos_widgets/records/"+w.Id, `{"fields":{"body":"late","count":2}}`)
+	got := e.storedFields(t, w.Id)
+	if _, has := got["body"]; has {
+		t.Fatalf("a key the room never wrote must stay absent, got body = %v", got["body"])
+	}
+}
+
+func TestHostHook_NonRequestSaveWritesTheCollaborativeValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	w, err := e.widget(t, bug.Id, `{"body":"old"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Set("fields", []byte(`{"body":"flush"}`))
+	if err := e.app.Save(w); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.storedFields(t, w.Id); got["body"] != "flush" {
+		t.Fatalf("the room's flush must write: body = %v", got["body"])
+	}
+}
+
+func TestHostHook_CreateRequestKeepsTheCollaborativeValue(t *testing.T) {
+	e := newTestEnv(t)
+	e.openWidgets(t)
+	e.newForm(t, "widget", widgetDefault, true)
+	bug := e.newForm(t, "bug", bugDef, false)
+	e.request(t, http.MethodPost, "/api/collections/gizmos_widgets/records", `{"id":"wcreate00000001","name":"w","form":"`+bug.Id+`","fields":{"body":"first"}}`)
+	if got := e.storedFields(t, "wcreate00000001"); got["body"] != "first" {
+		t.Fatalf("create is not room-owned: body = %v", got["body"])
 	}
 }
