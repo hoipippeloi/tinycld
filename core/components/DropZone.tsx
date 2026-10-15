@@ -89,6 +89,9 @@ export function DropZone({
             // convenience with no keyboard equivalent by nature, so the div
             // carries no interactive role. Each caller must offer a keyboard
             // path to the same action (a button that opens the file picker).
+            // role="none" adds no semantics; it is here only because biome's
+            // static-element rule accepts it on an element with handlers, so
+            // do not read it as a deliberate accessibility choice.
             role="none"
             data-testid={testID}
             // A data attribute, not aria-disabled: aria-disabled is inherited,
