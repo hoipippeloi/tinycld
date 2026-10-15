@@ -22,6 +22,13 @@ export interface EditorSingletonValue {
     drafts: DraftStore
     /** The one editor, or null until a package has declared need and it boots. */
     result: EditorResult | null
+    /**
+     * The handover generation `result` was built for, or null while it is
+     * being rebuilt. An acquire bumps the store's generation one render before
+     * the editor catches up, so a surface compares the two rather than taking
+     * whatever `result` holds — see useWarmEditor.
+     */
+    resultGeneration: number | null
     /** Declare that this section may edit. Idempotent; never disposes. */
     declareNeed: () => void
     setOptions: (options: UseRichEditorOptions) => void
@@ -93,6 +100,7 @@ export function EditorSingletonProvider({ children }: { children: ReactNode }) {
             store,
             drafts,
             result: booted?.result ?? null,
+            resultGeneration: booted?.generation ?? null,
             declareNeed,
             setOptions: booted?.setOptions ?? noopSetOptions,
         }),
@@ -114,6 +122,8 @@ export function EditorSingletonProvider({ children }: { children: ReactNode }) {
 interface BootedValue {
     result: EditorResult
     setOptions: (options: UseRichEditorOptions) => void
+    /** What `result` was built for; null while it is still the previous one. */
+    generation: number | null
 }
 
 function noopSetOptions() {}
@@ -184,9 +194,14 @@ function BootedEditor({ store, onChange }: BootedEditorProps) {
     // from. An effect, not render-time work, because it sets the parent's
     // state; it fires once per editor generation, which is exactly when the
     // context value has to change anyway.
+    //
+    // The generation goes up with it, and is null while `result` is not
+    // ready: in the render right after an acquire it is still the instance
+    // built for whoever held the editor before.
+    const builtFor = isReady ? snapshot.generation : null
     useEffect(() => {
-        onChange({ result, setOptions })
-    }, [result, setOptions, onChange])
+        onChange({ result, setOptions, generation: builtFor })
+    }, [result, setOptions, onChange, builtFor])
 
     // A parked editor must not keep the last surface's text.
     //

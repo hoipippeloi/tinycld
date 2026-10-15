@@ -1,4 +1,4 @@
-import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
+import { type Editor, EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react'
 import { useEffect, useMemo, useRef } from 'react'
 import { View } from 'react-native'
 import { log } from '../../logger'
@@ -48,6 +48,17 @@ const HEADING_LEVELS = [1, 2, 3, 4, 5, 6]
  * extensions memo below).
  */
 const AUTHED_IMAGE_NODE_VIEW = ReactNodeViewRenderer(AuthedImageView)
+
+/**
+ * The configuration each tiptap instance was built for, keyed by the instance.
+ *
+ * tiptap replaces its instance in an EFFECT when the configuration changes, so
+ * the render in between still returns the outgoing one. Comparing against this
+ * is how a render tells "the editor for this configuration" from "the editor
+ * about to be destroyed". A WeakMap, so a destroyed instance takes its entry
+ * with it.
+ */
+const BUILT_FOR = new WeakMap<Editor, object>()
 
 const EDITOR_STYLE_TAG_ID = 'tinycld-rich-editor-styles'
 if (typeof document !== 'undefined' && !document.getElementById(EDITOR_STYLE_TAG_ID)) {
@@ -231,9 +242,17 @@ export function useRichEditor(options: UseRichEditorOptions = {}): EditorResult 
         [placeholder, characterLimit, stableTriggers, hasSubmitShortcut, collabDoc, collabField]
     )
 
+    // One identity per configuration that rebuilds the instance — the same two
+    // values as the dep array below.
+    const build = useMemo(() => ({ extensions, generation }), [extensions, generation])
+
     const tiptapEditor = useEditor(
         {
             extensions,
+            // Records what this instance is for; read back as `isCurrent` below.
+            onBeforeCreate: ({ editor: created }) => {
+                BUILT_FOR.set(created, build)
+            },
             // Tiptap v3's useEditor does NOT re-render on transactions by
             // default, and `toolbarState` below is recomputed per render — so
             // without this every active flag freezes at its mount-time value
@@ -258,6 +277,13 @@ export function useRichEditor(options: UseRichEditorOptions = {}): EditorResult 
             onFocus: () => focusRef.current?.(),
             onBlur: () => blurRef.current?.(),
             editorProps: {
+                // Whether this instance is bound to a shared document, for a
+                // test or a stylesheet to wait on. Fixed at creation: the
+                // collaboration extension attaches its binding while the view is
+                // constructed, so an instance built with a document is bound
+                // from the moment it is in the page, and a change of document
+                // builds a new instance rather than rebinding this one.
+                attributes: { 'data-collab-ready': collabDoc && collabField ? 'true' : 'false' },
                 handleKeyDown: (_view, event) =>
                     event.key === 'Escape' ? (escapeRef.current?.() ?? false) : false,
                 handleDrop: (view, event) => {
@@ -433,6 +459,13 @@ export function useRichEditor(options: UseRichEditorOptions = {}): EditorResult 
     }, [tiptapEditor])
 
     const live = tiptapEditor && !tiptapEditor.isDestroyed ? tiptapEditor : null
+    // Live is not enough. Right after a configuration change `live` is still
+    // the OUTGOING instance — built for the previous holder, bound to its
+    // document, holding its text — and tiptap destroys it in an effect. The
+    // app's shared editor hands this result to the surface that just took it,
+    // so calling that instance ready rendered and focused an editor that was
+    // gone a moment later, along with any keystroke typed into it.
+    const isCurrent = live != null && BUILT_FOR.get(live) === build
     const toolbarState: EditorToolbarState = {
         isBoldActive: live?.isActive('bold') ?? false,
         isItalicActive: live?.isActive('italic') ?? false,
@@ -490,5 +523,5 @@ export function useRichEditor(options: UseRichEditorOptions = {}): EditorResult 
         [tiptapEditor, placeholderColor, primaryColor, containerClassName, minHeight, scale]
     )
 
-    return { editor, EditorComponent, commands, toolbarState, isReady: !!live }
+    return { editor, EditorComponent, commands, toolbarState, isReady: isCurrent }
 }
