@@ -95,9 +95,12 @@ func (c *blockCollector) node(n *nethtml.Node) {
 	}
 }
 
+// addParagraph keeps an explicit <p> even when blank: the editor writes <p></p>
+// for a blank line, and dropping it would break FromPM(ToPM(x)) == x. Only
+// paragraphs ToPM synthesizes itself (see flush) are dropped when blank.
 func (c *blockCollector) addParagraph(content []markdown.PMNode) {
 	if isBlank(content) {
-		return
+		content = nil
 	}
 	c.blocks = append(c.blocks, markdown.PMNode{Type: markdown.NodeParagraph, Content: content})
 }

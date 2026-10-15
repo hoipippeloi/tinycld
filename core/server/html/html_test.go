@@ -68,3 +68,23 @@ func TestToPM_ReadsAnyMarkNestingOrder(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestRoundTrip_KeepsExplicitEmptyParagraph(t *testing.T) {
+	src := `<p>a</p><p></p><p>b</p>`
+	if got := FromPM(ToPM(src)); got != src {
+		t.Fatalf("got %q want %q", got, src)
+	}
+}
+
+func TestToPM_WhitespaceBetweenBlocksMakesNoParagraph(t *testing.T) {
+	doc := ToPM("<p>a</p>\n<p>b</p>")
+	if got := FromPM(doc); got != `<p>a</p><p>b</p>` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestToPM_EmptyDivYieldsNothing(t *testing.T) {
+	if doc := ToPM("<div></div>"); len(doc.Content) != 0 {
+		t.Fatalf("got %+v", doc.Content)
+	}
+}
