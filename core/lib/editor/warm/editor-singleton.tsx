@@ -24,7 +24,8 @@ export interface EditorSingletonValue {
     result: EditorResult | null
     /**
      * The handover generation `result` was built for, or null while it is
-     * being rebuilt. An acquire bumps the store's generation one render before
+     * being rebuilt. Null on web only: the native editor stays ready across a
+     * handover, so there it is the new generation at once. An acquire bumps the store's generation one render before
      * the editor catches up, so a surface compares the two rather than taking
      * whatever `result` holds — see useWarmEditor.
      */

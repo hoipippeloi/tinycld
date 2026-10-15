@@ -278,7 +278,9 @@ export function useRichEditor(options: UseRichEditorOptions = {}): EditorResult 
             onBlur: () => blurRef.current?.(),
             editorProps: {
                 // Whether this instance is bound to a shared document, for a
-                // test or a stylesheet to wait on. Fixed at creation: the
+                // test or a stylesheet to wait on: "false" means a local
+                // (not collaborative) editor, not "not ready yet". Web only;
+                // the native editor has no such marker. Fixed at creation: the
                 // collaboration extension attaches its binding while the view is
                 // constructed, so an instance built with a document is bound
                 // from the moment it is in the page, and a change of document

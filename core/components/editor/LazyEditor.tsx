@@ -451,17 +451,12 @@ export function useLazyEditor({
     // click place the caret at all, and what gives `posAtCoords` a laid-out view
     // to resolve the click point against.
     //
-    // Keyed on the EDITOR HANDLE, not on the generation. One acquire produces
-    // several handles: tiptap tears its instance down and rebuilds it, and each
-    // rebuild is a NEW ProseMirror node — the one focused a moment ago is
-    // discarded, still holding the caret nobody can see. Keying on the
-    // generation meant focusing the first of those and skipping every later one
-    // (the guard read "already focused this generation"), so the caret reliably
-    // landed on a node that was about to be thrown away.
-    //
-    // Re-focusing per handle is safe because it is not per RENDER: the handle
-    // only changes when tiptap actually replaced the instance, and the identity
-    // check below stops a repeat for one we have already focused.
+    // Keyed on the EDITOR HANDLE. The lease withholds `result` until the editor
+    // is rebuilt for this acquire's generation (see useWarmEditor), so the
+    // handle seen here is the one that survives. Without that gate, for one
+    // commit after an acquire the lease would hand back the PREVIOUS holder's
+    // instance, and the caret would land on a node about to be destroyed. The
+    // identity check below only stops a repeat focus of a handle already focused.
     //
     // The blur each rebuild raises is ignored while the swap is in flight — see
     // isSwappingRef, which clears on the real focus event. Losing focus mid-swap
