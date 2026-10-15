@@ -169,6 +169,7 @@ function NumberKind({ field, control, resolved, disabled, testID, label }: KindP
     return (
         <NumberInput
             control={control}
+            hideError
             name={field.key}
             min={num?.min}
             max={num?.max}
@@ -219,6 +220,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID, label
         return (
             <RadioInput
                 control={control}
+                hideError
                 name={field.key}
                 label={label}
                 options={opts}
@@ -230,6 +232,7 @@ function SelectKind({ field, control, resolved, options, disabled, testID, label
     return (
         <SelectInput
             control={control}
+            hideError
             name={field.key}
             label={label}
             options={opts}
@@ -428,6 +431,7 @@ function KindInput(props: KindProps) {
             return (
                 <TextInput
                     control={control}
+                    hideError
                     name={field.key}
                     placeholder={field.placeholder}
                     editable={!disabled}
@@ -440,6 +444,7 @@ function KindInput(props: KindProps) {
             return (
                 <TextAreaInput
                     control={control}
+                    hideError
                     name={field.key}
                     placeholder={field.placeholder}
                     editable={!disabled}
@@ -453,6 +458,7 @@ function KindInput(props: KindProps) {
             return (
                 <Toggle
                     control={control}
+                    hideError
                     name={field.key}
                     label={label}
                     disabled={disabled}

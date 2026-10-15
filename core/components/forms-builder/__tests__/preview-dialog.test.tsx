@@ -81,9 +81,19 @@ vi.mock('@tinycld/core/components/workspace/useBreakpoint', () => ({
 const q = (c: HTMLElement, id: string) => c.querySelector(`[testID="${id}"]`) as HTMLElement | null
 const ctx = { today: '2026-01-01', userId: 'u1' }
 
-function Harness() {
-    const editor = useEditorForm(plain, admin.host)
+function Harness({ row = plain }: { row?: typeof plain }) {
+    const editor = useEditorForm(row, admin.host)
     return <PreviewDialog editor={editor} context={ctx} isOpen onClose={() => {}} />
+}
+
+const onePage = {
+    ...plain,
+    definition: definitionSchema.parse({
+        ...def,
+        pages: [def.pages[0]],
+        fields: def.fields.filter(f => f.page === 'main'),
+        rules: [],
+    }),
 }
 
 describe('PreviewDialog', () => {
@@ -95,5 +105,23 @@ describe('PreviewDialog', () => {
         fireEvent.input(q(container, 'form-input-name') as HTMLElement, { target: { value: 'n' } })
         fireEvent.click(q(container, 'form-wizard-next') as HTMLElement)
         await waitFor(() => expect(q(container, 'form-field-steps')).toBeTruthy())
+    })
+
+    // A one-page form is still previewed as a wizard: its Done button is the
+    // only way to see what a required field says when it is left empty.
+    it('previews a one-page form with a Done button that validates', async () => {
+        const { container, getByText, queryAllByText } = render(<Harness row={onePage} />)
+        await waitFor(() => expect(q(container, 'form-wizard-next')).toBeTruthy())
+        expect(q(container, 'form-wizard-steps')).toBeNull()
+        expect(getByText('Done')).toBeTruthy()
+        fireEvent.click(q(container, 'form-wizard-next') as HTMLElement)
+        await waitFor(() => expect(queryAllByText('Name is required').length).toBeGreaterThan(0))
+        // The cell shows the message once; the input only colours its border. The
+        // summary above the form repeats the sentence, without a "name:" prefix.
+        const cell = q(container, 'form-field-name')
+        expect(cell?.querySelectorAll('[accessibilityRole="alert"]').length).toBe(1)
+        expect(getByText('Please fix the following errors:')).toBeTruthy()
+        expect(queryAllByText(/^name:/).length).toBe(0)
+        expect(queryAllByText('Name is required').length).toBe(2)
     })
 })

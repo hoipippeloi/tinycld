@@ -7,6 +7,8 @@ export type ToggleProps<T extends FieldValues = Record<string, unknown>> = {
     control: Control<T>
     label: string
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     disabled?: boolean
     /** Defaults to `name`, as on the other form inputs. */
     testID?: string
@@ -18,6 +20,7 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
     control,
     label,
     hint,
+    hideError = false,
     disabled = false,
     testID,
     wrapperProps = {},
@@ -42,7 +45,9 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
                 />
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

@@ -24,6 +24,7 @@ function Harness({
     recordId,
     collab,
     initial,
+    error,
 }: {
     field: FormField
     mode?: 'create' | 'edit' | 'read' | 'design'
@@ -31,9 +32,12 @@ function Harness({
     recordId?: string
     collab?: CollabDoc | null
     initial?: unknown
+    /** A validation error already on the field, as after a failed submit. */
+    error?: string
 }) {
     const { control } = useForm<FormValues>({
         defaultValues: { [field.key]: initial ?? (field.kind === 'number' ? 0 : '') },
+        errors: error ? { [field.key]: { type: 'manual', message: error } } : undefined,
     })
     const value = useWatch({ control, name: field.key })
     return (
@@ -205,6 +209,30 @@ describe('FieldInput', () => {
         const { getByText } = render(<Harness field={field} />)
         expect(getByText('Urgent')).toBeTruthy()
         expect(rendersOwnLabel(host, field, null)).toBe(true)
+    })
+
+    // The cell renders the error under the whole field, for every kind; an input
+    // that also rendered it showed the message twice.
+    it('leaves the error text to the cell and only colours the input', () => {
+        const message = 'L is required'
+        const text = render(<Harness field={{ ...base, key: 'a', kind: 'text' }} error={message} />)
+        expect(text.queryByText(message)).toBeNull()
+        expect(text.container.querySelector('rn-textinput')?.getAttribute('class')).toContain(
+            'border-danger'
+        )
+        text.unmount()
+        const number = render(
+            <Harness field={{ ...base, key: 'n', kind: 'number' }} error={message} />
+        )
+        expect(number.queryByText(message)).toBeNull()
+        number.unmount()
+        const radio = render(
+            <Harness
+                field={{ ...base, ...select, display: 'radio' as const } as FormField}
+                error={message}
+            />
+        )
+        expect(radio.queryByText(message)).toBeNull()
     })
 
     it('lets the cell show the label for inputs that do not render one', () => {

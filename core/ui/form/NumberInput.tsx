@@ -9,6 +9,8 @@ export type NumberInputProps<T extends FieldValues = Record<string, unknown>> = 
     control: Control<T>
     label?: string
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     increment?: number
     min?: number
     max?: number
@@ -37,6 +39,7 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
     control,
     label,
     hint,
+    hideError = false,
     increment = 1,
     min,
     max,
@@ -149,7 +152,9 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
                 </Pressable>
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

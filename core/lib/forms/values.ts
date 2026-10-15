@@ -50,14 +50,25 @@ interface KindSchemaInput {
     options?: { value: string }[]
 }
 
+/**
+ * A required field with no value at all (never typed, so not even `''`) must
+ * read as missing, not as zod's "expected string, received undefined".
+ */
+function absent(missing: string) {
+    return {
+        error: (issue: { input?: unknown }) =>
+            issue.input === undefined || issue.input === null ? missing : undefined,
+    }
+}
+
 function textSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny {
-    let t = z.string()
+    let t = z.string(absent(missing))
     if (custom?.kind === 'text' && custom.maxLength) t = t.max(custom.maxLength)
     return required ? t.trim().min(1, missing) : t.nullable()
 }
 
-function numberSchema({ custom, required }: KindSchemaInput): ZodTypeAny {
-    let n = z.number()
+function numberSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny {
+    let n = z.number(absent(missing))
     if (custom?.kind === 'number') {
         if (custom.min !== undefined) n = n.min(custom.min)
         if (custom.max !== undefined) n = n.max(custom.max)
@@ -69,7 +80,7 @@ function dateSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny 
     // A built-in date is a record column in the database's own format; a custom date is
     // stored as typed, so it has the shape the server checks (DATE_RE).
     const d = custom ? dateValueSchema : z.string()
-    return required ? z.string().min(1, missing).pipe(d) : d.nullable()
+    return required ? z.string(absent(missing)).min(1, missing).pipe(d) : d.nullable()
 }
 
 function selectSchema(input: KindSchemaInput): ZodTypeAny {
@@ -77,21 +88,22 @@ function selectSchema(input: KindSchemaInput): ZodTypeAny {
     const allowed = (options ?? (custom?.kind === 'select' ? custom.options : [])).map(o => o.value)
     const one =
         allowed.length > 0
-            ? z.enum(allowed as [string, ...string[]])
+            ? z.enum(allowed as [string, ...string[]], absent(missing))
             : z.never({ message: `${label} has no options` })
     if (!multiple) return required ? one : one.nullable()
-    const many = z.array(one)
+    const many = z.array(one, absent(missing))
     return required ? many.min(1, missing) : many.nullable()
 }
 
 function idSchema({ required, multiple, missing }: KindSchemaInput): ZodTypeAny {
-    if (!multiple) return required ? z.string().min(1, missing) : z.string().nullable()
-    const many = z.array(z.string())
+    if (!multiple)
+        return required ? z.string(absent(missing)).min(1, missing) : z.string().nullable()
+    const many = z.array(z.string(), absent(missing))
     return required ? many.min(1, missing) : many.nullable()
 }
 
 function listSchema({ required, missing }: KindSchemaInput): ZodTypeAny {
-    const items = z.array(checklistItemSchema)
+    const items = z.array(checklistItemSchema, absent(missing))
     return required ? items.min(1, missing) : items.nullable()
 }
 

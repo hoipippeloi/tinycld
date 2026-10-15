@@ -305,3 +305,20 @@ describe('buildSchema, dates', () => {
         expect(schema.safeParse({ ...ok, due: '2026-01-31 00:00:00.000Z' }).success).toBe(true)
     })
 })
+
+describe('buildSchema messages', () => {
+    const messageFor = (values: Record<string, unknown>, key: string) => {
+        const state = evaluate(def, { severity: 'high', ...values }, ctx)
+        const r = buildSchema(def, widgetHost, state).safeParse({ severity: 'high', ...values })
+        return r.error?.issues.find(i => i.path.join('.') === key)?.message
+    }
+    it('says a required field is missing when it has no value at all', () => {
+        // Never typed into: the form holds no value for it, not even ''.
+        expect(messageFor({}, 'name')).toBe('Name is required')
+        expect(messageFor({ name: '' }, 'name')).toBe('Name is required')
+        expect(messageFor({ name: 'n', count: null }, 'count')).toBe('Count is required')
+    })
+    it('keeps the type message for a value of the wrong kind', () => {
+        expect(messageFor({ name: 'n', count: 'many' }, 'count')).not.toBe('Count is required')
+    })
+})

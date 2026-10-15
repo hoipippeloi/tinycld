@@ -229,7 +229,14 @@ function SubmitErrors({
     attempted?: boolean
 }) {
     const { errors, isSubmitted } = form.formState
-    return <FormErrorSummary errors={errors} isEnabled={isSubmitted || attempted} />
+    // The messages name the field by its label already ("Name is required"), so the key is noise.
+    return (
+        <FormErrorSummary
+            errors={errors}
+            isEnabled={isSubmitted || attempted}
+            showFieldNames={false}
+        />
+    )
 }
 
 function Sections(props: BodyProps) {

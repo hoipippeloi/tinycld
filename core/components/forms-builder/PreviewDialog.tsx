@@ -42,7 +42,7 @@ function PreviewBody({ editor, host, context, onClose }: PreviewBodyProps) {
             host={host}
             ui={ui}
             definition={definition}
-            layout={definition.pages.length > 1 ? 'wizard' : 'sections'}
+            layout="wizard"
             form={form}
             context={context}
             schemaRef={schemaRef}
