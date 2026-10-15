@@ -68,6 +68,8 @@ export const hostDefSchema = z
                 nameColumn: z.string().min(1).default('name'),
                 /** The PocketBase file field. */
                 fileColumn: z.string().min(1).default('file'),
+                /** Attachment column ← host record column, copied onto every upload (a required `project`, say). */
+                copyColumns: z.record(z.string().min(1), z.string().min(1)).default({}),
             })
             .optional(),
         collaborative: z

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render as renderBare, within } from '@testing-library/react'
 import { log } from '@tinycld/core/lib/logger'
 import { router } from 'expo-router'
@@ -10,7 +11,14 @@ import { OverlayProvider } from '../../../ui/overlay'
 import { FormEditor } from '../FormEditor'
 
 // Menus and dialogs render through the overlay host the app mounts once.
-const render = (ui: ReactElement) => renderBare(<OverlayProvider>{ui}</OverlayProvider>)
+// The canvas loads the host's UI through React Query.
+const queryClient = new QueryClient()
+const Providers = ({ children }: { children: ReactElement }) => (
+    <QueryClientProvider client={queryClient}>
+        <OverlayProvider>{children}</OverlayProvider>
+    </QueryClientProvider>
+)
+const render = (ui: ReactElement) => renderBare(<Providers>{ui}</Providers>)
 
 afterEach(cleanup)
 const plain = {
@@ -200,9 +208,9 @@ describe('FormEditor', () => {
         )
         live.row = { ...plain, definition: { ...plain.definition, fields } }
         rerender(
-            <OverlayProvider>
+            <Providers>
                 <FormEditor formId="f1" />
-            </OverlayProvider>
+            </Providers>
         )
         expect(q(container, 'form-changed-elsewhere')).toBeTruthy()
         expect((q(container, 'fields.2.label') as HTMLInputElement).value).toBe('Deadline')

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render as renderBare, screen } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -9,7 +10,12 @@ import { Canvas, useEditorCanvasDrag } from '../Canvas'
 import { useEditorForm } from '../use-editor-form'
 
 // The kind picker's Menu renders through the overlay host the app mounts once.
-const render = (ui: ReactElement) => renderBare(<OverlayProvider>{ui}</OverlayProvider>)
+const render = (ui: ReactElement) =>
+    renderBare(
+        <QueryClientProvider client={new QueryClient()}>
+            <OverlayProvider>{ui}</OverlayProvider>
+        </QueryClientProvider>
+    )
 
 afterEach(cleanup)
 

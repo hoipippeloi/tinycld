@@ -358,6 +358,17 @@ function isCollaborative(resolved: Resolved): boolean {
     return builtin?.collaborative ?? false
 }
 
+function fragmentFor(
+    host: FormHost,
+    resolved: Resolved,
+    key: string,
+    recordId: string | undefined
+): string | undefined {
+    const template = host.collaborative?.fragment
+    if (!isCollaborative(resolved) || !recordId || !template) return undefined
+    return resolveFragment(template, recordId, key, resolved.kind === 'markdown' ? 'md' : 'html')
+}
+
 function RichTextKind({
     host,
     field,
@@ -370,11 +381,7 @@ function RichTextKind({
     label,
 }: KindProps) {
     const isMarkdown = resolved.kind === 'markdown'
-    const template = host.collaborative?.fragment
-    const fragment =
-        isCollaborative(resolved) && recordId && template
-            ? resolveFragment(template, recordId, field.key, isMarkdown ? 'md' : 'html')
-            : undefined
+    const fragment = fragmentFor(host, resolved, field.key, recordId)
     return (
         <Uncontrolled<string | null>
             name={field.key}
@@ -396,9 +403,11 @@ function RichTextKind({
     )
 }
 
-function HostComponent({ field, control, ui, mode, recordId, resolved }: KindProps) {
+function HostComponent(props: KindProps) {
+    const { field, control, ui, mode, recordId, resolved, disabled, collab, host } = props
     const Component = ui?.components[resolved.builtin?.component ?? '']
     if (!Component) return null
+    const fragment = fragmentFor(host, resolved, field.key, recordId)
     return (
         <Uncontrolled<unknown>
             name={field.key}
@@ -411,17 +420,33 @@ function HostComponent({ field, control, ui, mode, recordId, resolved }: KindPro
                     value={value}
                     onChange={onChange}
                     mode={mode}
+                    disabled={disabled}
+                    collab={collab}
+                    fragment={fragment}
                 />
             )}
         />
     )
 }
 
+/** A host component replaces core rendering for any built-in that names one, the collaborative kinds included. */
 function hasHostComponent(resolved: Resolved, ui: FormHostUi | null): boolean {
     const name = resolved.builtin?.component
-    if (!name || !ui?.components[name]) return false
-    // The core editor renders markdown and richtext builtins; a host component does not replace it.
-    return resolved.kind !== 'markdown' && resolved.kind !== 'richtext'
+    return Boolean(name && ui?.components[name])
+}
+
+function packageLabel(host: FormHost) {
+    const slug = host.pkgSlug
+    return slug.charAt(0).toUpperCase() + slug.slice(1)
+}
+
+/** The canvas never mounts a host component: it stands in for the package's own UI. */
+function DesignPlaceholder({ host }: { host: FormHost }) {
+    return (
+        <View className="rounded-md border border-dashed border-border px-3 py-2">
+            <Text className="text-muted-foreground text-sm">Shown by {packageLabel(host)}</Text>
+        </View>
+    )
 }
 
 function KindInput(props: KindProps) {
@@ -493,6 +518,7 @@ export function FieldInput(props: FieldInputProps) {
         label: props.field.label,
     }
     if (hasHostComponent(resolved, props.ui)) {
+        if (props.mode === 'design') return <DesignPlaceholder host={props.host} />
         // A section is host chrome with no value of its own; it has nothing to show before the record exists.
         if (resolved.kind === 'section' && props.mode !== 'edit' && props.mode !== 'read')
             return null

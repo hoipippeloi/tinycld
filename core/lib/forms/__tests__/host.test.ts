@@ -7,6 +7,22 @@ describe('hostDefSchema', () => {
     it('accepts the widget host', () => {
         expect(hostDefSchema.safeParse(widgetHost).success).toBe(true)
     })
+    it('accepts copyColumns on files and defaults it to empty', () => {
+        const files = {
+            collection: 'gizmos_files',
+            recordColumn: 'widget',
+            fieldColumn: 'field',
+            sizeColumn: 'size',
+            uploaderColumn: 'uploaded_by',
+        }
+        const parsed = hostDefSchema.parse({
+            ...widgetHost,
+            files: { ...files, copyColumns: { project: 'owner' } },
+        })
+        expect(parsed.files?.copyColumns).toEqual({ project: 'owner' })
+        const bare = hostDefSchema.parse({ ...widgetHost, files })
+        expect(bare.files?.copyColumns).toEqual({})
+    })
     it('rejects a key without a colon', () => {
         expect(hostDefSchema.safeParse({ ...widgetHost, key: 'widget' }).success).toBe(false)
     })

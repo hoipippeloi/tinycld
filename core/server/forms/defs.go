@@ -31,6 +31,8 @@ type Files struct {
 	NameColumn string `json:"nameColumn"`
 	// FileColumn is the PocketBase file field; defaults to "file".
 	FileColumn string `json:"fileColumn"`
+	// CopyColumns maps attachment column to host record column; only the client reads it.
+	CopyColumns map[string]string `json:"copyColumns,omitempty"`
 }
 
 type Collab struct {

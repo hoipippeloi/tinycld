@@ -31,8 +31,12 @@ export interface BuiltinFieldProps {
     value: unknown
     onChange: (value: unknown) => void
     mode: FieldMode
-    /** Set when the host hook created the form; lets a picker reach the host's own queries. */
-    hostContext?: Record<string, unknown>
+    /** Read-only or a design canvas: the component shows the value and offers no edit. */
+    disabled: boolean
+    /** The room, when the field is collaborative and the screen opened one. */
+    collab?: CollabDoc | null
+    /** The fragment name resolved from the host's template, for a collaborative field. */
+    fragment?: string
 }
 
 export interface FormHostUi {

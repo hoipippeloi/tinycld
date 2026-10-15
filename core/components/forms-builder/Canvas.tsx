@@ -12,7 +12,7 @@ import type { CustomKind, FormDefinition, FormPage } from '@tinycld/core/lib/for
 import type { EvalContext, FormValues } from '@tinycld/core/lib/forms/logic'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
-import { type DesignOptions, FormRenderer } from '@tinycld/core/ui/forms'
+import { type DesignOptions, FormRenderer, useHostUi } from '@tinycld/core/ui/forms'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
 import { GripVertical } from 'lucide-react-native'
 import { useMemo, useRef, useState } from 'react'
@@ -182,6 +182,7 @@ export function Canvas({ editor, context, drag }: CanvasProps) {
     // FormRenderer's inputs need a form instance; in design mode its values never matter.
     const inert = useForm<FormValues>({ defaultValues: {} })
     const adding = useAddField(editor)
+    const ui = useHostUi(editor.host ?? undefined)
     const addNewPage = () => editor.apply(def => addPage(def, 'New page'))
     if (!editor.host || !definition) return null
     const design = designOptionsFor({
@@ -195,7 +196,7 @@ export function Canvas({ editor, context, drag }: CanvasProps) {
         <View testID="form-canvas">
             <FormRenderer
                 host={editor.host}
-                ui={null}
+                ui={ui}
                 definition={definition}
                 layout="design"
                 form={inert}

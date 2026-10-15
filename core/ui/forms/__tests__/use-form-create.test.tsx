@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, renderHook } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema } from '../../../lib/forms/definition'
@@ -82,5 +82,14 @@ describe('useFormCreate', () => {
         formsOfHost.mockReturnValue(loaded)
         rerender()
         expect(result.current.form.getValues('severity')).toBe('low')
+    })
+    it('lays initial values over the defaults, once, and keeps them across a form switch', async () => {
+        const { result } = renderHook(() =>
+            useFormCreate(host, undefined, ctx, { name: 'Typed first' })
+        )
+        await waitFor(() => expect(result.current.isReady).toBe(true))
+        expect(result.current.form.getValues('name')).toBe('Typed first')
+        act(() => result.current.switchForm(bug.id))
+        expect(result.current.form.getValues('name')).toBe('Typed first')
     })
 })

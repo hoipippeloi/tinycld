@@ -241,4 +241,52 @@ describe('FieldInput', () => {
         const checkbox = { ...base, ...select, display: 'checkbox' as const } as FormField
         expect(rendersOwnLabel(host, checkbox, null)).toBe(false)
     })
+
+    // A collaborative built-in with a host component renders THAT component,
+    // with the room and the fragment it needs; the core editor is the fallback.
+    it('hands a collaborative built-in to its host component with collab and fragment', () => {
+        const seen: Record<string, unknown>[] = []
+        const ui = {
+            components: {
+                NotesField: (props: Record<string, unknown>) => {
+                    seen.push(props)
+                    return <Text testID="host-notes">host</Text>
+                },
+            },
+            mappers: {},
+        }
+        const collab = { doc: {} as never, awareness: null, user: null, canEdit: true }
+        const { container } = render(
+            <Harness
+                field={{ ...base, key: 'notes', kind: 'builtin' }}
+                mode="edit"
+                recordId="r1"
+                ui={ui as unknown as FormHostUi}
+                collab={collab}
+            />
+        )
+        expect(byTestId(container, 'host-notes')).toBeTruthy()
+        expect(container.querySelector('[testID="form-input-notes"]')).toBeNull()
+        expect(seen.at(-1)).toMatchObject({
+            fieldKey: 'notes',
+            mode: 'edit',
+            recordId: 'r1',
+            disabled: false,
+            collab,
+            fragment: 'widget:r1:md:notes',
+        })
+    })
+
+    it('shows a placeholder for a host component in design mode', () => {
+        const ui = { components: { NotesField: () => <Text>never</Text> }, mappers: {} }
+        const { getByText, queryByText } = render(
+            <Harness
+                field={{ ...base, key: 'notes', kind: 'builtin' }}
+                mode="design"
+                ui={ui as unknown as FormHostUi}
+            />
+        )
+        expect(getByText('Shown by Gizmos')).toBeTruthy()
+        expect(queryByText('never')).toBeNull()
+    })
 })

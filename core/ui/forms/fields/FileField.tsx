@@ -52,6 +52,30 @@ function useFieldFiles(host: FormHost, fieldKey: string, recordId: string) {
     return { rows: (data ?? []) as FileRow[], collection, files }
 }
 
+// Read live: a copy column comes from the host row, which may still be loading when the field mounts.
+function useHostRecord(host: FormHost, recordId: string): FileRow | undefined {
+    const collection = collectionByName(host.collection)
+    const { data } = useLiveQuery({
+        query: query =>
+            collection
+                ? query
+                      .from({ r: collection })
+                      .where(({ r }) => eq(column(r, 'id'), recordId))
+                      .findOne()
+                : null,
+    })
+    return data as FileRow | undefined
+}
+
+function copiedColumns(copyColumns: Record<string, string>, record: FileRow | undefined) {
+    const copied: Record<string, string> = {}
+    for (const [to, from] of Object.entries(copyColumns)) {
+        const value = record?.[from]
+        if (value !== undefined && value !== null) copied[to] = String(value)
+    }
+    return copied
+}
+
 function FileRowView({
     row,
     nameColumn,
@@ -125,6 +149,8 @@ export function FileField({
     const { user } = useAuth()
     const { pickFiles } = usePickFiles()
     const { rows, collection, files } = useFieldFiles(host, fieldKey, recordId)
+    const record = useHostRecord(host, recordId)
+    const hasCopies = Object.keys(files?.copyColumns ?? {}).length > 0
     const remove = useMutation({
         mutationFn: function* (id: string) {
             if (!collection) return
@@ -141,6 +167,7 @@ export function FileField({
                 await uploadRecordWithFile({
                     collection: files.collection,
                     fields: {
+                        ...copiedColumns(files.copyColumns, record),
                         id,
                         [files.recordColumn]: recordId,
                         [files.fieldColumn]: fieldKey,
@@ -177,7 +204,7 @@ export function FileField({
             />
             <Button
                 onPress={pick}
-                isDisabled={disabled || upload.isPending}
+                isDisabled={disabled || upload.isPending || (!record && hasCopies)}
                 size="sm"
                 variant="outline"
             >

@@ -17,7 +17,9 @@ import { useSchemaRefResolver } from './use-schema-ref-resolver'
 export function useFormCreate(
     host: FormHost,
     initialFormId: string | undefined,
-    context: EvalContext
+    context: EvalContext,
+    /** Values the caller already has (a title typed in a composer); they win over the defaults. */
+    initialValues: FormValues = {}
 ) {
     const { forms, defaultForm, isReady } = useFormsOfHost(host.key)
     // Which type the dialog shows: local UI state until the record exists.
@@ -28,9 +30,14 @@ export function useFormCreate(
         ? buildSchema(definition, host, evaluate(definition, {}, context))
         : buildSchema(EMPTY_DEFINITION, host, EMPTY_STATE)
     const { schemaRef, resolver } = useSchemaRefResolver(initialSchema)
+    // A ref, so an unstable object literal from the caller never re-seeds the form.
+    const initial = useRef(initialValues)
+    initial.current = initialValues
     const form = useForm<FormValues>({
         resolver,
-        defaultValues: definition ? applyDefaults(definition, context) : {},
+        defaultValues: definition
+            ? { ...applyDefaults(definition, context), ...initial.current }
+            : {},
         mode: 'onSubmit',
     })
 
@@ -41,7 +48,7 @@ export function useFormCreate(
     useEffect(() => {
         if (!definition || !resolvedId || seededFormId.current === resolvedId) return
         seededFormId.current = resolvedId
-        form.reset(applyDefaults(definition, context))
+        form.reset({ ...applyDefaults(definition, context), ...initial.current })
     }, [definition, resolvedId, form, context])
 
     const switchForm = (nextId: string) => {

@@ -8,6 +8,7 @@ export {
     type FormRendererProps,
 } from './FormRenderer'
 export { formErrorHandler, type HostFieldErrors, mapHostErrors } from './form-error-handler'
+export { AUTO_PATCH_DELAY_MS, useAutoPatch } from './use-auto-patch'
 export { useContainerWidth } from './use-container-width'
 export { useFormCreate } from './use-form-create'
 export { useFormEdit } from './use-form-edit'
