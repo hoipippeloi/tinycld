@@ -119,6 +119,9 @@ const knownIcons = {
     SignalMedium: Icon,
     // boards: the card detail body, mounted whole (tests/card-detail.mount.test.tsx)
     SmilePlus: Icon,
+    // boards: the sub-task row's state glyphs, mounted whole
+    CircleCheck: Icon,
+    CircleDashed: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,
