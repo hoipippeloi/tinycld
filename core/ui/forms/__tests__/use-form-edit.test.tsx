@@ -53,7 +53,12 @@ describe('useFormEdit', () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
         const split = await result.current.patch()
-        expect(split).toEqual({ columns: {}, fields: { severity: 'low', count: 3 }, rows: {} })
+        expect(split).toEqual({
+            columns: {},
+            fields: { severity: 'low', count: 3 },
+            rows: {},
+            written: { count: 3 },
+        })
     })
     it('keeps a key the form does not declare in the returned fields', async () => {
         const withOrphan = { ...record, fields: { severity: 'low', count: 2, legacy: 'kept' } }
@@ -75,13 +80,18 @@ describe('useFormEdit', () => {
         })
         expect(second?.fields).toEqual({ severity: 'low', count: 3 })
         expect(second?.columns).toEqual({ name: 'M' })
-        act(() => result.current.markSaved(['count', 'name']))
+        act(() => result.current.markSaved({ count: 3, name: 'M' }))
         act(() => result.current.form.setValue('name', 'P', { shouldDirty: true }))
         let third: Awaited<ReturnType<typeof result.current.patch>> | undefined
         await act(async () => {
             third = await result.current.patch()
         })
-        expect(third).toEqual({ columns: { name: 'P' }, fields: {}, rows: {} })
+        expect(third).toEqual({
+            columns: { name: 'P' },
+            fields: {},
+            rows: {},
+            written: { name: 'P' },
+        })
     })
     it('does not validate untouched fields', async () => {
         const { result } = renderHook(() => useFormEdit(host, strictRecord, ctx))
@@ -90,7 +100,12 @@ describe('useFormEdit', () => {
         await act(async () => {
             out = await result.current.patch()
         })
-        expect(out).toEqual({ columns: { name: 'N2' }, fields: {}, rows: {} })
+        expect(out).toEqual({
+            columns: { name: 'N2' },
+            fields: {},
+            rows: {},
+            written: { name: 'N2' },
+        })
     })
     it('returns null and sets the error when a dirty key is invalid', async () => {
         const { result } = renderHook(() => useFormEdit(host, strictRecord, ctx))
@@ -110,13 +125,29 @@ describe('useFormEdit', () => {
         await act(async () => {
             await result.current.patch()
         })
-        act(() => result.current.markSaved(['count']))
+        act(() => result.current.markSaved({ count: 3 }))
         rerender({ rec: { ...record, fields: { severity: 'low', count: 5 } } })
         await waitFor(() => expect(result.current.form.getValues('count')).toBe(5))
+    })
+    it('keeps a key dirty when it changed after the written value was taken', async () => {
+        const { result } = renderHook(() => useFormEdit(host, record, ctx))
+        act(() => result.current.form.setValue('name', 'b', { shouldDirty: true }))
+        let first: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            first = await result.current.patch()
+        })
+        act(() => result.current.form.setValue('name', 'c', { shouldDirty: true }))
+        act(() => result.current.markSaved(first?.written ?? {}))
+        expect(result.current.form.getFieldState('name').isDirty).toBe(true)
+        let next: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            next = await result.current.patch()
+        })
+        expect(next?.columns).toEqual({ name: 'c' })
     })
     it('patch returns empty buckets when nothing changed', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         const split = await result.current.patch()
-        expect(split).toEqual({ columns: {}, fields: {}, rows: {} })
+        expect(split).toEqual({ columns: {}, fields: {}, rows: {}, written: {} })
     })
 })

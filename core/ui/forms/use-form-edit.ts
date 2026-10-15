@@ -24,9 +24,15 @@ import { useSchemaRefResolver } from './use-schema-ref-resolver'
  * edits it, and react-hook-form resets to it while keeping what the user is
  * typing. `patch()` validates only the dirty keys and returns null when one is
  * invalid. It does not mark anything saved: the host writes the result, then
- * calls `markSaved(Object.keys(...))` in the mutation's `onSuccess`. A failed
- * write therefore leaves the keys dirty and a retry sends them again.
+ * calls `markSaved(written)` with the result's `written` map in the mutation's
+ * `onSuccess`. A failed write therefore leaves the keys dirty and a retry sends
+ * them again. `written` holds only the dirty keys and the values that were
+ * sent, so an edit made while the write was in flight stays dirty.
  */
+export type PatchResult = SplitValues & { written: FormValues }
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
 export function useFormEdit(
     host: FormHost,
     record: Record<string, unknown> & { id: string },
@@ -48,8 +54,10 @@ export function useFormEdit(
         mode: 'onBlur',
     })
 
-    const markSaved = (keys: string[]) => {
-        for (const key of keys) {
+    const markSaved = (written: FormValues) => {
+        for (const [key, value] of Object.entries(written)) {
+            // The user kept typing during the write: this key is still dirty.
+            if (!sameValue(form.getValues(key), value)) continue
             // resetField acts only on a registered field. A field on a page the user never
             // opened has no Controller yet, so it is registered here first.
             form.register(key)
@@ -57,7 +65,7 @@ export function useFormEdit(
         }
     }
 
-    const patch = async (): Promise<SplitValues | null> => {
+    const patch = async (): Promise<PatchResult | null> => {
         if (!definition) return null
         schemaRef.current = buildSchema(
             definition,
@@ -77,7 +85,11 @@ export function useFormEdit(
         const split = splitValues(host, definition, changed)
         const stored = (record[host.fieldsColumn] ?? {}) as Record<string, unknown>
         const hasCustom = Object.keys(split.fields).length > 0
-        return { ...split, fields: hasCustom ? { ...stored, ...split.fields } : {} }
+        return {
+            ...split,
+            fields: hasCustom ? { ...stored, ...split.fields } : {},
+            written: changed,
+        }
     }
 
     return {

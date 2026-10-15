@@ -1,4 +1,5 @@
 import type { SplitValues } from '@tinycld/core/lib/forms/values'
+import { log } from '@tinycld/core/lib/logger'
 import { useEffect, useRef } from 'react'
 import type { useFormEdit } from './use-form-edit'
 
@@ -12,6 +13,9 @@ export const AUTO_PATCH_DELAY_MS = 400
  * and the keys are marked saved. A change that lands while a save is in
  * flight waits for it, so two writes never race. A `reset` (the live row
  * arriving) leaves nothing dirty, so it saves nothing.
+ *
+ * `save` may throw: the error is logged, the keys stay dirty, and the next
+ * change (or unmount) tries again. Pending changes are flushed on unmount.
  *
  * Subscribes to the form outside React's render cycle (`form.subscribe`), so
  * typing never re-renders the screen that owns the form.
@@ -38,14 +42,15 @@ export function useAutoPatch(
             const { edit: current, save: write } = latest.current
             if (!isDirty.current) return
             inFlight.current = (async () => {
-                const split = await current.patch()
-                if (!split) return
-                await write(split)
-                current.markSaved([
-                    ...Object.keys(split.columns),
-                    ...Object.keys(split.fields),
-                    ...Object.keys(split.rows),
-                ])
+                try {
+                    const result = await current.patch()
+                    if (!result) return
+                    const { written, ...split } = result
+                    await write(split)
+                    current.markSaved(written)
+                } catch (err) {
+                    log.error('forms.auto-patch', err)
+                }
             })().finally(() => {
                 inFlight.current = null
                 if (queued.current) {
@@ -57,7 +62,10 @@ export function useAutoPatch(
         }
         const schedule = () => {
             if (timer.current) clearTimeout(timer.current)
-            timer.current = setTimeout(() => void run(), delayMs)
+            timer.current = setTimeout(() => {
+                timer.current = null
+                void run()
+            }, delayMs)
         }
         const unsubscribe = edit.form.subscribe({
             formState: { values: true, isDirty: true },
@@ -68,7 +76,10 @@ export function useAutoPatch(
         })
         return () => {
             unsubscribe()
-            if (timer.current) clearTimeout(timer.current)
+            if (!timer.current) return
+            clearTimeout(timer.current)
+            timer.current = null
+            void run()
         }
     }, [edit.form, delayMs])
 }
