@@ -54,6 +54,17 @@ const record = {
 const strictRecord = { ...record, fields: { severity: 'low', count: 50 } }
 
 describe('useFormEdit', () => {
+    it('edits on the default form and reports the id when the named form is missing', () => {
+        const { result } = renderHook(() => useFormEdit(host, { ...record, form: 'missing' }, ctx))
+        expect(result.current.definition).toEqual(bug.definition)
+        expect(result.current.fallback).toBe('missing')
+    })
+    it('reports no fallback when the named form exists or none is named', () => {
+        const named = renderHook(() => useFormEdit(host, record, ctx))
+        const unnamed = renderHook(() => useFormEdit(host, { ...record, form: '' }, ctx))
+        expect(named.result.current.fallback).toBeUndefined()
+        expect(unnamed.result.current.fallback).toBeUndefined()
+    })
     it('patch returns the dirty keys, split, over the stored json column', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         act(() => result.current.form.setValue('count', 3, { shouldDirty: true }))
