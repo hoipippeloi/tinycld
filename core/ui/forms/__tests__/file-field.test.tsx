@@ -6,6 +6,8 @@ import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { hostDefSchema } from '../../../lib/forms/host'
 
 const h = vi.hoisted(() => ({
+    collectionByName: vi.fn(),
+    widgets: undefined as { insert: (row: { id: string }) => unknown } | undefined,
     upload: vi.fn(async (_args: { fields: Record<string, unknown> }) => {}),
 }))
 
@@ -37,12 +39,18 @@ vi.mock('@tinycld/core/lib/pocketbase', async () => {
         gizmos_files: local('file-field-files', []),
         gizmos_widgets: local('file-field-widgets', [{ id: 'r1', owner: 'p9' } as { id: string }]),
     }
-    return { collectionByName: (name: string) => stores[name] }
+    h.widgets = stores.gizmos_widgets
+    h.collectionByName.mockImplementation((name: string) => stores[name])
+    return { collectionByName: h.collectionByName }
 })
 
 import { FileField } from '../fields/FileField'
 
-afterEach(cleanup)
+afterEach(() => {
+    cleanup()
+    h.upload.mockClear()
+    h.collectionByName.mockClear()
+})
 
 const files = {
     collection: 'gizmos_files',
@@ -58,11 +66,31 @@ const hostWithFiles = {
     ui: async () => ({ components: {}, mappers: {} }),
 }
 
-function renderField(recordId: string) {
-    return render(
+function seedWidget(row: { id: string } & Record<string, unknown>) {
+    h.widgets?.insert(row)
+}
+
+function attachmentRows() {
+    return h.upload.mock.calls.map(call => call[0].fields)
+}
+
+// The Button root reports isDisabled as data-disabled; the RN stub only stringifies aria-* booleans.
+function addFilesButton() {
+    return screen.getByText('Add files').closest('[role="button"]') as HTMLElement
+}
+
+function renderField(
+    recordId: string,
+    hostOverrides: { copyColumns?: Record<string, string> } = {}
+) {
+    const host = {
+        ...hostWithFiles,
+        ...hostDefSchema.parse({ ...widgetHost, files: { ...files, ...hostOverrides } }),
+    }
+    const view = render(
         <QueryClientProvider client={new QueryClient()}>
             <FileField
-                host={hostWithFiles}
+                host={host}
                 fieldKey="shot"
                 recordId={recordId}
                 value={[]}
@@ -72,7 +100,15 @@ function renderField(recordId: string) {
             />
         </QueryClientProvider>
     )
+    const upload = async (_file: unknown) => {
+        await waitFor(() => expect(addFilesButton().getAttribute('data-disabled')).not.toBe('true'))
+        fireEvent.click(screen.getByText('Add files'))
+        await waitFor(() => expect(h.upload).toHaveBeenCalled())
+    }
+    return { ...view, upload, addFilesButton }
 }
+
+const pngFile = () => ({ name: 'shot.png', size: 12, uri: 'file:///shot.png' })
 
 describe('FileField', () => {
     it('copies the host record columns the host asks for onto the upload', async () => {
@@ -85,5 +121,29 @@ describe('FileField', () => {
             field: 'shot',
             project: 'p9',
         })
+    })
+
+    it('copies only scalar source columns', async () => {
+        seedWidget({ id: 'r2', owner: 'p9', count: 5, tags: ['a', 'b'] })
+        const { upload } = renderField('r2', {
+            copyColumns: { project: 'owner', n: 'count', tags: 'tags' },
+        })
+        await upload(pngFile())
+        const row = attachmentRows()[0]
+        expect(row.project).toBe('p9')
+        expect(row.n).toBe('5')
+        expect(row).not.toHaveProperty('tags')
+    })
+
+    it('does not query the host collection when nothing is copied', () => {
+        renderField('r1', { copyColumns: {} })
+        expect(h.collectionByName).not.toHaveBeenCalledWith('gizmos_widgets')
+    })
+
+    it('keeps Add files disabled until the host row has loaded', async () => {
+        const { addFilesButton } = renderField('missing', { copyColumns: { project: 'owner' } })
+        expect(addFilesButton().getAttribute('data-disabled')).toBe('true')
+        seedWidget({ id: 'missing', owner: 'p1' })
+        await waitFor(() => expect(addFilesButton().getAttribute('data-disabled')).not.toBe('true'))
     })
 })
