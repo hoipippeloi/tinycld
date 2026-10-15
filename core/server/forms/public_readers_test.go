@@ -14,14 +14,14 @@ import (
 // package-global because packages register before any app exists.
 func resetPublicReaders(t *testing.T) {
 	t.Helper()
-	clear := func() {
+	reset := func() {
 		publicReaders.Lock()
 		defer publicReaders.Unlock()
 		publicReaders.clauses = nil
 		publicReaders.composed = false
 	}
-	clear()
-	t.Cleanup(clear)
+	reset()
+	t.Cleanup(reset)
 }
 
 func ruleOnly(rule string, _ bool) string { return rule }
