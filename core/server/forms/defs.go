@@ -52,6 +52,8 @@ type Host struct {
 	Builtins     []Builtin `json:"builtin"`
 	Files        *Files    `json:"files,omitempty"`
 	Collab       *Collab   `json:"collaborative,omitempty"`
+
+	InsertCustomBefore string `json:"insertCustomBefore,omitempty"`
 }
 
 type Defs struct {

@@ -162,6 +162,13 @@ function designOptionsFor(inputs: DesignInputs): DesignOptions {
     }
 }
 
+/** Where a new field lands on its page: before the host's named built-in, else the page end. */
+function landingIndex(def: DraftDefinition, page: string, before?: string) {
+    if (!before) return undefined
+    const index = def.fields.findIndex(f => f.page === page && f.key === before)
+    return index === -1 ? undefined : index
+}
+
 /** The field a picked kind becomes once its label is typed; cancelling adds nothing. */
 function useAddField(editor: Editor) {
     // The kind waiting for its label is local UI state.
@@ -170,7 +177,9 @@ function useAddField(editor: Editor) {
         if (!pending) return
         const taken = new Set(editor.form.getValues('fields').map(f => f.key))
         const field = newCustomField(pending.kind, label, pending.page, taken)
-        editor.apply(def => addField(def, field))
+        editor.apply(def =>
+            addField(def, field, landingIndex(def, pending.page, editor.host?.insertCustomBefore))
+        )
         editor.select(field.key)
         setPending(null)
     }

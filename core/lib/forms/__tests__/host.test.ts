@@ -23,6 +23,14 @@ describe('hostDefSchema', () => {
         const bare = hostDefSchema.parse({ ...widgetHost, files })
         expect(bare.files?.copyColumns).toEqual({})
     })
+    it('insertCustomBefore must name a built-in', () => {
+        const r = hostDefSchema.safeParse({ ...widgetHost, insertCustomBefore: 'nope' })
+        expect(r.success).toBe(false)
+        expect(JSON.stringify(r.error?.issues)).toContain('insertCustomBefore')
+        expect(
+            hostDefSchema.parse({ ...widgetHost, insertCustomBefore: 'notes' }).insertCustomBefore
+        ).toBe('notes')
+    })
     it('rejects a key without a colon', () => {
         expect(hostDefSchema.safeParse({ ...widgetHost, key: 'widget' }).success).toBe(false)
     })

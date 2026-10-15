@@ -16,7 +16,8 @@
                 { "key": "tasks", "label": "Tasks", "kind": "checklist", "storage": "rows" },
                 { "key": "comments", "label": "Comments", "kind": "section", "storage": "none", "component": "CommentsSection" }
             ],
-            "collaborative": { "fragment": "widget:{record}:{format}:{key}" }
+            "collaborative": { "fragment": "widget:{record}:{format}:{key}" },
+            "insertCustomBefore": "notes"
         },
         {
             "pkgSlug": "gizmos",

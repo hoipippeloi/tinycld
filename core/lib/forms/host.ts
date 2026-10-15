@@ -77,6 +77,8 @@ export const hostDefSchema = z
                 fragment: z.string().includes('{record}').includes('{key}').includes('{format}'),
             })
             .optional(),
+        /** Built-in key a new custom field lands before; absent means the page end. */
+        insertCustomBefore: z.string().min(1).optional(),
     })
     .superRefine((host, ctx) => {
         const keys = new Set<string>()
@@ -95,6 +97,12 @@ export const hostDefSchema = z
                     message: 'collaborative builtins need a collaborative fragment template',
                 })
         })
+        if (host.insertCustomBefore && !keys.has(host.insertCustomBefore))
+            ctx.addIssue({
+                code: 'custom',
+                path: ['insertCustomBefore'],
+                message: 'insertCustomBefore must name a built-in key',
+            })
     })
 
 /** Parsed host with defaults applied. Every consumer of parsed data uses these types. */
