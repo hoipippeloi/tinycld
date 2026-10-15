@@ -23,6 +23,8 @@ export interface FieldCellProps {
     badge?: ReactNode
     /** Which edge shows the drop bar while a field is dragged over this cell. */
     dropIndicator?: 'before' | 'after'
+    /** The builder is dragging this cell: it dims so the landing spot stands out. */
+    isDragging?: boolean
     onLayoutRect?: (rect: LayoutRect) => void
     /** Hands the builder a thunk that re-measures this cell on demand. */
     registerMeasure?: RegisterMeasure
@@ -36,6 +38,25 @@ export interface FieldCellProps {
 // A border on both platforms; the border is always present so selecting a cell never shifts its layout.
 const SELECTED_CLASS = 'border-primary'
 const UNSELECTED_CLASS = 'border-transparent'
+const DROP_TARGET_CLASS = 'bg-primary/10'
+
+/**
+ * The visible box sits inside the root's side padding. The root reaches into
+ * the layout's negative margin, past the content column, where a scroll view
+ * clips; the box's edges stay inside the column, so its outline and drop bars
+ * are never cut off.
+ */
+function boxClassFor(isSelected: boolean, isDropTarget: boolean) {
+    const border = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
+    const tint = isDropTarget ? DROP_TARGET_CLASS : ''
+    return `relative rounded-md border-2 ${border} ${tint}`
+}
+
+/** The root is the row's flex item and the measured hit area, gaps included. */
+function rootClassFor(basis: string, isDragging: boolean) {
+    const dim = isDragging ? 'opacity-50' : ''
+    return `relative ${basis} grow-0 shrink-0 px-1.5 mb-3 ${dim}`
+}
 
 function RequiredMark({ isVisible }: { isVisible: boolean }) {
     if (!isVisible) return null
@@ -64,7 +85,7 @@ function DropBar({ fieldKey, side }: { fieldKey: string; side?: 'before' | 'afte
     const edge = side === 'before' ? 'left-0' : 'right-0'
     return (
         <View
-            className={`absolute top-0 bottom-0 w-0.5 bg-primary ${edge}`}
+            className={`absolute top-0 bottom-0 w-[3px] rounded bg-primary ${edge}`}
             testID={`form-field-${fieldKey}-drop-${side}`}
         />
     )
@@ -95,25 +116,29 @@ export function FieldCell({
     children,
     testID,
     handle,
-    isSelected,
+    isSelected = false,
     hideLabel = false,
     badge,
     dropIndicator,
+    isDragging = false,
     onLayoutRect,
     registerMeasure,
     onPress,
 }: FieldCellProps) {
     const basis = widthClass(effectiveWidth(width, containerWidth))
     const { ref, onLayout } = useMeasuredRect(onLayoutRect, registerMeasure)
-    const selection = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
+    const cellTestID = testID ?? `form-field-${fieldKey}`
     const root = {
         ref,
         onLayout,
-        className: `relative ${basis} grow-0 shrink-0 px-1.5 mb-3 rounded-md border-2 ${selection}`,
-        testID: testID ?? `form-field-${fieldKey}`,
+        className: rootClassFor(basis, isDragging),
+        testID: cellTestID,
     }
     const body = (
-        <>
+        <View
+            className={boxClassFor(isSelected, Boolean(dropIndicator))}
+            testID={`${cellTestID}-box`}
+        >
             <View className="flex-row items-center mb-1">
                 {handle}
                 <CellLabel fieldKey={fieldKey} label={label} isVisible={!hideLabel} />
@@ -124,7 +149,7 @@ export function FieldCell({
             {children}
             <CellError message={error} />
             <DropBar fieldKey={fieldKey} side={dropIndicator} />
-        </>
+        </View>
     )
     if (!onPress) return <View {...root}>{body}</View>
     return (

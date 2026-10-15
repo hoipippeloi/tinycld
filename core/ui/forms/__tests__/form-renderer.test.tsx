@@ -174,7 +174,7 @@ describe('FormRenderer design', () => {
         const onSelect = vi.fn()
         const { getByTestId, container } = render(<DesignHarness onSelect={onSelect} />)
         expect(getByTestId('handle-severity')).toBeTruthy()
-        expect(byTestId(container, 'form-field-severity')?.getAttribute('class')).toContain(
+        expect(byTestId(container, 'form-field-severity-box')?.getAttribute('class')).toContain(
             'border-primary'
         )
         fireEvent.click(byTestId(container, 'form-field-name') as Element)

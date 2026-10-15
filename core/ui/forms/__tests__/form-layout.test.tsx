@@ -7,10 +7,31 @@ import { FormLayout } from '../FormLayout'
 
 afterEach(cleanup)
 
-function cellOf(container: HTMLElement) {
-    const cell = container.querySelector('[testID="form-field-sev"]')
-    if (!cell) throw new Error('no form-field-sev cell rendered')
-    return cell
+function byId(container: HTMLElement, id: string) {
+    const el = container.querySelector(`[testID="${id}"]`)
+    if (!el) throw new Error(`no ${id} rendered`)
+    return el
+}
+
+const cellOf = (container: HTMLElement) => byId(container, 'form-field-sev')
+const boxOf = (container: HTMLElement) => byId(container, 'form-field-sev-box')
+const classOf = (el: Element) => el.getAttribute('class') ?? ''
+
+function Cell(props: Partial<Parameters<typeof FieldCell>[0]>) {
+    return (
+        <FormLayout>
+            <FieldCell
+                fieldKey="sev"
+                label="Severity"
+                required={false}
+                width="half"
+                containerWidth={1000}
+                {...props}
+            >
+                <View testID="child" />
+            </FieldCell>
+        </FormLayout>
+    )
 }
 
 describe('FieldCell', () => {
@@ -74,7 +95,7 @@ describe('FieldCell', () => {
                 <View testID="child" />
             </FieldCell>
         )
-        expect(cellOf(container).getAttribute('class')).toContain('border-transparent')
+        expect(classOf(boxOf(container))).toContain('border-transparent')
         rerender(
             <FieldCell
                 fieldKey="sev"
@@ -87,6 +108,38 @@ describe('FieldCell', () => {
                 <View testID="child" />
             </FieldCell>
         )
-        expect(cellOf(container).getAttribute('class')).toContain('border-primary')
+        expect(classOf(boxOf(container))).toContain('border-primary')
+    })
+    it('keeps the basis and padding on the root and the border on the inner box', () => {
+        const { container } = render(<Cell isSelected />)
+        const root = cellOf(container)
+        const box = boxOf(container)
+        expect(box.parentElement).toBe(root)
+        expect(classOf(root)).toContain('basis-1/2')
+        expect(classOf(root)).toContain('px-1.5')
+        expect(classOf(root)).not.toContain('border')
+        expect(classOf(box)).toContain('border-2')
+        expect(classOf(box)).toContain('rounded-md')
+        expect(classOf(box)).not.toContain('basis-')
+        expect(box.querySelector('[testID="child"]')).toBeTruthy()
+    })
+    it('draws the drop bar on the inner box edge and tints the box', () => {
+        const { container, rerender } = render(<Cell />)
+        expect(classOf(boxOf(container))).not.toContain('bg-primary/10')
+        rerender(<Cell dropIndicator="before" />)
+        const bar = byId(container, 'form-field-sev-drop-before')
+        expect(bar.parentElement).toBe(boxOf(container))
+        expect(classOf(bar)).toContain('left-0')
+        expect(classOf(bar)).toContain('w-[3px]')
+        expect(classOf(boxOf(container))).toContain('bg-primary/10')
+        rerender(<Cell dropIndicator="after" />)
+        expect(classOf(byId(container, 'form-field-sev-drop-after'))).toContain('right-0')
+        expect(container.querySelector('[testID="form-field-sev-drop-before"]')).toBeNull()
+    })
+    it('dims the cell while it is dragged', () => {
+        const { container, rerender } = render(<Cell />)
+        expect(classOf(cellOf(container))).not.toContain('opacity-50')
+        rerender(<Cell isDragging />)
+        expect(classOf(cellOf(container))).toContain('opacity-50')
     })
 })

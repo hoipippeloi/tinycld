@@ -73,6 +73,23 @@ describe('FormRenderer design extensions', () => {
         expect(q(container, 'form-field-severity')?.textContent).toContain('when')
     })
 
+    it('dims the dragged cell and never marks it as its own drop target', () => {
+        const { container } = render(
+            <Design
+                design={{
+                    draggingKey: 'severity',
+                    dropTarget: { key: 'severity', side: 'before' },
+                }}
+            />
+        )
+        expect(q(container, 'form-field-severity')?.getAttribute('class')).toContain('opacity-50')
+        expect(q(container, 'form-field-severity-drop-before')).toBeNull()
+        expect(q(container, 'form-field-severity-box')?.getAttribute('class')).not.toContain(
+            'bg-primary/10'
+        )
+        expect(q(container, 'form-field-name')?.getAttribute('class')).not.toContain('opacity-50')
+    })
+
     it('shows a drop bar at the end of a targeted page', () => {
         const { container } = render(
             <Design design={{ dropTarget: { page: 'repro', end: true } }} />

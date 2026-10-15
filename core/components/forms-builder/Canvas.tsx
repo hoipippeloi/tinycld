@@ -155,6 +155,7 @@ function designOptionsFor(inputs: DesignInputs): DesignOptions {
         onCellMeasure: drag.registerCell,
         onPageMeasure: drag.registerPage,
         dropTarget: drag.dropTarget,
+        draggingKey: drag.draggingKey ?? undefined,
         errors: errorsByKey(editor.form.formState.errors, draftFields),
     }
 }

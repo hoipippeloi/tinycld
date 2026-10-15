@@ -36,6 +36,8 @@ export interface DesignOptions {
     onCellMeasure?: (key: string, measure: MeasureRect) => () => void
     onPageMeasure?: (pageKey: string, measure: MeasureRect) => () => void
     dropTarget?: DropTarget | null
+    /** The field being dragged; its cell dims. */
+    draggingKey?: string
     badges?: Record<string, ReactNode>
     /** Cell error text keyed by field key, from the editor form. */
     errors?: Record<string, string>
@@ -43,8 +45,11 @@ export interface DesignOptions {
 
 export type DropTarget = { key: string; side: 'before' | 'after' } | { page: string; end: true }
 
-function dropSideFor(target: DropTarget | null | undefined, key: string) {
-    return target && 'key' in target && target.key === key ? target.side : undefined
+/** The dragged cell never marks itself: dropping a field on itself moves nothing. */
+function dropSideFor(design: DesignOptions | undefined, key: string) {
+    const target = design?.dropTarget
+    if (!target || !('key' in target) || target.key !== key) return undefined
+    return design?.draggingKey === key ? undefined : target.side
 }
 
 export interface FormRendererProps {
@@ -119,7 +124,8 @@ function Cell(props: CellProps) {
             isSelected={design?.selectedKey === field.key}
             hideLabel={hideLabel}
             badge={design?.badges?.[field.key]}
-            dropIndicator={dropSideFor(design?.dropTarget, field.key)}
+            dropIndicator={dropSideFor(design, field.key)}
+            isDragging={design?.draggingKey === field.key}
             onLayoutRect={design?.onCellLayout && (rect => design.onCellLayout?.(field.key, rect))}
             registerMeasure={onCellMeasure && (measure => onCellMeasure(field.key, measure))}
             onPress={mode === 'design' ? () => design?.onSelect?.(field.key) : undefined}
@@ -183,7 +189,7 @@ function PageFooter({ page, design }: PageChromeProps) {
 
 function PageDropBar({ page, target }: { page: FormPage; target?: DropTarget | null }) {
     if (!target || !('page' in target) || target.page !== page.key) return null
-    return <View className="h-0.5 bg-primary" testID={`form-page-${page.key}-drop-end`} />
+    return <View className="h-[3px] rounded bg-primary" testID={`form-page-${page.key}-drop-end`} />
 }
 
 function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVisible: boolean }) {

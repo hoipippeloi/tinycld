@@ -124,7 +124,9 @@ describe('Canvas', () => {
         for (const f of plain.definition.fields)
             expect(q(container, `form-handle-${f.key}`)).toBeTruthy()
         fireEvent.click(q(container, 'form-field-due') as HTMLElement)
-        expect(q(container, 'form-field-due')?.getAttribute('class')).toContain('border-primary')
+        expect(q(container, 'form-field-due-box')?.getAttribute('class')).toContain(
+            'border-primary'
+        )
     })
 
     it('asks for a label, then adds a field of the picked kind keyed by it and selects it', async () => {
@@ -132,7 +134,9 @@ describe('Canvas', () => {
         await addField(baseElement, 'select', 'Severity')
         const added = q(baseElement, 'form-field-severity')
         expect(added).toBeTruthy()
-        expect(added?.getAttribute('class')).toContain('border-primary')
+        expect(q(baseElement, 'form-field-severity-box')?.getAttribute('class')).toContain(
+            'border-primary'
+        )
         expect(editor?.form.getValues('fields').at(-1)).toMatchObject({
             key: 'severity',
             label: 'Severity',
@@ -190,10 +194,14 @@ describe('Canvas', () => {
         layOutCells(container)
         const last = builtinKeys.at(-1) as string
         await dragTo(container, last, 50, 20)
+        const classOf = (id: string) => q(container, id)?.getAttribute('class') ?? ''
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeTruthy()
+        expect(classOf(`form-field-${builtinKeys[0]}-box`)).toContain('bg-primary/10')
+        expect(classOf(`form-field-${last}`)).toContain('opacity-50')
         await act(async () => pointer('pointerup', window, 50, 20))
         expect(draftKeys()).toEqual([last, ...builtinKeys.slice(0, -1)])
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
+        expect(classOf(`form-field-${last}`)).not.toContain('opacity-50')
     })
 
     it('re-measures on drag start, so a second drag lands where the cells are now', async () => {

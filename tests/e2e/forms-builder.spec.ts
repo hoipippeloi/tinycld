@@ -124,6 +124,41 @@ async function widthShare(cell: Locator, container: Locator): Promise<number> {
     return a && b ? a.width / b.width : 1
 }
 
+type Box = { x: number; y: number; width: number; height: number }
+
+async function boxOf(locator: Locator): Promise<Box> {
+    const box = await locator.boundingBox()
+    if (!box) throw new Error('element is not laid out')
+    return box
+}
+
+/** Both side edges of `inner` lie within `outer`: nothing is cut off by the canvas's column. */
+function expectInsideSides(inner: Box, outer: Box) {
+    expect(inner.x).toBeGreaterThanOrEqual(outer.x)
+    expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width)
+}
+
+async function opacityOf(locator: Locator): Promise<number> {
+    return Number(await locator.evaluate(el => getComputedStyle(el).opacity))
+}
+
+const TRANSPARENT = 'rgba(0, 0, 0, 0)'
+
+function borderColorOf(locator: Locator): Promise<string> {
+    return locator.evaluate(el => getComputedStyle(el).borderLeftColor)
+}
+
+function backgroundOf(locator: Locator): Promise<string> {
+    return locator.evaluate(el => getComputedStyle(el).backgroundColor)
+}
+
+/** Selects a canvas cell by its label and gives it a width from the properties panel. */
+async function setWidth(page: Page, key: string, label: string, width: string) {
+    await canvas(page).getByTestId(`form-field-${key}`).getByText(label, { exact: true }).click()
+    await expect(properties(page).getByTestId('form-prop-key')).toContainText(key)
+    await propControl(page, `width-${width}`).click()
+}
+
 function properties(page: Page): Locator {
     return page.getByTestId('form-properties')
 }
@@ -249,6 +284,62 @@ test.describe('Forms builder', () => {
         await dialog.getByTestId('form-wizard-next').click()
         await expect(steps.getByRole('alert')).toBeVisible()
         await expect(dialog).toBeVisible()
+    })
+
+    test('shows where a sideways drag lands and keeps the outline inside the canvas', async ({
+        page,
+    }) => {
+        await createForm(page, 'Layout')
+        const [firstPage] = await pageKeys(page)
+        const [left, right, ...rest] = await fieldOrder(page, firstPage)
+        const labels: Record<string, string> = { name: 'Name', notes: 'Notes', due: 'Due' }
+        const leftCell = canvas(page).getByTestId(`form-field-${left}`)
+        const rightCell = canvas(page).getByTestId(`form-field-${right}`)
+
+        await setWidth(page, left, labels[left], 'half')
+        await expect.poll(() => widthShare(leftCell, canvas(page))).toBeLessThan(0.6)
+        await setWidth(page, right, labels[right], 'half')
+        await expect.poll(() => widthShare(rightCell, canvas(page))).toBeLessThan(0.6)
+        await expect
+            .poll(async () => (await boxOf(rightCell)).y)
+            .toBeCloseTo((await boxOf(leftCell)).y, 0)
+
+        // The right cell is selected; its outline is whole, not clipped by the canvas.
+        const rightBox = canvas(page).getByTestId(`form-field-${right}-box`)
+        await expect.poll(() => borderColorOf(rightBox)).not.toBe(TRANSPARENT)
+        const canvasBox = await boxOf(canvas(page))
+        expectInsideSides(await boxOf(rightBox), canvasBox)
+        await setWidth(page, left, labels[left], 'half')
+        expectInsideSides(
+            await boxOf(canvas(page).getByTestId(`form-field-${left}-box`)),
+            canvasBox
+        )
+
+        // A real pointer drag of the right cell over the left half of its neighbour.
+        const handle = await boxOf(page.getByTestId(`form-handle-${right}`))
+        const target = await boxOf(leftCell)
+        await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(target.x + target.width / 4, target.y + target.height / 2, {
+            steps: 15,
+        })
+        const bar = canvas(page).getByTestId(`form-field-${left}-drop-before`)
+        await expect(bar).toBeVisible()
+        const barBox = await boxOf(bar)
+        expectInsideSides(barBox, canvasBox)
+        expect(barBox.width).toBeGreaterThanOrEqual(2)
+        expect(await backgroundOf(canvas(page).getByTestId(`form-field-${left}-box`))).not.toBe(
+            TRANSPARENT
+        )
+        expect(await opacityOf(rightCell)).toBeLessThan(1)
+        await page.mouse.up()
+
+        await expect.poll(() => fieldOrder(page, firstPage)).toEqual([right, left, ...rest])
+        expect(await opacityOf(rightCell)).toBe(1)
+        await expect(bar).toBeHidden()
+        const [movedBox, otherBox] = await Promise.all([boxOf(rightCell), boxOf(leftCell)])
+        expect(movedBox.x).toBeLessThan(otherBox.x)
+        expect(movedBox.y).toBeCloseTo(otherBox.y, 0)
     })
 
     test('renames, makes default and deletes forms from the list', async ({ page }) => {
