@@ -92,6 +92,11 @@ const knownIcons = {
     GitMerge: Icon,
     GitPullRequest: Icon,
     GitPullRequestClosed: Icon,
+    // boards: PriorityGlyph's priority → icon table (tests/form-fields.mount.test.tsx)
+    OctagonAlert: Icon,
+    SignalHigh: Icon,
+    SignalLow: Icon,
+    SignalMedium: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,
