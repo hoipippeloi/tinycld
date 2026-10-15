@@ -19,8 +19,8 @@ function ViewportOption({ label, value, current, onChange }: ViewportOptionProps
     return (
         <Pressable
             accessibilityRole="radio"
-            aria-selected={isSelected}
-            accessibilityState={{ selected: isSelected }}
+            aria-checked={isSelected}
+            accessibilityState={{ checked: isSelected }}
             onPress={() => onChange(value)}
             className={`px-3 py-1 ${isSelected ? 'bg-primary' : 'bg-background'}`}
             testID={`form-preview-${value}`}

@@ -23,17 +23,17 @@ function Harness({ disabled = false }: { disabled?: boolean }) {
 }
 
 describe('SelectInput', () => {
-    it('marks the chosen option selected for the web accessibility tree', () => {
+    it('marks the chosen option checked for the web accessibility tree', () => {
         render(<Harness />)
-        expect(screen.getByText('Ex').closest('[aria-selected="true"]')).not.toBeNull()
-        expect(screen.getByText('Why').closest('[aria-selected="false"]')).not.toBeNull()
+        expect(screen.getByText('Ex').closest('[aria-checked="true"]')).not.toBeNull()
+        expect(screen.getByText('Why').closest('[aria-checked="false"]')).not.toBeNull()
     })
     it('moves the selection on press and not when disabled', () => {
         const { rerender } = render(<Harness />)
         fireEvent.click(screen.getByText('Why'))
-        expect(screen.getByText('Why').closest('[aria-selected="true"]')).not.toBeNull()
+        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
         rerender(<Harness disabled />)
         fireEvent.click(screen.getByText('Ex'))
-        expect(screen.getByText('Why').closest('[aria-selected="true"]')).not.toBeNull()
+        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
     })
 })

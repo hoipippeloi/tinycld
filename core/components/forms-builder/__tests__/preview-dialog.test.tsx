@@ -138,7 +138,8 @@ describe('PreviewDialog', () => {
         await waitFor(() =>
             expect(q(container, 'form-preview-viewport-phone')?.style.width).toBe('390px')
         )
-        expect(q(container, 'form-preview-phone')?.getAttribute('aria-selected')).toBe('true')
+        expect(q(container, 'form-preview-phone')?.getAttribute('aria-checked')).toBe('true')
+        expect(q(container, 'form-preview-phone')?.getAttribute('aria-selected')).toBeNull()
         fireEvent.click(q(container, 'form-preview-desktop') as HTMLElement)
         await waitFor(() => expect(q(container, 'form-preview-viewport-phone')).toBeNull())
     })
