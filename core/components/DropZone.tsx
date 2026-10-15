@@ -84,9 +84,8 @@ export function DropZone({
     }
 
     return (
-        // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop zone requires native DOM events
         <div
-            role="presentation"
+            role="none"
             data-testid={testID}
             // A data attribute, not aria-disabled: aria-disabled is inherited,
             // so a zone that only refuses drops would mark every control inside
