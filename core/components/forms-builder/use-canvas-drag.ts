@@ -27,17 +27,51 @@ export interface Position {
 const inside = (p: Point, r: Rect) =>
     p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height
 
+const centerOf = (r: Rect): Point => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 })
+
+/** How far the pointer is from the rect on each axis; 0 within its span. */
+function gapTo(p: Point, r: Rect) {
+    return {
+        dx: Math.max(r.x - p.x, 0, p.x - (r.x + r.width)),
+        dy: Math.max(r.y - p.y, 0, p.y - (r.y + r.height)),
+    }
+}
+
+/** Cells wrap into rows, so the nearer row wins first and the nearer cell in it second. */
+function isNearer(p: Point, a: Rect, b: Rect) {
+    const ga = gapTo(p, a)
+    const gb = gapTo(p, b)
+    return ga.dy !== gb.dy ? ga.dy < gb.dy : ga.dx < gb.dx
+}
+
+/** Above or below a cell is its row's edge; beside it, its horizontal midpoint. */
+function sideOf(p: Point, r: Rect): 'before' | 'after' {
+    if (p.y < r.y) return 'before'
+    if (p.y > r.y + r.height) return 'after'
+    return p.x < r.x + r.width / 2 ? 'before' : 'after'
+}
+
+/**
+ * The slot under the pointer. Over a page but no cell (its header, its footer,
+ * the margin between two cells) the nearest cell decides, so a field let go
+ * above the first cell lands first; only below the page's last row is its end.
+ */
 export function findSlot(
     pointer: Point,
     cells: Map<string, Rect>,
     pages: Map<string, Rect>
 ): Slot | null {
     for (const [key, rect] of cells) {
-        if (inside(pointer, rect))
-            return { key, side: pointer.x < rect.x + rect.width / 2 ? 'before' : 'after' }
+        if (inside(pointer, rect)) return { key, side: sideOf(pointer, rect) }
     }
     for (const [page, rect] of pages) {
-        if (inside(pointer, rect)) return { page, end: true }
+        if (!inside(pointer, rect)) continue
+        const own = [...cells].filter(([, cell]) => inside(centerOf(cell), rect))
+        if (own.every(([, cell]) => pointer.y > cell.y + cell.height)) return { page, end: true }
+        const [key, cell] = own.reduce((best, next) =>
+            isNearer(pointer, next[1], best[1]) ? next : best
+        )
+        return { key, side: sideOf(pointer, cell) }
     }
     return null
 }

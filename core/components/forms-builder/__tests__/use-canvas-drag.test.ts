@@ -36,6 +36,37 @@ describe('findSlot', () => {
     it('returns null outside every page', () => {
         expect(findSlot({ x: 100, y: 300 }, cells, pages)).toBeNull()
     })
+
+    // A page's header, its footer and the margins between cells are part of
+    // the page but of no cell. A drop there means the nearest place, not the
+    // page's end: a field let go above the first cell must land first.
+    const stacked = new Map([
+        ['a', { x: 0, y: 40, width: 200, height: 40 }],
+        ['b', { x: 0, y: 92, width: 200, height: 40 }],
+        ['c', { x: 0, y: 144, width: 100, height: 40 }],
+    ])
+    const tall = new Map([['p1', { x: 0, y: 0, width: 200, height: 240 }]])
+
+    it('targets before the first cell when over the page header', () => {
+        expect(findSlot({ x: 150, y: 10 }, stacked, tall)).toEqual({ key: 'a', side: 'before' })
+    })
+    it('targets the nearer cell when over the margin between two rows', () => {
+        expect(findSlot({ x: 50, y: 83 }, stacked, tall)).toEqual({ key: 'a', side: 'after' })
+        expect(findSlot({ x: 50, y: 89 }, stacked, tall)).toEqual({ key: 'b', side: 'before' })
+    })
+    it('targets after a short last cell when beside it in its row', () => {
+        expect(findSlot({ x: 180, y: 160 }, stacked, tall)).toEqual({ key: 'c', side: 'after' })
+    })
+    it('targets the end of the page only below its last row', () => {
+        expect(findSlot({ x: 50, y: 220 }, stacked, tall)).toEqual({ page: 'p1', end: true })
+    })
+    it('ignores cells of another page', () => {
+        const twoPages = new Map([
+            ['p1', { x: 0, y: 0, width: 200, height: 240 }],
+            ['p2', { x: 0, y: 300, width: 200, height: 100 }],
+        ])
+        expect(findSlot({ x: 50, y: 320 }, stacked, twoPages)).toEqual({ page: 'p2', end: true })
+    })
 })
 
 describe('shiftRects', () => {
@@ -165,7 +196,8 @@ describe('useCanvasDrag', () => {
         })
         act(() => unregister())
         act(() => hook.result.current.hover({ x: 20, y: 20 }))
-        expect(hook.result.current.dropTarget).toEqual({ page: 'p1', end: true })
+        // Over where a was, the nearest cell still known is b.
+        expect(hook.result.current.dropTarget).toEqual({ key: 'b', side: 'before' })
     })
 
     it('gives up on a measure that never answers, so the drag still lands', async () => {
