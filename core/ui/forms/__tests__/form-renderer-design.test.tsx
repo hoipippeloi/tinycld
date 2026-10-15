@@ -63,6 +63,7 @@ describe('FormRenderer design extensions', () => {
         const { container } = render(
             <Design
                 design={{
+                    draggingKey: 'name',
                     dropTarget: { key: 'severity', side: 'after' },
                     badges: { severity: <Text>when</Text> },
                 }}
@@ -71,6 +72,17 @@ describe('FormRenderer design extensions', () => {
         expect(q(container, 'form-field-severity-drop-after')).toBeTruthy()
         expect(q(container, 'form-field-severity-drop-before')).toBeNull()
         expect(q(container, 'form-field-severity')?.textContent).toContain('when')
+    })
+
+    it('draws no drop indicator without a drag in progress', () => {
+        const { container } = render(
+            <Design
+                design={{
+                    dropTarget: { page: 'repro', end: true },
+                }}
+            />
+        )
+        expect(container.querySelector('[data-testid*="-drop-"]')).toBeNull()
     })
 
     it('dims the dragged cell and never marks it as its own drop target', () => {
@@ -92,7 +104,7 @@ describe('FormRenderer design extensions', () => {
 
     it('shows a drop bar at the end of a targeted page', () => {
         const { container } = render(
-            <Design design={{ dropTarget: { page: 'repro', end: true } }} />
+            <Design design={{ draggingKey: 'name', dropTarget: { page: 'repro', end: true } }} />
         )
         expect(q(container, 'form-page-repro-drop-end')).toBeTruthy()
         expect(q(container, 'form-page-details-drop-end')).toBeNull()

@@ -154,6 +154,9 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
     // earlier drag cannot touch the current one.
     const session = useRef(0)
     const measuring = useRef<Promise<void> | null>(null)
+    // Read by hover, which a late pointer event can call after the drag ended and
+    // before React re-rendered; state would still say the drag is live.
+    const active = useRef(false)
     // Drag position is transient UI state.
     const [draggingKey, setDraggingKey] = useState<string | null>(null)
     const [dropTarget, setDropTarget] = useState<Slot | null>(null)
@@ -219,6 +222,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
 
     const end = () => {
         session.current += 1
+        active.current = false
         measuring.current = null
         setDraggingKey(null)
         setDropTarget(null)
@@ -227,6 +231,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
     const begin = (key: string) => {
         session.current += 1
         const id = session.current
+        active.current = true
         setDraggingKey(key)
         setDropTarget(null)
         const pending = remeasure()
@@ -243,7 +248,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
     }
 
     const hover = (pointer: Point) => {
-        if (measuring.current) return
+        if (!active.current || measuring.current) return
         setDropTarget(slotAt(pointer))
     }
 

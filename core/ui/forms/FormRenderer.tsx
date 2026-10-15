@@ -47,7 +47,7 @@ export type DropTarget = { key: string; side: 'before' | 'after' } | { page: str
 
 /** The dragged cell never marks itself: dropping a field on itself moves nothing. */
 function dropSideFor(design: DesignOptions | undefined, key: string) {
-    const target = design?.dropTarget
+    const target = design?.draggingKey ? design.dropTarget : null
     if (!target || !('key' in target) || target.key !== key) return undefined
     return design?.draggingKey === key ? undefined : target.side
 }
@@ -204,7 +204,7 @@ function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVis
             <PageHeader page={page} isTitleVisible={isTitleVisible} design={design} />
             <PageFields {...props} page={page} />
             <PageFooter page={page} design={design} />
-            <PageDropBar page={page} target={design?.dropTarget} />
+            <PageDropBar page={page} target={design?.draggingKey ? design.dropTarget : null} />
         </View>
     )
 }

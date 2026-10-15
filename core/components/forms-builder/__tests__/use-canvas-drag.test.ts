@@ -146,6 +146,18 @@ describe('useCanvasDrag', () => {
         expect(hook.result.current.dropTarget).toEqual({ key: 'a', side: 'before' })
     })
 
+    it('ignores a hover that arrives after the drop or the end of a drag', async () => {
+        const { hook } = setUp()
+        await act(async () => hook.result.current.begin('a'))
+        act(() => hook.result.current.drop('a', { x: 150, y: 20 }))
+        act(() => hook.result.current.hover({ x: 20, y: 20 }))
+        expect(hook.result.current.dropTarget).toBeNull()
+        await act(async () => hook.result.current.begin('a'))
+        act(() => hook.result.current.cancel())
+        act(() => hook.result.current.hover({ x: 20, y: 20 }))
+        expect(hook.result.current.dropTarget).toBeNull()
+    })
+
     it('waits for the measurement when the drop comes before it', async () => {
         const { hook, onMove } = setUp()
         const pending = deferred()
@@ -188,13 +200,14 @@ describe('useCanvasDrag', () => {
         expect(onMove).not.toHaveBeenCalled()
     })
 
-    it('forgets a cell whose measure was unregistered', () => {
+    it('forgets a cell whose measure was unregistered', async () => {
         const { hook } = setUp()
         let unregister = () => {}
         act(() => {
             unregister = hook.result.current.registerCell('a', async () => null)
         })
         act(() => unregister())
+        await act(async () => hook.result.current.begin('c'))
         act(() => hook.result.current.hover({ x: 20, y: 20 }))
         // Over where a was, the nearest cell still known is b.
         expect(hook.result.current.dropTarget).toEqual({ key: 'b', side: 'before' })

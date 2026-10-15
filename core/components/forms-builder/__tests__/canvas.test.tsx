@@ -202,6 +202,9 @@ describe('Canvas', () => {
         expect(draftKeys()).toEqual([last, ...builtinKeys.slice(0, -1)])
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
         expect(classOf(`form-field-${last}`)).not.toContain('opacity-50')
+        // A pointermove landing after the drop must not bring a bar back.
+        await act(async () => drag?.hover({ x: 50, y: 20 }))
+        expect(container.querySelector('[data-testid*="-drop-"]')).toBeNull()
     })
 
     it('re-measures on drag start, so a second drag lands where the cells are now', async () => {
