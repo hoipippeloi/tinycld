@@ -219,12 +219,69 @@ export function rendersOwnLabel(
     const resolved = resolveKind(host, field)
     if (hasHostComponent(resolved, ui)) return false
     if (resolved.kind === 'toggle') return true
+    // The read value has no label of its own, so the cell keeps the label.
+    if (resolved.kind === 'select' && mode === 'read') return false
     return resolved.kind === 'select' && selectDisplay(resolved) !== 'checkbox'
 }
 
-function SelectKind({ field, control, resolved, options, disabled, testID, label }: KindProps) {
+function labelsOf(value: unknown, opts: { value: string; label: string }[]): string {
+    const chosen = Array.isArray(value) ? value : value ? [value] : []
+    return chosen.map(v => opts.find(o => o.value === v)?.label ?? String(v)).join(', ')
+}
+
+/** Read mode: the chosen labels, not the whole option list as disabled chips. */
+function SelectReadValue({
+    field,
+    control,
+    options,
+    testID,
+    label,
+}: Pick<KindProps, 'field' | 'control' | 'testID' | 'label'> & {
+    options: { value: string; label: string }[]
+}) {
+    return (
+        <Uncontrolled<unknown>
+            name={field.key}
+            control={control}
+            render={value => {
+                const text = labelsOf(value, options)
+                return (
+                    <Text
+                        testID={testID}
+                        accessibilityLabel={label}
+                        className={text ? 'text-foreground' : 'text-muted-foreground'}
+                    >
+                        {text || 'Empty'}
+                    </Text>
+                )
+            }}
+        />
+    )
+}
+
+function SelectKind({
+    field,
+    control,
+    resolved,
+    options,
+    disabled,
+    testID,
+    label,
+    mode,
+}: KindProps) {
     const sel = resolved.custom?.kind === 'select' ? resolved.custom : undefined
     const opts = options ?? sel?.options ?? []
+    if (mode === 'read') {
+        return (
+            <SelectReadValue
+                field={field}
+                control={control}
+                options={opts}
+                testID={testID}
+                label={label}
+            />
+        )
+    }
     const display = selectDisplay(resolved)
     if (display === 'checkbox') {
         return (

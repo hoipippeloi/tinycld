@@ -65,6 +65,7 @@ function byTestId(container: HTMLElement, id: string) {
 const select = {
     key: 's',
     kind: 'select' as const,
+    display: 'dropdown' as const,
     multiple: false,
     options: [{ value: 'x', label: 'Ex' }],
 }
@@ -134,15 +135,42 @@ describe('FieldInput', () => {
         expect(getByText('Add files after creating.')).toBeTruthy()
     })
 
-    it.each([
-        'dropdown',
-        'radio',
-    ] as const)('does not change a %s value in read mode, and does in create mode', display => {
+    const xyOptions = [
+        { value: 'x', label: 'Ex' },
+        { value: 'y', label: 'Why' },
+    ]
+
+    it.each(['dropdown', 'radio'] as const)('read mode shows only the chosen %s label', display => {
+        const field: FormField = { ...base, ...select, display, options: xyOptions }
+        const { getByText, queryByText, container } = render(
+            <Harness field={field} mode="read" initial="x" />
+        )
+        expect(getByText('Ex')).toBeTruthy()
+        expect(queryByText('Why')).toBeNull()
+        expect(byTestId(container, 'form-input-s').tagName).not.toBe('BUTTON')
+    })
+
+    it('read mode shows every chosen label of a multiple select', () => {
+        const field: FormField = {
+            ...base,
+            ...select,
+            multiple: true,
+            options: [...xyOptions, { value: 'z', label: 'Zed' }],
+        }
+        const { getByText, queryByText } = render(
+            <Harness field={field} mode="read" initial={['x', 'z']} />
+        )
+        expect(getByText('Ex, Zed')).toBeTruthy()
+        expect(queryByText('Why')).toBeNull()
+    })
+
+    it('read mode shows Empty for no value', () => {
+        const { getByText } = render(<Harness field={{ ...base, ...select }} mode="read" />)
+        expect(getByText('Empty')).toBeTruthy()
+    })
+
+    it.each(['dropdown', 'radio'] as const)('changes a %s value in create mode', display => {
         const field: FormField = { ...base, ...select, display }
-        const read = render(<Harness field={field} mode="read" />)
-        fireEvent.click(read.getByText('Ex'))
-        expect(byTestId(read.container, 'value').textContent).toBe('')
-        cleanup()
         const create = render(<Harness field={field} mode="create" />)
         fireEvent.click(create.getByText('Ex'))
         expect(byTestId(create.container, 'value').textContent).toBe('x')

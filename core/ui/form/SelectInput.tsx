@@ -48,7 +48,10 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                             key={option.value}
                             onPress={() => field.onChange(option.value)}
                             disabled={disabled}
+                            accessibilityRole="radio"
                             accessibilityState={{ selected: isSelected, disabled }}
+                            aria-selected={isSelected}
+                            aria-disabled={disabled}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
                                 flex: horizontal ? 1 : undefined,
