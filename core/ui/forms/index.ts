@@ -1,11 +1,19 @@
 export { FieldCell, type FieldCellProps } from './FieldCell'
-export { FieldInput, type FieldInputProps, rendersBare, rendersOwnLabel } from './FieldInput'
+export {
+    FieldInput,
+    type FieldInputProps,
+    hasPinnedRow,
+    PinnedHostRow,
+    rendersBare,
+    rendersOwnLabel,
+} from './FieldInput'
 export { FormLayout } from './FormLayout'
 export {
     type DesignOptions,
     type FormLayoutKind,
     FormRenderer,
     type FormRendererProps,
+    type SectionsScroll,
 } from './FormRenderer'
 export { formErrorHandler, type HostFieldErrors, mapHostErrors } from './form-error-handler'
 export { AUTO_PATCH_DELAY_MS, useAutoPatch } from './use-auto-patch'

@@ -4,11 +4,11 @@ import type { EvalContext, FormState, FormValues } from '@tinycld/core/lib/forms
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { FormErrorSummary } from '@tinycld/core/ui/form'
-import { type MutableRefObject, type ReactNode, useRef, useState } from 'react'
+import { type MutableRefObject, type ReactElement, type ReactNode, useRef, useState } from 'react'
 import type { UseFormReturn } from 'react-hook-form'
-import { Text, View } from 'react-native'
+import { type LayoutChangeEvent, ScrollView, Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
-import { FieldInput, rendersBare, rendersOwnLabel } from './FieldInput'
+import { FieldInput, hasPinnedRow, PinnedHostRow, rendersBare, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
@@ -52,6 +52,11 @@ function dropSideFor(design: DesignOptions | undefined, key: string) {
     return target.side
 }
 
+export interface SectionsScroll {
+    /** Class for every row's wrapper: the content column's padding and width. */
+    rowClassName?: string
+}
+
 export interface FormRendererProps {
     host: FormHost
     ui: FormHostUi | null
@@ -66,6 +71,8 @@ export interface FormRendererProps {
     onSubmit?: () => void
     submitLabel?: string
     design?: DesignOptions
+    /** Sections only: the renderer owns a ScrollView whose direct children are the rows, so pinned rows can stick. */
+    scroll?: SectionsScroll
     /** Kept current with the effective schema; see useSchemaRefResolver. */
     schemaRef?: MutableRefObject<FormSchema>
     testID?: string
@@ -77,6 +84,8 @@ interface BodyProps extends FormRendererProps {
     mode: FieldMode
     /** Enter in a single-line input; set by the wizard. */
     onSubmitEditing?: () => void
+    /** Measures the content column; the sections layout attaches it inside the row padding. */
+    onContainerLayout: (e: LayoutChangeEvent) => void
 }
 
 interface PageProps extends BodyProps {
@@ -240,9 +249,9 @@ function SubmitErrors({
     )
 }
 
-function Sections(props: BodyProps) {
-    const { definition, state, mode } = props
-    const pages = definition.pages.filter(p => mode === 'design' || state.pages[p.key]?.visible)
+/** The design canvas: one measured block per page, every page shown. */
+function DesignSections(props: BodyProps) {
+    const pages = props.definition.pages
     return (
         <>
             <SubmitErrors form={props.form} />
@@ -255,6 +264,134 @@ function Sections(props: BodyProps) {
                 />
             ))}
         </>
+    )
+}
+
+function Row({
+    className,
+    testID,
+    children,
+}: {
+    className?: string
+    testID?: string
+    children: ReactNode
+}) {
+    return (
+        <View className={className} testID={testID}>
+            {children}
+        </View>
+    )
+}
+
+type PageRow =
+    | { kind: 'title'; key: string }
+    | { kind: 'run'; key: string; fields: FormField[] }
+    | { kind: 'pinned'; key: string; field: FormField }
+
+/**
+ * A page as rows: its title, then its fields in runs that break at every
+ * field the host pins a row above. A run is keyed by the pinned field that
+ * opens it, so hiding a field never remounts its neighbours' cells.
+ */
+function pageRowsOf(props: BodyProps, page: FormPage, isTitleVisible: boolean): PageRow[] {
+    const { definition, state, mode, host, ui } = props
+    const rows: PageRow[] = isTitleVisible ? [{ kind: 'title', key: `${page.key}:title` }] : []
+    let run: FormField[] = []
+    let runKey = `${page.key}:start`
+    const closeRun = () => {
+        if (run.length > 0) rows.push({ kind: 'run', key: runKey, fields: run })
+        run = []
+    }
+    for (const field of visibleFieldsOf(definition, page, state, mode)) {
+        if (hasPinnedRow(host, field, ui, mode)) {
+            closeRun()
+            rows.push({ kind: 'pinned', key: `pinned:${field.key}`, field })
+            runKey = `${page.key}:${field.key}`
+        }
+        run.push(field)
+    }
+    closeRun()
+    return rows
+}
+
+function pageRowElement(
+    props: BodyProps,
+    page: FormPage,
+    row: PageRow,
+    pageTestID: string | undefined
+): ReactElement {
+    const className = props.scroll?.rowClassName
+    if (row.kind === 'pinned') {
+        return (
+            <Row key={row.key} className={className} testID={`form-pinned-${row.field.key}`}>
+                <PinnedHostRow
+                    host={props.host}
+                    ui={props.ui}
+                    field={row.field}
+                    control={props.form.control}
+                    mode={props.mode}
+                    recordId={props.recordId}
+                    collab={props.collab}
+                />
+            </Row>
+        )
+    }
+    if (row.kind === 'title') {
+        return (
+            <Row key={row.key} className={className} testID={pageTestID}>
+                <SectionTitle page={page} isVisible />
+            </Row>
+        )
+    }
+    return (
+        <Row key={row.key} className={className} testID={pageTestID}>
+            <FormLayout>
+                {row.fields.map(f => (
+                    <Cell key={f.key} {...props} field={f} />
+                ))}
+            </FormLayout>
+        </Row>
+    )
+}
+
+/**
+ * The record layout as one flat list of rows, so that when the renderer owns
+ * the scroll view each row is its direct child: `stickyHeaderIndices` pins only
+ * a direct child, and a sticky box never leaves its parent. Never a null
+ * entry, which would shift the indexes.
+ */
+function sectionRows(props: BodyProps): { rows: ReactElement[]; pinnedIndexes: number[] } {
+    const { definition, state, form } = props
+    const pages = definition.pages.filter(p => state.pages[p.key]?.visible)
+    // Measured inside the row padding: the width the cells see is the content width.
+    const rows: ReactElement[] = [
+        <Row key="errors" className={props.scroll?.rowClassName}>
+            <View onLayout={props.onContainerLayout}>
+                <SubmitErrors form={form} />
+            </View>
+        </Row>,
+    ]
+    const pinnedIndexes: number[] = []
+    for (const page of pages) {
+        const pageRows = pageRowsOf(props, page, pages.length > 1)
+        // The page's testID rides its first row that is not a pinned one, which carries its own.
+        const labelled = pageRows.find(r => r.kind !== 'pinned')
+        for (const row of pageRows) {
+            if (row.kind === 'pinned') pinnedIndexes.push(rows.length)
+            const testID = row === labelled ? `form-page-${page.key}` : undefined
+            rows.push(pageRowElement(props, page, row, testID))
+        }
+    }
+    return { rows, pinnedIndexes }
+}
+
+function Sections(props: BodyProps) {
+    const { rows, pinnedIndexes } = sectionRows(props)
+    if (!props.scroll) return <>{rows}</>
+    return (
+        <ScrollView className="flex-1" stickyHeaderIndices={pinnedIndexes}>
+            {rows}
+        </ScrollView>
     )
 }
 
@@ -349,7 +486,14 @@ function modeFor(layout: FormLayoutKind, readOnly?: boolean, recordId?: string):
 
 function Body(props: BodyProps) {
     if (props.layout === 'wizard') return <Wizard {...props} />
+    if (props.layout === 'design') return <DesignSections {...props} />
     return <Sections {...props} />
+}
+
+/** The sections layout measures inside its row padding (see sectionRows); the others measure the root. */
+function rootLayoutFor(props: FormRendererProps, onLayout: (e: LayoutChangeEvent) => void) {
+    if (props.layout !== 'sections') return { onLayout, className: undefined }
+    return { onLayout: undefined, className: props.scroll ? 'flex-1' : undefined }
 }
 
 export function FormRenderer(props: FormRendererProps) {
@@ -366,9 +510,20 @@ export function FormRenderer(props: FormRendererProps) {
     )
     // The resolver reads this ref, so required-if rules validate against the live state.
     if (schemaRef) schemaRef.current = schema
+    const root = rootLayoutFor(props, onLayout)
     return (
-        <View onLayout={onLayout} testID={props.testID ?? 'form-renderer'}>
-            <Body {...props} state={state} containerWidth={width} mode={mode} />
+        <View
+            onLayout={root.onLayout}
+            className={root.className}
+            testID={props.testID ?? 'form-renderer'}
+        >
+            <Body
+                {...props}
+                state={state}
+                containerWidth={width}
+                mode={mode}
+                onContainerLayout={onLayout}
+            />
         </View>
     )
 }

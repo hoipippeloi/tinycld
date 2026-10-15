@@ -42,5 +42,14 @@ export interface BuiltinFieldProps {
 export interface FormHostUi {
     components: Record<string, ComponentType<BuiltinFieldProps>>
     mappers: Record<string, RowMapper>
+    /**
+     * A row the host draws ABOVE a built-in's cell, keyed by the built-in's
+     * component name like `components`, and rendered with the same props. The
+     * sections layout gives it a row of its own; when the renderer owns the
+     * scroll view (`scroll`), that row pins to the top while the field scrolls
+     * past. Edit and read modes only: the create wizard and the design canvas
+     * never render it.
+     */
+    pinned?: Record<string, ComponentType<BuiltinFieldProps>>
     useDoc?: (recordId: string) => CollabDoc | null
 }

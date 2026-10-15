@@ -1,6 +1,11 @@
 import type { FormField, SelectOption } from '@tinycld/core/lib/forms/definition'
 import { resolveFragment } from '@tinycld/core/lib/forms/host'
-import type { CollabDoc, FieldMode, FormHostUi } from '@tinycld/core/lib/forms/host-ui'
+import type {
+    BuiltinFieldProps,
+    CollabDoc,
+    FieldMode,
+    FormHostUi,
+} from '@tinycld/core/lib/forms/host-ui'
 import type { FormValues } from '@tinycld/core/lib/forms/logic'
 import { type ChecklistItem, resolveKind } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
@@ -16,7 +21,7 @@ import {
     Toggle,
 } from '@tinycld/core/ui/form'
 import { CheckSquare, Square } from 'lucide-react-native'
-import type { ReactElement } from 'react'
+import type { ComponentType, ReactElement } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { ChecklistField } from './fields/ChecklistField'
 import { DateField } from './fields/DateField'
@@ -420,9 +425,12 @@ function RichTextKind({
     )
 }
 
-function HostComponent(props: KindProps) {
-    const { field, control, ui, mode, recordId, resolved, disabled, collab, host } = props
-    const Component = ui?.components[resolved.builtin?.component ?? '']
+/** Mounts a host component for a built-in with the props every host component receives. */
+function HostMount({
+    Component,
+    ...props
+}: KindProps & { Component: ComponentType<BuiltinFieldProps> | undefined }) {
+    const { field, control, mode, recordId, resolved, disabled, collab, host } = props
     if (!Component) return null
     const fragment = fragmentFor(host, resolved, field.key, recordId)
     return (
@@ -442,6 +450,42 @@ function HostComponent(props: KindProps) {
                     fragment={fragment}
                 />
             )}
+        />
+    )
+}
+
+function HostComponent(props: KindProps) {
+    const Component = props.ui?.components[props.resolved.builtin?.component ?? '']
+    return <HostMount {...props} Component={Component} />
+}
+
+function pinnedComponentFor(resolved: Resolved, ui: FormHostUi | null) {
+    return ui?.pinned?.[resolved.builtin?.component ?? '']
+}
+
+/**
+ * True when the host draws a pinned row above this field: a built-in whose
+ * component has a `pinned` entry, on a record (edit or read), the same mode
+ * rule as `rendersBare`.
+ */
+export function hasPinnedRow(
+    host: FormHost,
+    field: FormField,
+    ui: FormHostUi | null,
+    mode: FieldMode
+): boolean {
+    if (mode !== 'edit' && mode !== 'read') return false
+    return Boolean(pinnedComponentFor(resolveKind(host, field), ui))
+}
+
+/** The host's pinned row for a field, or null when the host declares none. */
+export function PinnedHostRow(props: FieldInputProps): ReactElement | null {
+    if (!hasPinnedRow(props.host, props.field, props.ui, props.mode)) return null
+    const resolved = resolveKind(props.host, props.field)
+    return (
+        <HostMount
+            {...kindPropsFor(props, resolved)}
+            Component={pinnedComponentFor(resolved, props.ui)}
         />
     )
 }
@@ -525,15 +569,19 @@ function KindInput(props: KindProps) {
     }
 }
 
-export function FieldInput(props: FieldInputProps) {
-    const resolved = resolveKind(props.host, props.field)
-    const kindProps: KindProps = {
+function kindPropsFor(props: FieldInputProps, resolved: Resolved): KindProps {
+    return {
         ...props,
         resolved,
         disabled: props.mode === 'read' || props.mode === 'design',
         testID: `form-input-${props.field.key}`,
         label: props.field.label,
     }
+}
+
+export function FieldInput(props: FieldInputProps) {
+    const resolved = resolveKind(props.host, props.field)
+    const kindProps = kindPropsFor(props, resolved)
     if (hasHostComponent(resolved, props.ui)) {
         if (props.mode === 'design') return <DesignPlaceholder host={props.host} />
         // A section is host chrome with no value of its own; it has nothing to show before the record exists.
