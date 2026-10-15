@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Text, View } from 'react-native'
+import { isFileDrag } from '../lib/file-drop/file-drop-controller'
 import { useThemeColor } from '../lib/use-app-theme'
 
 interface DropZoneProps {
@@ -37,25 +38,30 @@ export function DropZone({
         return <View className="flex-1">{children}</View>
     }
 
-    const handleDragEnter = (e: React.DragEvent) => {
-        if (!isEnabled) return
+    // A disabled zone still claims a FILE drag: left alone, the browser
+    // performs its default drop and replaces the app with the file. Only the
+    // overlay and the upload are gated on isEnabled, as in use-file-drop.
+    const claimDrag = (e: React.DragEvent) => {
+        if (!isEnabled && !isFileDrag(e.dataTransfer)) return false
         e.preventDefault()
         e.stopPropagation()
-        if (e.dataTransfer.types.includes('Files')) {
+        if (isEnabled) return true
+        e.dataTransfer.dropEffect = 'none'
+        return false
+    }
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        if (claimDrag(e) && isFileDrag(e.dataTransfer)) {
             setIsDragging(true)
         }
     }
 
     const handleDragOver = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        claimDrag(e)
     }
 
     const handleDragLeave = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        if (!claimDrag(e)) return
         // dragleave also fires when the pointer crosses onto a CHILD element,
         // so the overlay may only be dismissed once the pointer is genuinely
         // outside the zone's own box.
@@ -72,9 +78,7 @@ export function DropZone({
     }
 
     const handleDrop = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        if (!claimDrag(e)) return
         setIsDragging(false)
 
         const files = Array.from(e.dataTransfer.files)
