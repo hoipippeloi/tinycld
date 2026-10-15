@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render as renderBare, waitFor } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { newCustomField } from '../../../lib/forms/builder'
@@ -11,13 +11,22 @@ import { OverlayProvider } from '../../../ui/overlay'
 import { PreviewDialog } from '../PreviewDialog'
 import { useEditorForm } from '../use-editor-form'
 
-afterEach(cleanup)
-const render = (ui: ReactElement) =>
-    renderBare(
-        <QueryClientProvider client={new QueryClient()}>
-            <OverlayProvider>{ui}</OverlayProvider>
-        </QueryClientProvider>
-    )
+const screen = vi.hoisted(() => ({ breakpoint: 'desktop' }))
+afterEach(() => {
+    cleanup()
+    screen.breakpoint = 'desktop'
+})
+// A wrapper, not a wrapped element, so a rerender keeps the providers.
+const render = (ui: ReactElement) => {
+    const client = new QueryClient()
+    return renderBare(ui, {
+        wrapper: ({ children }: { children: ReactNode }) => (
+            <QueryClientProvider client={client}>
+                <OverlayProvider>{children}</OverlayProvider>
+            </QueryClientProvider>
+        ),
+    })
+}
 const base = defaultDefinitionFor(widgetHost)
 const def = definitionSchema.parse({
     ...base,
@@ -81,7 +90,7 @@ vi.mock('@tinycld/core/lib/auth', () => ({
     useAuth: () => ({ user: { id: 'u1', name: 'U' }, isLoggedIn: true }),
 }))
 vi.mock('@tinycld/core/components/workspace/useBreakpoint', () => ({
-    useBreakpoint: () => 'desktop',
+    useBreakpoint: () => screen.breakpoint,
 }))
 const q = (c: HTMLElement, id: string) => c.querySelector(`[testID="${id}"]`) as HTMLElement | null
 const ctx = { today: '2026-01-01', userId: 'u1' }
@@ -141,6 +150,18 @@ describe('PreviewDialog', () => {
         expect(q(container, 'form-preview-phone')?.getAttribute('aria-checked')).toBe('true')
         expect(q(container, 'form-preview-phone')?.getAttribute('aria-selected')).toBeNull()
         fireEvent.click(q(container, 'form-preview-desktop') as HTMLElement)
+        await waitFor(() => expect(q(container, 'form-preview-viewport-phone')).toBeNull())
+    })
+
+    // The toggle hides on a narrow window, so a Phone choice left behind would
+    // keep a 390px frame that can be wider than the sheet, with no way back.
+    it('drops the phone frame when the window narrows to mobile', async () => {
+        const { container, rerender } = render(<Harness />)
+        await waitFor(() => expect(q(container, 'form-wizard-steps')).toBeTruthy())
+        fireEvent.click(q(container, 'form-preview-phone') as HTMLElement)
+        await waitFor(() => expect(q(container, 'form-preview-viewport-phone')).toBeTruthy())
+        screen.breakpoint = 'mobile'
+        rerender(<Harness />)
         await waitFor(() => expect(q(container, 'form-preview-viewport-phone')).toBeNull())
     })
 })

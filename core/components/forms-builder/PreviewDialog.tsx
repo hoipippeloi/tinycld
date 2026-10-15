@@ -64,6 +64,9 @@ export function PreviewDialog({ editor, context, isOpen, onClose }: PreviewDialo
     const { host } = editor
     const [viewport, setViewport] = useState<PreviewViewport>('desktop')
     const isMobile = useBreakpoint() === 'mobile'
+    // The toggle hides on mobile; a Phone choice made before the window
+    // narrowed must not keep a frame that can be wider than the sheet.
+    const shownViewport = isMobile ? 'desktop' : viewport
     return (
         <Dialog
             isOpen={isOpen}
@@ -84,7 +87,7 @@ export function PreviewDialog({ editor, context, isOpen, onClose }: PreviewDialo
                         host={host}
                         context={context}
                         onClose={onClose}
-                        viewport={viewport}
+                        viewport={shownViewport}
                     />
                 ) : null}
             </Dialog.Body>
