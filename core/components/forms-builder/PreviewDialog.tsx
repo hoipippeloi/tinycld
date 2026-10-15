@@ -1,3 +1,4 @@
+import { useBreakpoint } from '@tinycld/core/components/workspace/useBreakpoint'
 import { definitionSchema } from '@tinycld/core/lib/forms/definition'
 import { applyDefaults, type EvalContext, evaluate } from '@tinycld/core/lib/forms/logic'
 import { buildSchema } from '@tinycld/core/lib/forms/values'
@@ -5,8 +6,10 @@ import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { Dialog } from '@tinycld/core/ui/dialog'
 import { FormRenderer, useHostUi, useSchemaRefResolver } from '@tinycld/core/ui/forms'
 import { EMPTY_DEFINITION, EMPTY_STATE } from '@tinycld/core/ui/forms/empty-schema'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Text } from 'react-native'
+import { PreviewFrame, type PreviewViewport, PreviewViewportToggle } from './PreviewViewport'
 import { fromDraft, type useEditorForm } from './use-editor-form'
 
 export interface PreviewDialogProps {
@@ -16,9 +19,12 @@ export interface PreviewDialogProps {
     onClose: () => void
 }
 
-type PreviewBodyProps = Omit<PreviewDialogProps, 'isOpen'> & { host: FormHost }
+type PreviewBodyProps = Omit<PreviewDialogProps, 'isOpen'> & {
+    host: FormHost
+    viewport: PreviewViewport
+}
 
-function PreviewBody({ editor, host, context, onClose }: PreviewBodyProps) {
+function PreviewBody({ editor, host, context, onClose, viewport }: PreviewBodyProps) {
     const ui = useHostUi(host)
     const parsed = definitionSchema.safeParse(fromDraft(editor.form.getValues(), host))
     const definition = parsed.success ? parsed.data : null
@@ -38,33 +44,48 @@ function PreviewBody({ editor, host, context, onClose }: PreviewBodyProps) {
         )
     }
     return (
-        <FormRenderer
-            host={host}
-            ui={ui}
-            definition={definition}
-            layout="wizard"
-            form={form}
-            context={context}
-            schemaRef={schemaRef}
-            submitLabel="Done"
-            onSubmit={onClose}
-        />
+        <PreviewFrame viewport={viewport}>
+            <FormRenderer
+                host={host}
+                ui={ui}
+                definition={definition}
+                layout="wizard"
+                form={form}
+                context={context}
+                schemaRef={schemaRef}
+                submitLabel="Done"
+                onSubmit={onClose}
+            />
+        </PreviewFrame>
     )
 }
 
 export function PreviewDialog({ editor, context, isOpen, onClose }: PreviewDialogProps) {
     const { host } = editor
+    const [viewport, setViewport] = useState<PreviewViewport>('desktop')
+    const isMobile = useBreakpoint() === 'mobile'
     return (
         <Dialog
             isOpen={isOpen}
             onClose={onClose}
             title="Preview"
-            size="xl"
+            size="full"
             testID="form-preview-dialog"
         >
             <Dialog.Body>
+                <PreviewViewportToggle
+                    value={viewport}
+                    onChange={setViewport}
+                    isVisible={!isMobile}
+                />
                 {isOpen && host ? (
-                    <PreviewBody editor={editor} host={host} context={context} onClose={onClose} />
+                    <PreviewBody
+                        editor={editor}
+                        host={host}
+                        context={context}
+                        onClose={onClose}
+                        viewport={viewport}
+                    />
                 ) : null}
             </Dialog.Body>
         </Dialog>

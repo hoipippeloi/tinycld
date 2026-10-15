@@ -129,4 +129,17 @@ describe('PreviewDialog', () => {
         expect(queryAllByText(/^name:/).length).toBe(0)
         expect(queryAllByText('Name is required').length).toBe(2)
     })
+
+    it('Phone shows the form in a 390px frame and Desktop at full width', async () => {
+        const { container } = render(<Harness />)
+        await waitFor(() => expect(q(container, 'form-wizard-steps')).toBeTruthy())
+        expect(q(container, 'form-preview-viewport-phone')).toBeNull()
+        fireEvent.click(q(container, 'form-preview-phone') as HTMLElement)
+        await waitFor(() =>
+            expect(q(container, 'form-preview-viewport-phone')?.style.width).toBe('390px')
+        )
+        expect(q(container, 'form-preview-phone')?.getAttribute('aria-selected')).toBe('true')
+        fireEvent.click(q(container, 'form-preview-desktop') as HTMLElement)
+        await waitFor(() => expect(q(container, 'form-preview-viewport-phone')).toBeNull())
+    })
 })

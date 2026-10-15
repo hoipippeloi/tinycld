@@ -249,6 +249,12 @@ test.describe('Forms builder', () => {
         await expect.poll(() => fieldOrder(page, secondPage)).toEqual(['steps'])
         expect(await fieldOrder(page, firstPage)).toEqual(before)
 
+        // Two half-width cells share a row, for the preview's Phone check below.
+        const [halfA, halfB] = before
+        const halfLabels: Record<string, string> = { name: 'Name', notes: 'Notes', due: 'Due' }
+        await setWidth(page, halfA, halfLabels[halfA], 'half')
+        await setWidth(page, halfB, halfLabels[halfB], 'half')
+
         // Rules: when severity is high, require steps.
         await page.getByTestId('form-tab-rules').click()
         await page.getByTestId('form-rule-add').click()
@@ -281,6 +287,17 @@ test.describe('Forms builder', () => {
         const dialog = page.getByTestId('form-preview-dialog')
         await expect(dialog.getByTestId('form-wizard-steps')).toBeVisible()
         await expect(dialog.getByTestId('form-wizard-steps')).toContainText('Repro')
+
+        // Desktop keeps the two half cells on one row; Phone stacks them in a 390px frame.
+        const cellA = dialog.getByTestId(`form-field-${halfA}`)
+        const cellB = dialog.getByTestId(`form-field-${halfB}`)
+        await expect.poll(async () => (await boxOf(cellB)).y).toBeCloseTo((await boxOf(cellA)).y, 0)
+        await dialog.getByTestId('form-preview-phone').click()
+        const frame = dialog.getByTestId('form-preview-viewport-phone')
+        expect((await boxOf(frame)).width).toBe(390)
+        await expect.poll(async () => (await boxOf(cellB)).y > (await boxOf(cellA)).y).toBe(true)
+        await dialog.getByTestId('form-preview-desktop').click()
+        await expect(frame).toHaveCount(0)
         await dialog.getByTestId('form-input-name').fill('Crash on save')
         await dialog.getByTestId('form-input-severity').getByText('High', { exact: true }).click()
         await dialog.getByTestId('form-wizard-next').click()
