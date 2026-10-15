@@ -10,6 +10,7 @@ interface DropZoneProps {
     isEnabled: boolean
     /** Overlay copy while a drag is over the zone. */
     label?: string
+    testID?: string
 }
 
 /**
@@ -27,6 +28,7 @@ export function DropZone({
     onDrop,
     isEnabled,
     label = 'Drop files to upload',
+    testID,
 }: DropZoneProps) {
     const [isDragging, setIsDragging] = useState(false)
     const accentColor = useThemeColor('primary')
@@ -85,6 +87,8 @@ export function DropZone({
         // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop zone requires native DOM events
         <div
             role="presentation"
+            data-testid={testID}
+            aria-disabled={!isEnabled}
             style={{
                 flex: 1,
                 position: 'relative',
