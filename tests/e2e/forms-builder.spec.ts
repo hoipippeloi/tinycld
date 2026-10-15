@@ -8,16 +8,22 @@ import { login } from './helpers'
  * declares a form host, so the stub is the host.
  *
  * Stub fixtures this file depends on (keep in sync with the scaffolder):
- *   host "Widget" (forms-stub:widget), the only host, so the list opens on it;
+ *   host "Widget" (forms-stub:widget); other packages may declare hosts too, in
+ *   which case the host picker shows first and the spec picks this one;
  *   built-in fields `name` (required), `notes`, `due`.
  */
 
 const HOST_LABEL = 'Widget'
+const HOST_ROW_TEST_ID = 'forms-host-forms-stub:widget'
 
 async function openFormsSettings(page: Page) {
     await page.getByTestId('nav-settings').click()
     await page.getByText('Forms', { exact: true }).first().click()
-    await expect(page.getByTestId('forms-new')).toBeVisible()
+    const hostRow = page.getByTestId(HOST_ROW_TEST_ID)
+    const newForm = page.getByTestId('forms-new')
+    await expect(hostRow.or(newForm)).toBeVisible()
+    if (await hostRow.count()) await hostRow.click()
+    await expect(newForm).toBeVisible()
 }
 
 function formRow(page: Page, name: string): Locator {
