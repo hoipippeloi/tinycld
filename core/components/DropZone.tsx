@@ -41,8 +41,12 @@ export function DropZone({
     // A disabled zone still claims a FILE drag: left alone, the browser
     // performs its default drop and replaces the app with the file. Only the
     // overlay and the upload are gated on isEnabled, as in use-file-drop.
+    //
+    // A drag an inner target already claimed (the editor takes an image drop)
+    // is that target's: setting dropEffect to 'none' on it would cancel the
+    // drop before the editor ever sees it.
     const claimDrag = (e: React.DragEvent) => {
-        if (!isEnabled && !isFileDrag(e.dataTransfer)) return false
+        if (!isEnabled && (e.defaultPrevented || !isFileDrag(e.dataTransfer))) return false
         e.preventDefault()
         e.stopPropagation()
         if (isEnabled) return true
@@ -57,6 +61,7 @@ export function DropZone({
     }
 
     const handleDragOver = (e: React.DragEvent) => {
+        if (e.defaultPrevented) return
         claimDrag(e)
     }
 
@@ -78,6 +83,10 @@ export function DropZone({
     }
 
     const handleDrop = (e: React.DragEvent) => {
+        if (e.defaultPrevented) {
+            setIsDragging(false)
+            return
+        }
         if (!claimDrag(e)) return
         setIsDragging(false)
 
