@@ -80,12 +80,24 @@ function CellLabel({
     )
 }
 
-function DropBar({ fieldKey, side }: { fieldKey: string; side?: 'before' | 'after' }) {
+// A full-width cell's neighbours sit above and below it, so its bars lie along its top and bottom edges.
+const BAR_EDGES = {
+    before: { row: 'top-0 bottom-0 left-0 w-[3px]', column: 'left-0 right-0 top-0 h-[3px]' },
+    after: { row: 'top-0 bottom-0 right-0 w-[3px]', column: 'left-0 right-0 bottom-0 h-[3px]' },
+}
+
+interface DropBarProps {
+    fieldKey: string
+    side?: 'before' | 'after'
+    isFullWidth: boolean
+}
+
+function DropBar({ fieldKey, side, isFullWidth }: DropBarProps) {
     if (!side) return null
-    const edge = side === 'before' ? 'left-0' : 'right-0'
+    const edge = BAR_EDGES[side][isFullWidth ? 'column' : 'row']
     return (
         <View
-            className={`absolute top-0 bottom-0 w-[3px] rounded bg-primary ${edge}`}
+            className={`absolute rounded bg-primary ${edge}`}
             testID={`form-field-${fieldKey}-drop-${side}`}
         />
     )
@@ -125,7 +137,8 @@ export function FieldCell({
     registerMeasure,
     onPress,
 }: FieldCellProps) {
-    const basis = widthClass(effectiveWidth(width, containerWidth))
+    const effective = effectiveWidth(width, containerWidth)
+    const basis = widthClass(effective)
     const { ref, onLayout } = useMeasuredRect(onLayoutRect, registerMeasure)
     const cellTestID = testID ?? `form-field-${fieldKey}`
     const root = {
@@ -148,7 +161,7 @@ export function FieldCell({
             <CellDescription text={description} />
             {children}
             <CellError message={error} />
-            <DropBar fieldKey={fieldKey} side={dropIndicator} />
+            <DropBar fieldKey={fieldKey} side={dropIndicator} isFullWidth={effective === 'full'} />
         </View>
     )
     if (!onPress) return <View {...root}>{body}</View>

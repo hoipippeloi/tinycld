@@ -45,11 +45,11 @@ export interface DesignOptions {
 
 export type DropTarget = { key: string; side: 'before' | 'after' } | { page: string; end: true }
 
-/** The dragged cell never marks itself: dropping a field on itself moves nothing. */
+/** The dragged cell marks its own edge too: the bar then says the field stays where it is, instead of vanishing. */
 function dropSideFor(design: DesignOptions | undefined, key: string) {
     const target = design?.draggingKey ? design.dropTarget : null
     if (!target || !('key' in target) || target.key !== key) return undefined
-    return design?.draggingKey === key ? undefined : target.side
+    return target.side
 }
 
 export interface FormRendererProps {
@@ -187,9 +187,20 @@ function PageFooter({ page, design }: PageChromeProps) {
     return design?.renderPageFooter?.(page) ?? null
 }
 
+/**
+ * The bar for a page's end floats in the gap under its last row, before the
+ * footer, and takes no height: nothing shifts while it shows.
+ */
 function PageDropBar({ page, target }: { page: FormPage; target?: DropTarget | null }) {
     if (!target || !('page' in target) || target.page !== page.key) return null
-    return <View className="h-[3px] rounded bg-primary" testID={`form-page-${page.key}-drop-end`} />
+    return (
+        <View className="h-0">
+            <View
+                className="absolute left-0 right-0 -top-2 h-[3px] rounded bg-primary"
+                testID={`form-page-${page.key}-drop-end`}
+            />
+        </View>
+    )
 }
 
 function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVisible: boolean }) {
@@ -203,8 +214,8 @@ function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVis
         <View ref={ref} onLayout={onLayout} testID={`form-page-${page.key}`}>
             <PageHeader page={page} isTitleVisible={isTitleVisible} design={design} />
             <PageFields {...props} page={page} />
-            <PageFooter page={page} design={design} />
             <PageDropBar page={page} target={design?.draggingKey ? design.dropTarget : null} />
+            <PageFooter page={page} design={design} />
         </View>
     )
 }

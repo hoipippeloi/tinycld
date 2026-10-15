@@ -193,17 +193,17 @@ describe('Canvas', () => {
         const { container } = render(<Harness />)
         layOutCells(container)
         const last = builtinKeys.at(-1) as string
-        await dragTo(container, last, 50, 20)
+        await dragTo(container, last, 50, 10)
         const classOf = (id: string) => q(container, id)?.getAttribute('class') ?? ''
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeTruthy()
         expect(classOf(`form-field-${builtinKeys[0]}-box`)).toContain('bg-primary/10')
         expect(classOf(`form-field-${last}`)).toContain('opacity-50')
-        await act(async () => pointer('pointerup', window, 50, 20))
+        await act(async () => pointer('pointerup', window, 50, 10))
         expect(draftKeys()).toEqual([last, ...builtinKeys.slice(0, -1)])
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
         expect(classOf(`form-field-${last}`)).not.toContain('opacity-50')
         // A pointermove landing after the drop must not bring a bar back.
-        await act(async () => drag?.hover({ x: 50, y: 20 }))
+        await act(async () => drag?.hover({ x: 50, y: 10 }))
         expect(container.querySelector('[data-testid*="-drop-"]')).toBeNull()
     })
 
@@ -211,25 +211,25 @@ describe('Canvas', () => {
         const { container } = render(<Harness />)
         layOutCells(container)
         const last = builtinKeys.at(-1) as string
-        await dragTo(container, last, 50, 20)
-        await act(async () => pointer('pointerup', window, 50, 20))
+        await dragTo(container, last, 50, 10)
+        await act(async () => pointer('pointerup', window, 50, 10))
         const afterFirst = [last, ...builtinKeys.slice(0, -1)]
         expect(draftKeys()).toEqual(afterFirst)
         // No layout event: the stale rects still put builtinKeys[0] at the top.
         moveCellsSilently(container, afterFirst)
         const moved = afterFirst.at(-1) as string
-        await dragTo(container, moved, 50, 20)
+        await dragTo(container, moved, 50, 10)
         expect(q(container, `form-field-${last}-drop-before`)).toBeTruthy()
-        await act(async () => pointer('pointerup', window, 50, 20))
+        await act(async () => pointer('pointerup', window, 50, 10))
         expect(draftKeys()).toEqual([moved, ...afterFirst.slice(0, -1)])
     })
 
     it('leaves the draft alone when a drag is cancelled', async () => {
         const { container } = render(<Harness />)
         layOutCells(container)
-        await dragTo(container, builtinKeys.at(-1) as string, 50, 20)
+        await dragTo(container, builtinKeys.at(-1) as string, 50, 10)
         expect(drag?.draggingKey).toBe(builtinKeys.at(-1))
-        await act(async () => pointer('pointercancel', window, 50, 20))
+        await act(async () => pointer('pointercancel', window, 50, 10))
         expect(drag?.draggingKey).toBeNull()
         expect(q(container, `form-field-${builtinKeys[0]}-drop-before`)).toBeNull()
         expect(draftKeys()).toEqual(builtinKeys)
@@ -239,9 +239,9 @@ describe('Canvas', () => {
     it('does not touch the draft when a cell is dropped where it already is', async () => {
         const { container } = render(<Harness />)
         layOutCells(container)
-        // The second cell dropped on the right half of the first: its own slot.
-        await dragTo(container, builtinKeys[1], 350, 20)
-        await act(async () => pointer('pointerup', window, 350, 20))
+        // The cells span the page, so the second cell dropped on the lower half of the first is its own slot.
+        await dragTo(container, builtinKeys[1], 350, 30)
+        await act(async () => pointer('pointerup', window, 350, 30))
         expect(draftKeys()).toEqual(builtinKeys)
     })
 

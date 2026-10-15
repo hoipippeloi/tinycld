@@ -55,7 +55,7 @@ An owner or admin opens **Settings → Forms**. With one record type the list op
 
 ## Editing a form
 
-The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page; on a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page: a chip with its label follows the pointer and a bar shows where it lands. On a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
 
 A field's key is set when it is created and never changes, so renaming a field keeps its stored values. Deleting a custom field keeps the stored values hidden and removes any rule, default or requirement that named it; the editor says what it removed.
 

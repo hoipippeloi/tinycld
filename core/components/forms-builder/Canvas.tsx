@@ -82,8 +82,10 @@ export function errorsByKey(errors: FieldErrors<DraftDefinition>, fields: DraftF
     return out
 }
 
-// Without it a touch drag on web scrolls the page instead of moving the cell.
-const HANDLE_STYLE = Platform.select({ web: { touchAction: 'none' } as Record<string, unknown> })
+// Without touchAction a touch drag on web scrolls the page instead of moving the cell.
+const HANDLE_STYLE = Platform.select({
+    web: { touchAction: 'none', cursor: 'grab' } as Record<string, unknown>,
+})
 
 interface DragHandleProps {
     fieldKey: string

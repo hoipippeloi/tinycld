@@ -102,11 +102,11 @@ async function dragTo(
     await page.mouse.up()
 }
 
-/** Releases over the target's left half. */
+/** Releases near the target's top-left corner: before it, whether its neighbours lie beside or below it. */
 function dragBefore(page: Page, handle: Locator, target: Locator, dropBar: Locator) {
     return dragTo(page, handle, target, dropBar, box => [
         box.x + Math.min(12, box.width / 4),
-        box.y + box.height / 2,
+        box.y + Math.min(8, box.height / 4),
     ])
 }
 
@@ -315,14 +315,32 @@ test.describe('Forms builder', () => {
             canvasBox
         )
 
-        // A real pointer drag of the right cell over the left half of its neighbour.
+        // A real pointer drag of the right cell: first over its own right half, then
+        // below the row, then over the left half of its neighbour.
         const handle = await boxOf(page.getByTestId(`form-handle-${right}`))
         const target = await boxOf(leftCell)
+        const own = await boxOf(rightCell)
         await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
         await page.mouse.down()
+        await page.mouse.move(own.x + own.width * 0.75, own.y + own.height / 2, { steps: 8 })
+        // A ghost chip with the field's label follows the pointer.
+        const ghost = page.getByTestId('form-drag-ghost')
+        await expect(ghost).toBeVisible()
+        await expect(ghost).toHaveText(labels[right])
+        expect((await boxOf(ghost)).x).toBeGreaterThan(own.x + own.width * 0.75)
+        // Over its own edge the bar still shows, on the dragged cell itself.
+        await expect(canvas(page).getByTestId(`form-field-${right}-drop-after`)).toBeVisible()
+        // Below the page's last row its end bar sits above the footer, not under it.
+        const last = await boxOf(canvas(page).getByTestId(`form-field-${rest.at(-1) ?? right}`))
+        await page.mouse.move(last.x + last.width / 2, last.y + last.height + 4, { steps: 4 })
+        const endBar = canvas(page).getByTestId(`form-page-${firstPage}-drop-end`)
+        await expect(endBar).toBeVisible()
+        const addField = await boxOf(page.getByTestId(`form-add-field-${firstPage}`))
+        expect((await boxOf(endBar)).y).toBeLessThan(addField.y)
         await page.mouse.move(target.x + target.width / 4, target.y + target.height / 2, {
             steps: 15,
         })
+        await expect(endBar).toBeHidden()
         const bar = canvas(page).getByTestId(`form-field-${left}-drop-before`)
         await expect(bar).toBeVisible()
         const barBox = await boxOf(bar)
@@ -333,6 +351,7 @@ test.describe('Forms builder', () => {
         )
         expect(await opacityOf(rightCell)).toBeLessThan(1)
         await page.mouse.up()
+        await expect(ghost).toBeHidden()
 
         await expect.poll(() => fieldOrder(page, firstPage)).toEqual([right, left, ...rest])
         expect(await opacityOf(rightCell)).toBe(1)

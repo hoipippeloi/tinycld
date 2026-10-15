@@ -44,11 +44,25 @@ function isNearer(p: Point, a: Rect, b: Rect) {
     return ga.dy !== gb.dy ? ga.dy < gb.dy : ga.dx < gb.dx
 }
 
-/** Above or below a cell is its row's edge; beside it, its horizontal midpoint. */
-function sideOf(p: Point, r: Rect): 'before' | 'after' {
+/**
+ * A cell as wide as its page has its neighbours above and below, so its
+ * midpoint is vertical; the cell draws its drop bars along its top and bottom
+ * edges to match. A narrower cell has a neighbour beside it, so its midpoint
+ * is horizontal.
+ */
+function isFullWidth(cell: Rect, pages: Map<string, Rect>): boolean {
+    for (const page of pages.values()) {
+        if (inside(centerOf(cell), page)) return cell.width >= page.width - 1
+    }
+    return false
+}
+
+/** Above or below a cell is its row's edge; over it, its midpoint along the axis its neighbours lie on. */
+function sideOf(p: Point, r: Rect, isFull: boolean): 'before' | 'after' {
     if (p.y < r.y) return 'before'
     if (p.y > r.y + r.height) return 'after'
-    return p.x < r.x + r.width / 2 ? 'before' : 'after'
+    const beforeMid = isFull ? p.y < r.y + r.height / 2 : p.x < r.x + r.width / 2
+    return beforeMid ? 'before' : 'after'
 }
 
 /**
@@ -62,7 +76,9 @@ export function findSlot(
     pages: Map<string, Rect>
 ): Slot | null {
     for (const [key, rect] of cells) {
-        if (inside(pointer, rect)) return { key, side: sideOf(pointer, rect) }
+        if (inside(pointer, rect)) {
+            return { key, side: sideOf(pointer, rect, isFullWidth(rect, pages)) }
+        }
     }
     for (const [page, rect] of pages) {
         if (!inside(pointer, rect)) continue
@@ -71,9 +87,40 @@ export function findSlot(
         const [key, cell] = own.reduce((best, next) =>
             isNearer(pointer, next[1], best[1]) ? next : best
         )
-        return { key, side: sideOf(pointer, cell) }
+        return { key, side: sideOf(pointer, cell, isFullWidth(cell, pages)) }
     }
     return null
+}
+
+/** Two slots name the same landing place; used to leave the drop target alone while the pointer stays in it. */
+export function sameSlot(a: Slot | null, b: Slot | null): boolean {
+    if (a === b) return true
+    if (!a || !b) return false
+    if ('end' in a || 'end' in b) return 'end' in a && 'end' in b && a.page === b.page
+    return a.key === b.key && a.side === b.side
+}
+
+/**
+ * The pointer while a drag is live, outside React state: the ghost that
+ * follows it subscribes here, so a move re-renders the ghost alone and not
+ * the canvas.
+ */
+export function createPointerStore() {
+    let pointer: Point | null = null
+    const listeners = new Set<() => void>()
+    return {
+        get: () => pointer,
+        set: (next: Point | null) => {
+            pointer = next
+            for (const listener of listeners) listener()
+        },
+        subscribe: (listener: () => void) => {
+            listeners.add(listener)
+            return () => {
+                listeners.delete(listener)
+            }
+        },
+    }
 }
 
 export function shiftRects<R extends Rect>(map: Map<string, R>, offset: Point): Map<string, R> {
@@ -157,6 +204,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
     // Read by hover, which a late pointer event can call after the drag ended and
     // before React re-rendered; state would still say the drag is live.
     const active = useRef(false)
+    const pointer = useRef(createPointerStore()).current
     // Drag position is transient UI state.
     const [draggingKey, setDraggingKey] = useState<string | null>(null)
     const [dropTarget, setDropTarget] = useState<Slot | null>(null)
@@ -224,14 +272,16 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
         session.current += 1
         active.current = false
         measuring.current = null
+        pointer.set(null)
         setDraggingKey(null)
         setDropTarget(null)
     }
 
-    const begin = (key: string) => {
+    const begin = (key: string, at?: Point) => {
         session.current += 1
         const id = session.current
         active.current = true
+        pointer.set(at ?? null)
         setDraggingKey(key)
         setDropTarget(null)
         const pending = remeasure()
@@ -247,9 +297,14 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
         measuring.current = pending
     }
 
-    const hover = (pointer: Point) => {
-        if (!active.current || measuring.current) return
-        setDropTarget(slotAt(pointer))
+    // The slot is replaced only when it changes, so the canvas re-renders
+    // when the landing place moves and not on every pointer event.
+    const hover = (at: Point) => {
+        if (!active.current) return
+        pointer.set(at)
+        if (measuring.current) return
+        const next = slotAt(at)
+        setDropTarget(prev => (sameSlot(prev, next) ? prev : next))
     }
 
     const drop = (key: string, pointer: Point) => {
@@ -273,6 +328,7 @@ export function useCanvasDrag({ getOrder, onMove }: UseCanvasDragOptions) {
         onScroll,
         draggingKey,
         dropTarget,
+        pointer,
         moveTo,
         begin,
         hover,
@@ -293,8 +349,8 @@ export const HANDLE_LONG_PRESS_MS = Platform.select({ native: 250 })
 export function useDragHandle(drag: CanvasDrag, key: string) {
     return useDragGesture({
         longPressMs: HANDLE_LONG_PRESS_MS,
-        onDragStart: () => {
-            drag.begin(key)
+        onDragStart: ctx => {
+            drag.begin(key, ctx.pointer)
             return true
         },
         onDragMove: ctx => drag.hover(ctx.pointer),

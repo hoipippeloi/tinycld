@@ -85,7 +85,7 @@ describe('FormRenderer design extensions', () => {
         expect(container.querySelector('[data-testid*="-drop-"]')).toBeNull()
     })
 
-    it('dims the dragged cell and never marks it as its own drop target', () => {
+    it('dims the dragged cell and still marks its own edge, so the bar never vanishes', () => {
         const { container } = render(
             <Design
                 design={{
@@ -95,19 +95,30 @@ describe('FormRenderer design extensions', () => {
             />
         )
         expect(q(container, 'form-field-severity')?.getAttribute('class')).toContain('opacity-50')
-        expect(q(container, 'form-field-severity-drop-before')).toBeNull()
-        expect(q(container, 'form-field-severity-box')?.getAttribute('class')).not.toContain(
-            'bg-primary/10'
-        )
+        expect(q(container, 'form-field-severity-drop-before')).toBeTruthy()
         expect(q(container, 'form-field-name')?.getAttribute('class')).not.toContain('opacity-50')
     })
 
-    it('shows a drop bar at the end of a targeted page', () => {
-        const { container } = render(
-            <Design design={{ draggingKey: 'name', dropTarget: { page: 'repro', end: true } }} />
+    it('shows a drop bar at the end of a targeted page, under its fields and above its footer', () => {
+        const { container, getByText } = render(
+            <Design
+                design={{
+                    draggingKey: 'name',
+                    dropTarget: { page: 'repro', end: true },
+                    renderPageFooter: p => <Text>{`F:${p.key}`}</Text>,
+                }}
+            />
         )
-        expect(q(container, 'form-page-repro-drop-end')).toBeTruthy()
+        const bar = q(container, 'form-page-repro-drop-end') as HTMLElement
+        expect(bar).toBeTruthy()
         expect(q(container, 'form-page-details-drop-end')).toBeNull()
+        const steps = q(container, 'form-field-steps') as HTMLElement
+        const footer = getByText('F:repro')
+        const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING
+        expect(steps.compareDocumentPosition(bar) & FOLLOWING).toBeTruthy()
+        expect(bar.compareDocumentPosition(footer) & FOLLOWING).toBeTruthy()
+        // Zero height: the footer does not move when the bar appears.
+        expect(bar.parentElement?.getAttribute('class')).toContain('h-0')
     })
 
     it('makes the cell itself the pressable, so it keeps its width basis', () => {

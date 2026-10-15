@@ -136,6 +136,18 @@ describe('FieldCell', () => {
         expect(classOf(byId(container, 'form-field-sev-drop-after'))).toContain('right-0')
         expect(container.querySelector('[testID="form-field-sev-drop-before"]')).toBeNull()
     })
+    it('lays a full-width cell’s drop bars along its top and bottom edges', () => {
+        const { container, rerender } = render(<Cell width="full" dropIndicator="before" />)
+        const top = byId(container, 'form-field-sev-drop-before')
+        expect(classOf(top)).toContain('top-0')
+        expect(classOf(top)).toContain('h-[3px]')
+        expect(classOf(top)).not.toContain('w-[3px]')
+        rerender(<Cell width="full" dropIndicator="after" />)
+        expect(classOf(byId(container, 'form-field-sev-drop-after'))).toContain('bottom-0')
+        // A half cell collapsed to full width in a narrow container is full width too.
+        rerender(<Cell width="half" containerWidth={400} dropIndicator="after" />)
+        expect(classOf(byId(container, 'form-field-sev-drop-after'))).toContain('bottom-0')
+    })
     it('dims the cell while it is dragged', () => {
         const { container, rerender } = render(<Cell />)
         expect(classOf(cellOf(container))).not.toContain('opacity-50')

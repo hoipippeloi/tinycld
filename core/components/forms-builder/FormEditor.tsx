@@ -14,6 +14,7 @@ import { ArrowLeft } from 'lucide-react-native'
 import { useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 import { Canvas, useEditorCanvasDrag } from './Canvas'
+import { DragGhost } from './DragGhost'
 import { EditorPanel } from './EditorPanel'
 import { describePath, errorLeaves } from './editor-errors'
 import { FieldProperties } from './FieldProperties'
@@ -173,6 +174,12 @@ function FieldsTab({ editor, context, drag, isVisible }: TabBodyProps) {
     return <Canvas editor={editor} context={context} drag={drag} />
 }
 
+/** What the drag ghost says: the dragged field's current label. */
+function draggedLabel(editor: Editor, key: string | null) {
+    if (!key) return ''
+    return editor.form.getValues('fields').find(f => f.key === key)?.label ?? key
+}
+
 function SelectedProperties({ editor }: { editor: Editor }) {
     if (!editor.selectedKey) return null
     return <FieldProperties editor={editor} fieldKey={editor.selectedKey} />
@@ -258,6 +265,7 @@ function LoadedEditor({ row, host }: { row: FormRow; host: FormHost }) {
                 isDestructive
                 requiresServer={false}
             />
+            <DragGhost drag={drag} label={draggedLabel(editor, drag.draggingKey)} />
         </View>
     )
 }
