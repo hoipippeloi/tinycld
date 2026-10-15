@@ -88,7 +88,10 @@ export function DropZone({
         <div
             role="presentation"
             data-testid={testID}
-            aria-disabled={!isEnabled}
+            // A data attribute, not aria-disabled: aria-disabled is inherited,
+            // so a zone that only refuses drops would mark every control inside
+            // it disabled — a reader's whole card, comments and reactions too.
+            data-enabled={isEnabled ? 'true' : 'false'}
             style={{
                 flex: 1,
                 position: 'relative',
