@@ -42,11 +42,11 @@ export function useFormEdit(
     const { forms, defaultForm, isReady } = useFormsOfHost(host.key)
     const named = (record[host.formColumn] as string) || ''
     const found = forms.find(f => f.id === named)
-    const chosen = found ?? forms.find(f => f.id === defaultForm?.id)
+    const chosen = found ?? defaultForm
     const definition: FormDefinition | undefined = chosen?.definition
     // The form the record names is deleted or unreadable: the record edits on the
-    // default, and the host can log the id it lost.
-    const fallback = named && !found ? named : undefined
+    // default, and the host can log the id it lost. Not while the forms still load.
+    const fallback = named && isReady && !found ? named : undefined
     const values = definition ? mergeValues(host, definition, record, rows) : {}
     const initialSchema = definition
         ? buildSchema(definition, host, evaluate(definition, values, context))

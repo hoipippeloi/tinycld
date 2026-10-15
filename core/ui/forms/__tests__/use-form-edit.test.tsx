@@ -36,8 +36,13 @@ const bug = {
     }),
 }
 
+const loading = vi.hoisted(() => ({ value: false }))
+
 vi.mock('../../../lib/forms/use-forms-of-host', () => ({
-    useFormsOfHost: () => ({ forms: [bug], defaultForm: bug, isReady: true }),
+    useFormsOfHost: () =>
+        loading.value
+            ? { forms: [], defaultForm: undefined, isReady: false }
+            : { forms: [bug], defaultForm: bug, isReady: true },
 }))
 
 const ctx = { today: '2026-01-10', userId: 'me' }
@@ -58,6 +63,15 @@ describe('useFormEdit', () => {
         const { result } = renderHook(() => useFormEdit(host, { ...record, form: 'missing' }, ctx))
         expect(result.current.definition).toEqual(bug.definition)
         expect(result.current.fallback).toBe('missing')
+    })
+    it('reports no fallback while the forms are still loading', () => {
+        loading.value = true
+        try {
+            const { result } = renderHook(() => useFormEdit(host, record, ctx))
+            expect(result.current.fallback).toBeUndefined()
+        } finally {
+            loading.value = false
+        }
     })
     it('reports no fallback when the named form exists or none is named', () => {
         const named = renderHook(() => useFormEdit(host, record, ctx))
