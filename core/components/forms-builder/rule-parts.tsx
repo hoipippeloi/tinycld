@@ -2,8 +2,7 @@ import type { DraftDefinition } from '@tinycld/core/lib/forms/builder'
 import type { SelectOption } from '@tinycld/core/lib/forms/definition'
 import { type FormHostDef, findBuiltin } from '@tinycld/core/lib/forms/host'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
-import { Menu } from '@tinycld/core/ui/menu'
-import { ChevronDown, X } from 'lucide-react-native'
+import { X } from 'lucide-react-native'
 import { type Control, get, useFormState } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { firstMessage } from './editor-errors'
@@ -29,49 +28,7 @@ export function isMultipleField(draft: DraftDefinition, host: FormHostDef, key: 
     return 'multiple' in field && field.multiple === true
 }
 
-export interface PickItem {
-    id: string
-    label: string
-    isSelected: boolean
-    onSelect: () => void
-}
-
-interface PickMenuProps {
-    label: string
-    /** Says what the menu picks, for a screen reader: "Condition field". */
-    purpose: string
-    items: PickItem[]
-    testID: string
-}
-
-/** A chip that opens a short menu of choices; each row's test id is `${testID}-${id}`. */
-export function PickMenu({ label, purpose, items, testID }: PickMenuProps) {
-    const muted = useThemeColor('muted-foreground')
-    const rows = items.map(item => (
-        <Menu.Item
-            key={item.id}
-            label={item.label}
-            isSelected={item.isSelected}
-            onSelect={item.onSelect}
-            testID={`${testID}-${item.id}`}
-        />
-    ))
-    const trigger = (
-        <Pressable
-            className="flex-row items-center gap-1 border border-border rounded-md px-2 py-1"
-            accessibilityLabel={`${purpose}: ${label}`}
-            testID={testID}
-        >
-            <Text className="text-foreground text-sm">{label}</Text>
-            <ChevronDown size={12} color={muted} />
-        </Pressable>
-    )
-    return (
-        <Menu presentation="popover" trigger={trigger}>
-            {rows}
-        </Menu>
-    )
-}
+export { type PickItem, PickMenu } from '@tinycld/core/ui/pick-menu'
 
 export interface Choice {
     id: string
