@@ -333,6 +333,9 @@ describe('core slot contributions', () => {
     it('accepts a slot core declares', () => {
         expect(() => validateSidebarContributions([pkg('setup-team')])).not.toThrow()
     })
+    it('accepts the group-member-removal slot', () => {
+        expect(() => validateSidebarContributions([pkg('group-member-removal')])).not.toThrow()
+    })
     it('rejects an unknown core slot', () => {
         expect(() => validateSidebarContributions([pkg('nope')])).toThrow(
             /unknown slot 'core:nope'/

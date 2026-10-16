@@ -1,3 +1,4 @@
+import { GROUP_MEMBER_REMOVAL_SLOT } from '@tinycld/core/lib/groups/removal-notice'
 import { CORE_SLOT_TARGET } from '@tinycld/core/lib/setup/core-slots'
 import { describe, expect, it } from 'vitest'
 import {
@@ -200,6 +201,23 @@ describe('derive-components', () => {
                 },
             ] as never)
             expect(r[CORE_SLOT_TARGET]['setup-team'][0].Component).toBe(C1)
+        })
+
+        it('files a group-member-removal contribution under the core slot target', () => {
+            const r = deriveSidebarContributions([
+                {
+                    manifest: { slug: 'zoo_keepers' },
+                    sidebarContributions: [
+                        {
+                            target: CORE_SLOT_TARGET,
+                            slot: GROUP_MEMBER_REMOVAL_SLOT,
+                            order: 0,
+                            Component: C2,
+                        },
+                    ],
+                },
+            ] as never)
+            expect(r[CORE_SLOT_TARGET][GROUP_MEMBER_REMOVAL_SLOT][0].Component).toBe(C2)
         })
     })
 })
