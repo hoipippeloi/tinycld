@@ -4,7 +4,19 @@ import { createFileDropController, extractDroppedFiles, isFileDrag } from './fil
 
 interface UseFileDropOptions {
     onFiles: (files: File[]) => void
-    isEnabled: boolean
+    /**
+     * Whether this target takes files. A function is asked on each dragenter
+     * and on drop, for a target whose answer is not known at render — one whose
+     * answer depends on what it is drawn for — so a refusing target never
+     * lights up.
+     */
+    isEnabled: boolean | (() => boolean)
+    /**
+     * A drop the gate refused, with its files, for a target that wants to say
+     * why. With it, the drop is kept alive so the target can explain; without
+     * it the cursor shows the refusal.
+     */
+    onRefused?: (files: File[]) => void
 }
 
 type RNViewRef = unknown
@@ -27,7 +39,7 @@ type RNViewRef = unknown
  * "stick" until the next drag activity. Listening for `drop` resets reliably; the
  * stuck-overlay case clears on the next dragenter.
  */
-export function useFileDrop({ onFiles, isEnabled }: UseFileDropOptions): {
+export function useFileDrop({ onFiles, isEnabled, onRefused }: UseFileDropOptions): {
     isDragging: boolean
     dropRef: (node: RNViewRef) => void
 } {
@@ -36,6 +48,8 @@ export function useFileDrop({ onFiles, isEnabled }: UseFileDropOptions): {
     onFilesRef.current = onFiles
     const isEnabledRef = useRef(isEnabled)
     isEnabledRef.current = isEnabled
+    const onRefusedRef = useRef(onRefused)
+    onRefusedRef.current = onRefused
     const attachedNodeRef = useRef<HTMLElement | null>(null)
 
     const controller = useMemo(
@@ -47,6 +61,11 @@ export function useFileDrop({ onFiles, isEnabled }: UseFileDropOptions): {
             }),
         []
     )
+
+    const enabled = useCallback(() => {
+        const current = isEnabledRef.current
+        return typeof current === 'function' ? current() : current
+    }, [])
 
     useEffect(() => {
         return () => {
@@ -68,22 +87,32 @@ export function useFileDrop({ onFiles, isEnabled }: UseFileDropOptions): {
             attachedNodeRef.current = el
             if (!el) return
             attachDropListeners(el, {
-                onEnter: () => controller.enter(),
-                onOver: e => {
-                    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+                onEnter: () => {
+                    if (enabled()) controller.enter()
                 },
+                onOver: e => {
+                    if (!e.dataTransfer) return
+                    // A 'none' dropEffect makes the browser cancel the drop: it
+                    // fires dragleave and never drop. A target that explains a
+                    // refusal needs the drop, so it keeps 'copy'; the ring stays
+                    // off because a refusing target never entered.
+                    const keepDrop = enabled() || onRefusedRef.current != null
+                    e.dataTransfer.dropEffect = keepDrop ? 'copy' : 'none'
+                },
+                // Safe on a refusing target that never entered: leave clamps the counter at zero.
                 onLeave: () => controller.leave(),
                 onDrop: e => {
                     const files = extractDroppedFiles(e.dataTransfer)
-                    if (!isEnabledRef.current) {
+                    if (!enabled()) {
                         controller.reset()
+                        if (files.length > 0) onRefusedRef.current?.(files)
                         return
                     }
                     controller.drop(files)
                 },
             })
         },
-        [controller]
+        [controller, enabled]
     )
 
     return { isDragging, dropRef }
