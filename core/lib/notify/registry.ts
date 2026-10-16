@@ -10,25 +10,25 @@ export type EventConfig = {
     variant: Variant
 }
 
+/** What a package's `notifications.events` module exports: its events and their policy. */
+export type PackageNotifyEvents = Record<string, EventConfig>
+
 /**
- * Policy: which channels fire for each event, and the visual variant to use.
- * TypeScript requires one entry per NotifyEventName.
+ * Policy for core's own events. TypeScript requires one entry per core
+ * event name; a package's events are declared by the package (see
+ * PackageNotifyEvents) and merged in ./composed.ts.
  */
-export const eventRegistry: Record<NotifyEventName, EventConfig> = {
-    'mail.send_failed': { channels: ['toast'], variant: 'error' },
-    'mail.send_blocked_warn': { channels: ['toast'], variant: 'warning' },
-    'mail.send_blocked_error': { channels: ['toast'], variant: 'error' },
-    'mail.attachments_rejected': { channels: ['toast'], variant: 'error' },
-    'drive.save_succeeded': { channels: ['toast'], variant: 'success' },
-    'drive.save_failed': { channels: ['toast'], variant: 'error' },
-    'drive.template_saved': { channels: ['toast'], variant: 'success' },
-    'boards.attachment_failed': { channels: ['toast'], variant: 'error' },
-    'boards.card_moved': { channels: ['toast'], variant: 'success' },
-    'boards.sprint_completed': { channels: ['toast'], variant: 'success' },
+export const coreEvents: Record<NotifyEventName, EventConfig> = {
     'import.complete': { channels: ['toast', 'bell'], variant: 'success' },
     'import.failed': { channels: ['toast', 'bell'], variant: 'error' },
+    'files.pick_rejected': { channels: ['toast'], variant: 'error' },
     'mutation.error': { channels: ['toast'], variant: 'error' },
     'account.password_changed': { channels: ['toast'], variant: 'success' },
+    'account.security_changed': { channels: ['toast'], variant: 'success' },
+    'account.security_copied': { channels: ['toast'], variant: 'success' },
     'settings.avatar_upload_failed': { channels: ['toast'], variant: 'error' },
     'settings.branding_upload_failed': { channels: ['toast'], variant: 'error' },
 }
+
+// Replaced by the composed registry in the next commit.
+export const eventRegistry = coreEvents

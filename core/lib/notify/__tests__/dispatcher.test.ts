@@ -51,7 +51,11 @@ describe('notify.emit', () => {
         const toast = makeChannel('toast')
         __setChannelsForTests({ toast, bell: makeChannel('bell'), os: makeChannel('os') })
 
-        notify.emit({ event: 'mail.send_failed', title: 'Oops', data: { error: 'timeout' } })
+        notify.emit({
+            event: 'settings.avatar_upload_failed',
+            title: 'Oops',
+            data: { error: 'timeout' },
+        })
 
         expect(toast.dispatch).toHaveBeenCalledWith(
             expect.objectContaining({ variant: 'error', title: 'Oops' })
