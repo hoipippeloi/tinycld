@@ -114,7 +114,9 @@ export interface SidebarContributionEntry {
     contributorSlug: string
     order: number
     label?: string
-    Component: ComponentType | LazyExoticComponent<ComponentType>
+    Component:
+        | ComponentType<Record<string, unknown>>
+        | LazyExoticComponent<ComponentType<Record<string, unknown>>>
 }
 
 type ContributionEntryLike = {

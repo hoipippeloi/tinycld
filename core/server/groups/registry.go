@@ -95,7 +95,7 @@ func RegisteredGrantTables() []GrantTable {
 
 // OnMembershipChange registers a listener for join/leave events. Listeners run
 // in registration order; the first error stops the chain and is logged by the
-// caller. Mail uses this to provision or disable a mailbox.
+// caller. A package uses this to grant or remove per-member resources.
 func OnMembershipChange(fn func(MembershipEvent) error) {
 	mu.Lock()
 	defer mu.Unlock()

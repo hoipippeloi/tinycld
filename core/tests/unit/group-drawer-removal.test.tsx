@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { OverlayProvider as PortalHost } from '@gluestack-ui/core/overlay/creator'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { OverlayProvider } from '@tinycld/core/ui/overlay'
@@ -40,7 +41,7 @@ vi.mock('@tinycld/core/lib/packages/derive-components', () => ({
     },
 }))
 
-import { MembersSection } from '../../components/settings/groups/GroupDrawer'
+import { GroupDrawer, MembersSection } from '../../components/settings/groups/GroupDrawer'
 
 type Membership = { id: string }
 const memberships = () =>
@@ -64,11 +65,14 @@ function pressRemoveAnn(container: HTMLElement) {
     fireEvent.click(button)
 }
 
-const Notice = ({ groupId, userId }: { groupId?: string; userId?: string | null }) => (
-    <Text>{`notice ${groupId} ${userId}`}</Text>
-)
+const seenUserIds: unknown[] = []
+const Notice = ({ groupId, userId }: { groupId?: string; userId?: string | null }) => {
+    seenUserIds.push(userId)
+    return <Text>{`notice ${groupId} ${userId}`}</Text>
+}
 
 beforeEach(() => {
+    seenUserIds.length = 0
     // The collections live for the whole file, so restore the row a test deleted.
     const members = h.registry.group_members as {
         has: (id: string) => boolean
@@ -92,6 +96,9 @@ describe('MembersSection removal confirm', () => {
 
         fireEvent.click(getByText('Remove'))
         await waitFor(() => expect(memberships()).toBe(0))
+        // null means "the group is deleted"; the member confirm never sends it.
+        expect(seenUserIds.length).toBeGreaterThan(0)
+        expect(seenUserIds).not.toContain(null)
     })
 
     it('keeps the member on cancel', async () => {
@@ -110,5 +117,31 @@ describe('MembersSection removal confirm', () => {
         pressRemoveAnn(container)
         fireEvent.click(getByText('Remove'))
         await waitFor(() => expect(memberships()).toBe(0))
+    })
+})
+
+describe('GroupDrawer delete confirm', () => {
+    it('renders the slot with userId null', async () => {
+        const client = new QueryClient()
+        const { container, getByText, findByText } = render(
+            <QueryClientProvider client={client}>
+                <OverlayProvider>
+                    <PortalHost>
+                        <GroupDrawer
+                            mode={{ kind: 'view', groupId: 'g1' }}
+                            onClose={() => {}}
+                            onCreated={() => {}}
+                        />
+                    </PortalHost>
+                </OverlayProvider>
+            </QueryClientProvider>
+        )
+        await findByText('Ann')
+        const del = container.ownerDocument.querySelector(
+            '[data-testid="group-delete"], [testid="group-delete"]'
+        )
+        if (!del) throw new Error('no delete button rendered')
+        fireEvent.click(del)
+        expect(getByText('notice g1 null')).not.toBeNull()
     })
 })
