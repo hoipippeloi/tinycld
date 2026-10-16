@@ -51,9 +51,13 @@ installed package can add to it what the members lose in that package. Every
 share granted to the group is removed. Anything shared with a person directly
 stays.
 
+## See what a group gives
+
+Open **Settings → Groups** and choose the group. Installed apps can add a
+section to the group's panel. For example, an app can show the email
+addresses that the group gives its members.
+
 ## See which groups someone is in
 
 Open **Settings → Members**, choose the person, and look for **Groups** in
 their panel.
-
-Installed apps can add a section to a group's panel, for example the group's email addresses.
