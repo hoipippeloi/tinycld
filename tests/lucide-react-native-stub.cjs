@@ -116,6 +116,8 @@ const knownIcons = {
     Loader2: Icon,
     RefreshCw: Icon,
     File: Icon,
+    // Mailbox addresses panel (mail/tests/MailboxAddressesPanel.mount.test.tsx)
+    AtSign: Icon,
     // Group admin drawer (core/tests/unit/group-drawer-removal.test.tsx)
     Search: Icon,
     UserPlus: Icon,
