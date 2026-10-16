@@ -144,6 +144,12 @@ export default defineConfig({
                 find: /^react-native-gesture-handler$/,
                 replacement: path.join(APP_DIR, 'tests', 'react-native-gesture-handler-stub.cjs'),
             },
+            // react-native-drax (SortableList) imports gesture-handler and
+            // reanimated from node_modules, past the aliases above. Inert stub.
+            {
+                find: /^react-native-drax$/,
+                replacement: path.join(APP_DIR, 'tests', 'react-native-drax-stub.cjs'),
+            },
             {
                 find: /^react-native-safe-area-context$/,
                 replacement: path.join(APP_DIR, 'tests', 'react-native-safe-area-context-stub.cjs'),
@@ -176,6 +182,12 @@ export default defineConfig({
             {
                 find: /^expo-file-system$/,
                 replacement: path.join(APP_DIR, 'tests', 'expo-file-system-stub.ts'),
+            },
+            // react-native-marked ships Flow syntax Vite cannot parse; reached through
+            // core's MarkdownRenderer.
+            {
+                find: /^react-native-marked$/,
+                replacement: path.join(APP_DIR, 'tests', 'react-native-marked-stub.cjs'),
             },
             // ~/* — package source. Resolved relative to the package's own dir
             // at invocation time via the test root, so we map it dynamically below.

@@ -87,6 +87,8 @@ copyFileSync(
     join(appRoot, 'server', 'bundled-packages.json'),
     join(outDir, 'bundled-packages.json')
 )
+// Same reason: the forms hooks bind from the host registry.
+copyFileSync(join(appRoot, 'server', 'form_hosts.json'), join(outDir, 'form_hosts.json'))
 
 if (migrations === 0) {
     throw new Error('staged 0 migrations — run `pnpm run packages:generate` first')

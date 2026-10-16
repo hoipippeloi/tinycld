@@ -55,6 +55,9 @@ func syncRecord(app *pocketbase.PocketBase, cfg Config, record *core.Record, rem
 
 	for _, c := range cfg.Columns {
 		val := record.GetString(c.Field)
+		if c.Text != nil {
+			val = c.Text(record)
+		}
 		if c.Strip {
 			val = stripHTML(val)
 		}

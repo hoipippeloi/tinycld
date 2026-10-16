@@ -20,6 +20,7 @@ import {
     type CliPkg,
 } from './gen-cli'
 import { buildConfigSource, buildSeedsSource, type ConfigPkg } from './gen-config'
+import { emitFormHosts, loadFormHosts, mergeFormHosts } from './gen-form-hosts'
 import { buildHelpSource, type HelpGroupInput, parseFrontmatter } from './gen-help'
 import { buildPackageIconsSource } from './gen-icons'
 import { orphanPayloadFiles, planPayloadEmits, runPayloadEmits } from './gen-payload-types'
@@ -539,6 +540,17 @@ async function main() {
             }))
     )
     emitAutomationDefs(mergeAutomationDefs(automationFeatures))
+
+    // --- 1b2. form hosts → server/form_hosts.json ---------------------------
+    const formFeatures = await Promise.all(
+        features
+            .filter(f => f.manifest.forms)
+            .map(async f => ({
+                slug: f.manifest.slug,
+                hosts: await loadFormHosts(f.dir, f.name, f.manifest.forms!.hosts),
+            }))
+    )
+    emitFormHosts(mergeFormHosts(formFeatures))
 
     // --- 1c. @tinycld/app-generated package manifest -----------------------
     // Makes lib/generated/ a real, name-resolvable package so `@tinycld/app-generated/*`

@@ -23,6 +23,11 @@ function Icon({ children, ...props }) {
 // Seed target with all icon names that unit tests reference by value (not just render).
 // The Proxy's get-trap still handles any unknown name so JSX rendering always works.
 const knownIcons = {
+    // Forms list (core/components/forms-builder)
+    Archive: Icon,
+    ArchiveRestore: Icon,
+    GripVertical: Icon,
+    Star: Icon,
     // Toolbar icons (core/tests/unit/responsive-toolbar.test.tsx)
     Bold: Icon,
     EllipsisVertical: Icon,
@@ -53,6 +58,9 @@ const knownIcons = {
     AlignJustify: Icon,
     Ban: Icon,
     Check: Icon,
+    Square: Icon,
+    CheckSquare: Icon,
+    CalendarDays: Icon,
     ChevronDown: Icon,
     ChevronUp: Icon,
     HelpCircle: Icon,
@@ -77,6 +85,14 @@ const knownIcons = {
     // calc and other package icons
     FilePlus: Icon,
     Plus: Icon,
+    // boards: CardHeaderToolbar's overflow table holds the icon by value
+    Maximize2: Icon,
+    // boards: ColumnMenu, mounted whole (tests/column-menu.mount.test.tsx);
+    // ArrowLeft, FilePlus, Pencil, Plus and Trash2 are seeded elsewhere
+    ArrowRight: Icon,
+    FoldHorizontal: Icon,
+    Gauge: Icon,
+    MoreHorizontal: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,
@@ -84,6 +100,13 @@ const knownIcons = {
     GitMerge: Icon,
     GitPullRequest: Icon,
     GitPullRequestClosed: Icon,
+    // boards: PriorityGlyph's priority → icon table (tests/form-fields.mount.test.tsx)
+    OctagonAlert: Icon,
+    SignalHigh: Icon,
+    SignalLow: Icon,
+    SignalMedium: Icon,
+    // boards: the card detail body, mounted whole (tests/card-detail.mount.test.tsx)
+    SmilePlus: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,

@@ -40,12 +40,23 @@ export interface UseDragGestureOptions {
     onDragStart?: (ctx: DragContext) => boolean | undefined
     onDragMove?: (ctx: DragContext) => void
     onDragEnd?: (ctx: DragContext) => void
+    // Fires instead of onDragEnd when the platform takes the gesture away
+    // after it engaged (web pointercancel, native responder termination).
+    // Absent, web still ends a cancelled drag through onDragEnd and native
+    // drops it silently, as before.
+    onDragCancel?: (ctx: DragContext) => void
     // Movement threshold in px before onDragStart fires. Defaults to 3
     // (matches the existing calc drag-select threshold).
     threshold?: number
     // If true, the hook measures the originating element on drag-start
     // and reports its rect via DragContext.startRect. Defaults to true.
     measureTarget?: boolean
+    // Native only (web ignores it): the drag engages only after the press
+    // is held this long without moving past `threshold`. A move past it
+    // first gives the gesture up, so a ScrollView around the handle can
+    // still scroll; once engaged, the drag refuses to hand the gesture
+    // over. Absent, the drag engages on movement alone, as before.
+    longPressMs?: number
     // Disable the gesture entirely. The hook still returns props so
     // the consumer's JSX stays static, but the handlers are no-ops.
     disabled?: boolean

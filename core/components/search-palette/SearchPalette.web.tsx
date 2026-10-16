@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { getIcon } from '@tinycld/core/components/workspace/package-icon-map'
 import type { SearchSection } from '@tinycld/core/lib/search/build-sections'
-import { chipsToText, runHandlerFor } from '@tinycld/core/lib/search/chip-text'
+import { chipsToText, createPickQueue } from '@tinycld/core/lib/search/chip-text'
 import { parseQuery } from '@tinycld/core/lib/search/parse-query'
 import { loadSearchAdapter, searchPackages } from '@tinycld/core/lib/search/registry'
 import { useSearchPaletteStore } from '@tinycld/core/lib/search/search-palette-store'
@@ -59,18 +59,22 @@ export function SearchPalette() {
     const flatRows = useMemo(() => sections.flatMap(s => s.rows), [sections])
     const selectedRow = flatRows.find(r => r.id === selectedRowId) ?? flatRows[0]
 
-    const handlersRef = useRef<Record<string, (row: SearchRow) => void>>({})
-    const registerHandler = useCallback((slug: string, handler: (row: SearchRow) => void) => {
-        handlersRef.current[slug] = handler
-    }, [])
+    // Picks run through the queue: a row whose adapter is still loading is
+    // held and opened when the adapter registers. The palette closes only
+    // when a handler actually ran, either way.
+    const picks = useRef(createPickQueue()).current
+    const registerHandler = useCallback(
+        (slug: string, handler: (row: SearchRow) => void) => {
+            if (picks.register(slug, handler)) close()
+        },
+        [close, picks]
+    )
 
     const selectRow = useCallback(
         (row: SearchRow) => {
-            // Only close when a handler actually ran — see runHandlerFor's
-            // doc comment for why a row can outlive its own adapter.
-            if (runHandlerFor(row, handlersRef.current)) close()
+            if (picks.pick(row)) close()
         },
-        [close]
+        [close, picks]
     )
 
     const moveSelection = useCallback(
@@ -86,7 +90,11 @@ export function SearchPalette() {
     const inputRef = useRef<TextInput>(null)
 
     useEffect(() => {
-        if (!isOpen) return
+        if (!isOpen) {
+            // A pick still waiting for its adapter must not open on a later use.
+            picks.clear()
+            return
+        }
         // Focus the input on open. RN's TextInput needs a microtask before its
         // DOM node is mounted under the portal, so we defer via
         // requestAnimationFrame.
@@ -94,7 +102,7 @@ export function SearchPalette() {
             inputRef.current?.focus()
         })
         return () => cancelAnimationFrame(raf)
-    }, [isOpen])
+    }, [isOpen, picks])
 
     // Anything outside the card closes it — matches Spotlight. The card is
     // state from a callback ref so the layer sees the node once it mounts.

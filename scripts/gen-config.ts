@@ -55,6 +55,7 @@ export interface ConfigPkg {
     sidebarContributions: ConfigSidebarContribution[]
     search?: ConfigSearch
     automation?: string // exports subpath to the AutomationDefinitions module
+    forms?: { hosts: string; ui: string }
     eventSources: ConfigEventSource[]
     eventSourceHost: boolean
     setupSteps: ConfigSetupStep[]
@@ -94,6 +95,10 @@ function validateConfigPkg(p: ConfigPkg): void {
     }
     if (p.search) assertSafeImportField('search.adapter', p.search.adapter)
     if (p.automation) assertSafeImportField('automation', p.automation)
+    if (p.forms) {
+        assertSafeImportField('forms.hosts', p.forms.hosts)
+        assertSafeImportField('forms.ui', p.forms.ui)
+    }
     for (const s of p.eventSources) assertSafeImportField('eventSources[].module', s.module)
     for (const s of p.setupSteps) assertSafeImportField('setupSteps[].module', s.module)
 }
@@ -196,6 +201,9 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
         if (p.automation) {
             lines.push(`import ${ident(p.slug)}Automation from '${p.packageName}/${p.automation}'`)
         }
+        if (p.forms) {
+            lines.push(`import ${ident(p.slug)}FormHosts from '${p.packageName}/${p.forms.hosts}'`)
+        }
     }
 
     lines.push('')
@@ -247,6 +255,10 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
         pushEventSourceLines(lines, p)
         pushSetupStepLines(lines, p)
         if (p.automation) lines.push(`        automation: ${ident(p.slug)}Automation,`)
+        if (p.forms) {
+            lines.push(`        formHosts: ${ident(p.slug)}FormHosts,`)
+            lines.push(`        formHostsUi: () => import('${p.packageName}/${p.forms.ui}'),`)
+        }
         lines.push('    }),')
     }
     lines.push('] as const')

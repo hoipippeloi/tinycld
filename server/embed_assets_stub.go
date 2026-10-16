@@ -11,3 +11,4 @@ func embeddedWebFS() fs.FS                { return nil }
 func embeddedMigrationsFS() fs.FS         { return nil }
 func embeddedHooksFS() fs.FS              { return nil }
 func embeddedBundledPackagesJSON() []byte { return nil }
+func embeddedFormHostsJSON() []byte       { return nil }
