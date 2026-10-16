@@ -39,6 +39,16 @@ function useNotes(tag: string) {
     )
 }
 
+function useKeyedNotes(tag: string) {
+    return useMyLiveQuery(
+        (q, { userId }) =>
+            q
+                .from({ note: notes })
+                .where(({ note }) => and(eq(note.owner, userId), eq(note.tag, tag))),
+        { queryKey: ['notes', tag] }
+    )
+}
+
 function ids(rows: Note[] | undefined) {
     return (rows ?? []).map(r => r.id).sort()
 }
@@ -118,5 +128,37 @@ describe('useMyLiveQuery', () => {
         })
         await waitFor(() => expect(result.current.legacy.isReady).toBe(true))
         expect(ids(result.current.legacy.data)).toEqual(['n1', 'n2'])
+    })
+
+    it('with a queryKey, re-runs when a value in the key changes', async () => {
+        h.user = { id: 'u1' }
+        const { result, rerender } = renderHook(({ tag }) => useKeyedNotes(tag), {
+            initialProps: { tag: 'work' },
+        })
+        await waitFor(() => expect(ids(result.current.data)).toEqual(['n1']))
+
+        rerender({ tag: 'home' })
+        await waitFor(() => expect(ids(result.current.data)).toEqual(['n2']))
+    })
+
+    // The caller's key does not name the user; the hook must add it, or a
+    // sign-in as someone else would keep showing the first user's rows.
+    it('with a queryKey, re-runs when the user changes', async () => {
+        h.user = { id: 'u1' }
+        const { result, rerender } = renderHook(() => useKeyedNotes('work'))
+        await waitFor(() => expect(ids(result.current.data)).toEqual(['n1']))
+
+        act(() => {
+            h.user = { id: 'u2' }
+        })
+        rerender()
+        await waitFor(() => expect(ids(result.current.data)).toEqual(['n3']))
+    })
+
+    it('with a queryKey, stays disabled until the user id is known', () => {
+        const queryFn = vi.fn()
+        const { result } = renderHook(() => useMyLiveQuery(queryFn, { queryKey: ['x'] }))
+        expect(queryFn).not.toHaveBeenCalled()
+        expect(result.current.isEnabled).toBe(false)
     })
 })
