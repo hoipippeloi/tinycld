@@ -36,6 +36,9 @@ const ACTION_OPTIONS = [
     { label: 'Password set by admin', value: 'password.set_by_admin' },
     { label: 'Password reset emailed', value: 'password.reset_sent' },
     { label: 'Passkey added', value: 'passkey.added' },
+    { label: 'Account removed, data deleted', value: 'account_offboard.delete_data' },
+    { label: 'Account removed, data reassigned', value: 'account_offboard.reassign' },
+    { label: 'Account removed, data kept', value: 'account_offboard.keep' },
 ] as const
 
 const RESOURCE_TYPE_OPTIONS = [
@@ -79,6 +82,9 @@ const ACTION_BADGE_CLASS = {
     'password.set_by_admin': 'bg-accent',
     'password.reset_sent': 'bg-accent',
     'passkey.added': 'bg-success-soft',
+    'account_offboard.delete_data': 'bg-danger-soft',
+    'account_offboard.reassign': 'bg-accent',
+    'account_offboard.keep': 'bg-accent',
 } as const
 const ACTION_TEXT_CLASS = {
     created: 'text-success-soft-foreground',
@@ -96,6 +102,9 @@ const ACTION_TEXT_CLASS = {
     'password.set_by_admin': 'text-accent-foreground',
     'password.reset_sent': 'text-accent-foreground',
     'passkey.added': 'text-success-soft-foreground',
+    'account_offboard.delete_data': 'text-danger-soft-foreground',
+    'account_offboard.reassign': 'text-accent-foreground',
+    'account_offboard.keep': 'text-accent-foreground',
 } as const
 
 type AuditAction = keyof typeof ACTION_BADGE_CLASS
