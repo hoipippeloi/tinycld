@@ -50,11 +50,11 @@ func registerCore(app core.App) {
 	// Listeners run after commit so a package side effect (mail provisioning)
 	// never sees an uncommitted membership.
 	app.OnRecordAfterCreateSuccess("group_members").BindFunc(func(e *core.RecordEvent) error {
-		notify(e.Record, true)
+		notify(e.App, e.Record, true)
 		return e.Next()
 	})
 	app.OnRecordAfterDeleteSuccess("group_members").BindFunc(func(e *core.RecordEvent) error {
-		notify(e.Record, false)
+		notify(e.App, e.Record, false)
 		return e.Next()
 	})
 
@@ -120,13 +120,11 @@ func nextInTx(e *core.RecordEvent, derive func(txApp core.App) error) error {
 	})
 }
 
-func notify(member *core.Record, joined bool) {
-	err := notifyMembership(MembershipEvent{
+func notify(app core.App, member *core.Record, joined bool) {
+	notifyMembership(MembershipEvent{
+		App:     app,
 		UserID:  member.GetString("user"),
 		GroupID: member.GetString("group"),
 		Joined:  joined,
 	})
-	if err != nil {
-		log.Error("membership listener failed", "user", member.GetString("user"), "group", member.GetString("group"), "joined", joined, "err", err)
-	}
 }

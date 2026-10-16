@@ -63,6 +63,8 @@ server/pb_test_data_*/
 server/pb_smoke_data/
 # Promoted web bundle the e2e static-serve flow (scripts/e2e-serve.ts) builds.
 server/pb_test_releases*/
+# Package-set build archives the dev server writes (core/server/coreserver/pkg_build.go).
+server/builds/
 
 # Copied by `pnpm run assets:copy-pdfjs` from node_modules at install time.
 /public/workers/

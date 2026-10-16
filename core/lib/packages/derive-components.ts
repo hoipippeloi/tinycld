@@ -114,7 +114,10 @@ export interface SidebarContributionEntry {
     contributorSlug: string
     order: number
     label?: string
-    Component: ComponentType | LazyExoticComponent<ComponentType>
+    // Props erased: each slot documents its own props contract, so the map
+    // holds components of many prop shapes. `never` props accept any
+    // component, a React.lazy one too; SlotContribution passes the props.
+    Component: ComponentType<never>
 }
 
 type ContributionEntryLike = {

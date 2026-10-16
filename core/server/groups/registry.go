@@ -33,8 +33,9 @@
 package groups
 
 import (
-	"errors"
 	"sync"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // GrantTable declares a package membership table that carries optional `user`
@@ -54,7 +55,12 @@ type GrantTable struct {
 
 // MembershipEvent describes one user joining or leaving one group. It is
 // delivered after the membership row commits.
+//
+// App is the app that saved the membership. The registry is process global,
+// so a listener must do its work through App and not through an app it held
+// when it registered: that app can be a different one.
 type MembershipEvent struct {
+	App     core.App
 	UserID  string
 	GroupID string
 	Joined  bool
@@ -64,7 +70,6 @@ var (
 	mu        sync.RWMutex
 	tables    []GrantTable
 	listeners []func(MembershipEvent) error
-	errStop   = errors.New("groups: listener refused")
 )
 
 // RegisterGrantTable adds a membership table to the registry. Idempotent, and
@@ -93,26 +98,29 @@ func RegisteredGrantTables() []GrantTable {
 	return out
 }
 
-// OnMembershipChange registers a listener for join/leave events. Listeners run
-// in registration order; the first error stops the chain and is logged by the
-// caller. Mail uses this to provision or disable a mailbox.
+// OnMembershipChange registers a listener for join/leave events. Every
+// listener runs, in registration order. An error is logged and not retried,
+// and one listener's error does not stop the others. A package uses this to
+// grant or remove per-member resources.
 func OnMembershipChange(fn func(MembershipEvent) error) {
 	mu.Lock()
 	defer mu.Unlock()
 	listeners = append(listeners, fn)
 }
 
-func notifyMembership(e MembershipEvent) error {
+// notifyMembership runs every listener. The listeners belong to different
+// packages, so one package's failure must not keep the next from hearing the
+// event.
+func notifyMembership(e MembershipEvent) {
 	mu.RLock()
 	fns := make([]func(MembershipEvent) error, len(listeners))
 	copy(fns, listeners)
 	mu.RUnlock()
-	for _, fn := range fns {
+	for i, fn := range fns {
 		if err := fn(e); err != nil {
-			return err
+			log.Error("membership listener failed", "listener", i, "user", e.UserID, "group", e.GroupID, "joined", e.Joined, "err", err)
 		}
 	}
-	return nil
 }
 
 // ResetForTesting clears tables and listeners. Tests register their own.

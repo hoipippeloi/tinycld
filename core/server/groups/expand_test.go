@@ -277,6 +277,13 @@ func TestMembershipListenerFiresAfterCommit(t *testing.T) {
 	if len(events) != 2 || !events[0].Joined || events[1].Joined || events[0].UserID != alice.Id || events[1].GroupID != g.Id {
 		t.Fatalf("events = %+v", events)
 	}
+	// A listener does its work through the event's app, so it must be the
+	// app that saved the row, not a transaction app that has finished.
+	// Hooks see the TestApp's embedded BaseApp.
+	var saving core.App = app.BaseApp
+	if events[0].App != saving || events[1].App != saving {
+		t.Fatalf("event app = %p, %p, want the saving app %p", events[0].App, events[1].App, saving)
+	}
 }
 
 // TestMemberDeleteCleanupIsAtomicWithTheDelete proves the group_members

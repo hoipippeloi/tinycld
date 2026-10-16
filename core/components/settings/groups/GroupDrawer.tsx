@@ -1,6 +1,9 @@
 import { Avatar } from '@tinycld/core/components/Avatar'
+import { SidebarSlot } from '@tinycld/core/components/sidebar-primitives/SidebarSlot'
 import { handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
+import { GROUP_MEMBER_REMOVAL_SLOT } from '@tinycld/core/lib/groups/removal-notice'
 import { useGroupMembersAdmin, useGroupsAdmin } from '@tinycld/core/lib/groups/use-groups-admin'
+import { CORE_SLOT_TARGET } from '@tinycld/core/lib/setup/core-slots'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useServerActionState } from '@tinycld/core/lib/use-writes-available'
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
@@ -152,7 +155,7 @@ function ViewGroupOpen({ groupId, onClose }: { groupId: string; onClose: () => v
                         isDisabled={isPending || !form.formState.isValid}
                         onPress={onSave}
                     />
-                    <MembersSection groupId={groupId} />
+                    <MembersSection groupId={groupId} groupName={group?.name ?? ''} />
                 </View>
             </DrawerBody>
             <DrawerFooter>
@@ -171,7 +174,13 @@ function ViewGroupOpen({ groupId, onClose }: { groupId: string; onClose: () => v
                 confirmLabel="Delete group"
                 isDestructive
                 isSubmitting={isPending}
-            />
+            >
+                <SidebarSlot
+                    target={CORE_SLOT_TARGET}
+                    slot={GROUP_MEMBER_REMOVAL_SLOT}
+                    props={{ groupId, userId: null }}
+                />
+            </ConfirmDialog>
         </>
     )
 }
@@ -243,9 +252,16 @@ function SaveRow({
     )
 }
 
-function MembersSection({ groupId }: { groupId: string }) {
+interface MemberToRemove {
+    membershipId: string
+    userId: string
+    name: string
+}
+
+export function MembersSection({ groupId, groupName }: { groupId: string; groupName: string }) {
     const { members, candidates, addMember, removeMember, isPending } =
         useGroupMembersAdmin(groupId)
+    const [toRemove, setToRemove] = useState<MemberToRemove | null>(null)
     const [query, setQuery] = useState('')
     const needle = query.trim().toLowerCase()
     const shown = candidates
@@ -257,6 +273,11 @@ function MembersSection({ groupId }: { groupId: string }) {
         )
         .slice(0, 20)
     const mutedColor = useThemeColor('muted')
+    const removeTitle = `Remove ${toRemove?.name ?? ''} from "${groupName}"?`
+    const confirmRemove = () => {
+        if (toRemove) removeMember(toRemove.membershipId)
+        setToRemove(null)
+    }
 
     return (
         <View className="gap-3">
@@ -273,7 +294,13 @@ function MembersSection({ groupId }: { groupId: string }) {
                             userId={member.userId}
                             name={member.name}
                             email={member.email}
-                            onRemove={() => removeMember(member.membershipId)}
+                            onRemove={() =>
+                                setToRemove({
+                                    membershipId: member.membershipId,
+                                    userId: member.userId,
+                                    name: member.name || member.email,
+                                })
+                            }
                         />
                     </View>
                 ))}
@@ -296,7 +323,32 @@ function MembersSection({ groupId }: { groupId: string }) {
                 isPending={isPending}
                 onAdd={addMember}
             />
+            <ConfirmDialog
+                isOpen={toRemove !== null}
+                onClose={() => setToRemove(null)}
+                onConfirm={confirmRemove}
+                title={removeTitle}
+                message="They lose access to everything this group gives them."
+                confirmLabel="Remove"
+                isDestructive
+                isSubmitting={isPending}
+            >
+                <MemberRemovalNotice groupId={groupId} userId={toRemove?.userId ?? null} />
+            </ConfirmDialog>
         </View>
+    )
+}
+
+// A null userId means "the whole group is deleted" to a contribution, so the
+// slot renders only while a member is selected, never while the confirm closes.
+function MemberRemovalNotice({ groupId, userId }: { groupId: string; userId: string | null }) {
+    if (userId === null) return null
+    return (
+        <SidebarSlot
+            target={CORE_SLOT_TARGET}
+            slot={GROUP_MEMBER_REMOVAL_SLOT}
+            props={{ groupId, userId }}
+        />
     )
 }
 

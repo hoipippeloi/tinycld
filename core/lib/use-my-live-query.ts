@@ -1,5 +1,5 @@
 import type { Context, InitialQueryBuilder, QueryBuilder } from '@tanstack/db'
-import { useLiveQuery } from '@tanstack/react-db'
+import { type LiveQueryKey, useLiveQuery } from '@tanstack/react-db'
 import { useAuth } from '@tinycld/core/lib/auth'
 
 /**
@@ -30,16 +30,22 @@ export function useMyLiveQuery<TContext extends Context>(
         me: { userId: string }
     ) => QueryBuilder<TContext> | undefined | null,
     /**
-     * @deprecated Has no effect; omit it. The query re-runs when any value it
-     * captures changes, because react-db derives the query's identity from the
-     * built query (the values in `eq(...)` and friends), not from a deps list.
-     * Kept only so packages that still pass it compile unchanged — they
-     * release separately from core.
+     * `{ queryKey }` gives the query an explicit identity, for a query on a
+     * hot render path: without it, react-db rebuilds and hashes the query on
+     * every render to find out whether it changed. The key must name every
+     * value the query captures, or a change to an unnamed value does not
+     * re-run it. The user id is added to the key here.
+     *
+     * An array is the deprecated deps list. It has no effect; it is kept only
+     * so packages that still pass it compile unchanged — they release
+     * separately from core.
      */
-    _deps?: unknown[]
+    options?: { queryKey: LiveQueryKey } | unknown[]
 ) {
     const { user } = useAuth({ throwIfAnon: false })
     const userId = user?.id ?? ''
+    const queryKey =
+        options && !Array.isArray(options) ? ['my', userId, ...options.queryKey] : undefined
 
-    return useLiveQuery({ query: q => (userId ? queryFn(q, { userId }) : null) })
+    return useLiveQuery({ queryKey, query: q => (userId ? queryFn(q, { userId }) : null) })
 }

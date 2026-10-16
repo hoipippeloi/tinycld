@@ -733,6 +733,8 @@ sidebarContributions: [
 
 Core's slot names are listed in `core/lib/setup/core-slots.ts`. The generator uses that list to validate contributions with `target: 'core'`, so a wrong slot name stops the build.
 
+**The `group-member-removal` slot.** Core renders this slot in the confirm dialog that removes a person from a group, and in the confirm dialog that deletes a group. Use it to show what the person (or the members) lose when the group access ends. Core passes `GroupMemberRemovalNoticeProps` (from `@tinycld/core/lib/groups/removal-notice`) to every contribution: `groupId`, and `userId`. `userId` is `null` when the whole group is deleted. A contribution must render nothing when there is nothing to say.
+
 ---
 
 ## Bundler & test resolution
@@ -872,6 +874,8 @@ runtime. The registries that exist:
 | which authorship FKs to reassign on offboarding | `offboard.RegisterReassignable` |
 | how to move ownership a flat FK rewrite cannot settle on offboarding | `offboard.RegisterHandler` |
 | which collections to audit-log | `audit.RegisterCollection` |
+| a package membership table that carries group grants | `groups.RegisterGrantTable` |
+| join and leave events for group membership, sent after the change commits. Every listener runs, in registration order. Errors are logged, not retried; one listener's error does not stop the others. Boot sends no events, so a package reconciles its own state at boot. The event carries the app that saved the change; the registry is process global, so a listener works through `e.App`, not an app it captured | `groups.OnMembershipChange` |
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
 | a CalDAV / CardDAV / WebDAV source | `caldav.Register` / `carddav.Register` / `webdav.Register` |
 | a native automation action | `automation.RegisterAction` |

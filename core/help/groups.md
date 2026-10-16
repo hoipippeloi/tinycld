@@ -23,6 +23,15 @@ be in a group.
 
 To rename a group or change its description, open it and edit the fields.
 
+## Remove a person from a group
+
+1. Open the group.
+2. Choose the remove button next to the person.
+3. Read the confirm message, then choose **Remove**.
+
+The person loses each share that they got through the group. An installed
+package can add to the confirm message what the person loses in that package.
+
 ## Share with a group
 
 In a package's share dialog, look for the **Groups** section under the list of
@@ -37,8 +46,10 @@ role applies.
 
 ## Delete a group
 
-Open the group and choose **Delete group**. Every share granted to the group is
-removed. Anything shared with a person directly stays.
+Open the group and choose **Delete group**. A confirm message shows. An
+installed package can add to it what the members lose in that package. Every
+share granted to the group is removed. Anything shared with a person directly
+stays.
 
 ## See which groups someone is in
 

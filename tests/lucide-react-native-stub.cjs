@@ -109,13 +109,16 @@ const knownIcons = {
     SmilePlus: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
-    // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,
-    // provider.tsx) — mounted by mail/tests/dnsPanelVisibility.test.tsx.
+    // Package settings screens mounted by member tests.
     Copy: Icon,
     Globe: Icon,
     Loader2: Icon,
     RefreshCw: Icon,
     File: Icon,
+    AtSign: Icon,
+    // Group admin drawer (core/tests/unit/group-drawer-removal.test.tsx)
+    Search: Icon,
+    UserPlus: Icon,
     // core Toast's VARIANT_ICONS table (AlertTriangle and X are seeded above)
     CheckCircle: Icon,
     Info: Icon,
