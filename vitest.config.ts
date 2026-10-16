@@ -144,6 +144,12 @@ export default defineConfig({
                 find: /^react-native-gesture-handler$/,
                 replacement: path.join(APP_DIR, 'tests', 'react-native-gesture-handler-stub.cjs'),
             },
+            // react-native-drax (SortableList) imports gesture-handler/worklets
+            // native setup; inert pass-through stub.
+            {
+                find: /^react-native-drax$/,
+                replacement: path.join(APP_DIR, 'tests', 'react-native-drax-stub.cjs'),
+            },
             {
                 find: /^react-native-safe-area-context$/,
                 replacement: path.join(APP_DIR, 'tests', 'react-native-safe-area-context-stub.cjs'),
