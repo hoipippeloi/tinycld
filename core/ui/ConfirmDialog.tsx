@@ -1,4 +1,5 @@
 import { Dialog } from '@tinycld/core/ui/dialog'
+import type { ReactNode } from 'react'
 import { Text } from 'react-native'
 
 export type ConfirmDialogProps = {
@@ -7,6 +8,8 @@ export type ConfirmDialogProps = {
     onConfirm: () => void
     title: string
     message?: string
+    /** Extra body content, shown after the message. */
+    children?: ReactNode
     confirmLabel?: string
     cancelLabel?: string
     isDestructive?: boolean
@@ -25,6 +28,7 @@ export function ConfirmDialog({
     onConfirm,
     title,
     message,
+    children,
     confirmLabel = 'Confirm',
     cancelLabel = 'Cancel',
     isDestructive = false,
@@ -35,7 +39,7 @@ export function ConfirmDialog({
         // No close button: a confirm is answered, and the two answers are the
         // footer. Escape and the backdrop still dismiss it.
         <Dialog isOpen={isOpen} onClose={onClose} title={title} hasCloseButton={false}>
-            <ConfirmMessage message={message} />
+            <ConfirmBody message={message}>{children}</ConfirmBody>
             <Dialog.Footer>
                 <Dialog.CancelButton
                     onPress={onClose}
@@ -54,11 +58,17 @@ export function ConfirmDialog({
     )
 }
 
-function ConfirmMessage({ message }: { message?: string }) {
-    if (!message) return null
+function ConfirmBody({ message, children }: { message?: string; children?: ReactNode }) {
+    if (!message && !children) return null
     return (
         <Dialog.Body>
-            <Text className="text-foreground text-sm">{message}</Text>
+            <ConfirmText message={message} />
+            {children}
         </Dialog.Body>
     )
+}
+
+function ConfirmText({ message }: { message?: string }) {
+    if (!message) return null
+    return <Text className="text-foreground text-sm">{message}</Text>
 }
