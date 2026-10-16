@@ -30,9 +30,12 @@ function seedFixtures(port: number): Promise<void> {
     const url = `http://127.0.0.1:${port}`
     process.stdout.write(`[global-setup] seeding fixtures → ${url}\n`)
     return new Promise((resolve, reject) => {
+        // tsx loads through node, not npx: this cwd is a workspace member, so
+        // npx warns on each run that it ignores the member's .npmrc.
         const child = spawn(
-            'npx',
+            process.execPath,
             [
+                '--import',
                 'tsx',
                 'scripts/seed-db.ts',
                 '--url',
