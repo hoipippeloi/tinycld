@@ -35,12 +35,20 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     return (
         <View className="gap-1.5 mb-3" {...wrapperProps}>
             {label ? <Text className="text-sm font-semibold text-foreground">{label}</Text> : null}
-            <View className={horizontal ? 'flex-row gap-2 flex-wrap' : 'flex-col gap-1'}>
+            <View
+                accessibilityRole="radiogroup"
+                accessibilityLabel={label}
+                className={horizontal ? 'flex-row gap-2 flex-wrap' : 'flex-col gap-1'}
+            >
                 {options.map(option => {
                     const isSelected = field.value === option.value
                     return (
                         <Pressable
                             key={option.value}
+                            accessibilityRole="radio"
+                            accessibilityLabel={option.label}
+                            accessibilityState={{ checked: isSelected }}
+                            aria-checked={isSelected}
                             onPress={() => field.onChange(option.value)}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
