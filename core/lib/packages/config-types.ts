@@ -56,9 +56,10 @@ export interface SidebarContribution {
     order: number
     /** Shown where the host lays contributions out as tabs. */
     label?: string
-    Component:
-        | ComponentType<Record<string, unknown>>
-        | LazyExoticComponent<ComponentType<Record<string, unknown>>>
+    // Props erased: each slot documents its own props contract, so the map
+    // holds components of many prop shapes. `never` props accept any
+    // component, a React.lazy one too; SlotContribution passes the props.
+    Component: ComponentType<never>
 }
 // A read-only event feed contributed to another package's event grid. `load`
 // is a bare thunk (not React.lazy) because the module exports a HOOK
