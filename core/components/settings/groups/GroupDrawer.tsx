@@ -1,8 +1,5 @@
 import { Avatar } from '@tinycld/core/components/Avatar'
-import {
-    hasSlotContributions,
-    SidebarSlot,
-} from '@tinycld/core/components/sidebar-primitives/SidebarSlot'
+import { SidebarSlot } from '@tinycld/core/components/sidebar-primitives/SidebarSlot'
 import { handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
 import { GROUP_MEMBER_REMOVAL_SLOT } from '@tinycld/core/lib/groups/removal-notice'
 import { useGroupMembersAdmin, useGroupsAdmin } from '@tinycld/core/lib/groups/use-groups-admin'
@@ -281,12 +278,6 @@ export function MembersSection({ groupId, groupName }: { groupId: string; groupN
         if (toRemove) removeMember(toRemove.membershipId)
         setToRemove(null)
     }
-    // ConfirmDialog leaves out its body only when it gets no children, and
-    // this confirm has no message. The notice element counts even when it
-    // renders nothing, so pass it only when a package contributes.
-    const removalNotice = hasSlotContributions(CORE_SLOT_TARGET, GROUP_MEMBER_REMOVAL_SLOT) ? (
-        <MemberRemovalNotice groupId={groupId} userId={toRemove?.userId ?? null} />
-    ) : null
 
     return (
         <View className="gap-3">
@@ -337,11 +328,12 @@ export function MembersSection({ groupId, groupName }: { groupId: string; groupN
                 onClose={() => setToRemove(null)}
                 onConfirm={confirmRemove}
                 title={removeTitle}
+                message="They lose access to everything this group gives them."
                 confirmLabel="Remove"
                 isDestructive
                 isSubmitting={isPending}
             >
-                {removalNotice}
+                <MemberRemovalNotice groupId={groupId} userId={toRemove?.userId ?? null} />
             </ConfirmDialog>
         </View>
     )

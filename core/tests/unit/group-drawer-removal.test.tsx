@@ -65,6 +65,8 @@ function pressRemoveAnn(container: HTMLElement) {
     fireEvent.click(button)
 }
 
+const MESSAGE = 'They lose access to everything this group gives them.'
+
 // The stub renders testID as a plain attribute; the dialog may portal out.
 const confirmBody = (container: HTMLElement) =>
     container.ownerDocument.querySelector('[testid="confirm-dialog-body"]')
@@ -95,7 +97,9 @@ describe('MembersSection removal confirm', () => {
         await findByText('Ann')
         pressRemoveAnn(container)
         expect(getByText('notice g1 u1')).not.toBeNull()
-        expect(confirmBody(container)).not.toBeNull()
+        // The message leads the body; a package's notice follows it.
+        const body = confirmBody(container)
+        expect(body?.textContent).toBe(`${MESSAGE}notice g1 u1`)
         expect(getByText('Remove Ann from "Sales"?')).not.toBeNull()
         expect(memberships()).toBe(1)
 
@@ -115,15 +119,28 @@ describe('MembersSection removal confirm', () => {
         expect(memberships()).toBe(1)
     })
 
+    // The common case: a package contributes but the person loses nothing
+    // there, so its notice renders null. The body still has the message.
+    it('shows only the message when a contribution renders nothing', async () => {
+        h.contributions = {
+            core: {
+                'group-member-removal': [{ contributorSlug: 'zoo_keepers', Component: () => null }],
+            },
+        }
+        const { container, findByText } = mount()
+        await findByText('Ann')
+        pressRemoveAnn(container)
+        expect(confirmBody(container)?.textContent).toBe(MESSAGE)
+    })
+
     it('still confirms when no package contributes', async () => {
         h.contributions = {}
         const { container, getByText, findByText } = mount()
         await findByText('Ann')
         pressRemoveAnn(container)
-        // The confirm has no message: with no notice there is nothing to show
-        // in the body, so no empty padded box renders.
+        // The body always has content: the message.
         expect(getByText('Remove Ann from "Sales"?')).not.toBeNull()
-        expect(confirmBody(container)).toBeNull()
+        expect(confirmBody(container)?.textContent).toBe(MESSAGE)
         fireEvent.click(getByText('Remove'))
         await waitFor(() => expect(memberships()).toBe(0))
     })
