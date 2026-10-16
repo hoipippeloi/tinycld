@@ -391,16 +391,19 @@ func TestUsersGuard_AdminCannotEditNonAllowlistedField(t *testing.T) {
 	}
 }
 
-func TestUsersGuard_AdminCannotEditPasswordOnAnotherUser(t *testing.T) {
+// An admin may give a member a temporary password (account recovery, see
+// admin_password_test.go), but never an owner: that would let an admin take
+// over an owner account.
+func TestUsersGuard_AdminCannotSetAnOwnersPassword(t *testing.T) {
 	app := setupGuardTestApp(t)
 	admin := makeUserWithRole(t, app, "admin3@test.local", "admin")
-	target := makeUserWithRole(t, app, "target3@test.local", "member")
+	target := makeUserWithRole(t, app, "target3@test.local", "owner")
 
 	err := updateAsAuthenticated(t, app, admin, target, func(r *core.Record) {
 		r.SetPassword("HackedPassword!")
 	})
 	if err == nil {
-		t.Fatal("admin setting another user's password should be rejected")
+		t.Fatal("admin setting an owner's password should be rejected")
 	}
 
 	// Verify password didn't change by re-validating the original.

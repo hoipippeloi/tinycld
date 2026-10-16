@@ -18,4 +18,7 @@ func TestEmbeddedAccessorsAreNilWithoutTag(t *testing.T) {
 	if embeddedBundledPackagesJSON() != nil {
 		t.Error("expected nil bundled packages JSON in an untagged build")
 	}
+	if embeddedFormHostsJSON() != nil {
+		t.Error("expected nil form hosts JSON in an untagged build")
+	}
 }

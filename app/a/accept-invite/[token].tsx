@@ -1,7 +1,7 @@
 import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
+import { useAuth } from '@tinycld/core/lib/auth'
 import { PB_SERVER_ADDR } from '@tinycld/core/lib/config'
 import { captureException } from '@tinycld/core/lib/errors'
-import { pb } from '@tinycld/core/lib/pocketbase'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { FormErrorSummary, TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
@@ -112,6 +112,7 @@ function InvalidCard({ message }: { message: string }) {
 
 function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
     const router = useRouter()
+    const { login } = useAuth({ throwIfAnon: false })
     const fgColor = useThemeColor('foreground')
     const primaryBg = useThemeColor('primary')
 
@@ -142,7 +143,10 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
                 email: string
             }
 
-            await pb.collection('users').authWithPassword(username, data.password)
+            // Through the auth store, so an organization that requires MFA
+            // sends the new member to the enrollment step instead of failing.
+            const result = await login(username, data.password)
+            if (result.error) throw new Error(result.error)
             router.replace('/')
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Failed to accept invitation'

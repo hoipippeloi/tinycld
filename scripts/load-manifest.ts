@@ -56,6 +56,7 @@ export interface PackageManifest {
     // User-facing notification events: exports subpath to the package's
     // pure-data PackageNotifyEvents module. See core/lib/packages/types.ts.
     notifications?: { events: string }
+    forms?: { hosts: string; ui: string }
     // Read-only event feeds this package contributes to another package's
     // event grid (today: the calendar). `module` is a package-exports subpath
     // to a module exporting `useEventSource` — see the PackageManifest doc in

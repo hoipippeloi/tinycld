@@ -39,3 +39,41 @@ export function runHandlerFor(
     handler(row)
     return true
 }
+
+type SelectHandler = (row: SearchRow) => void
+
+/**
+ * Rows arrive from the server before a package's adapter module (a lazy
+ * chunk) has loaded, so a pick can land while no handler exists for its
+ * package. The queue holds that one pick and runs it the moment the handler
+ * registers, instead of dropping it silently: Enter on a result then always
+ * opens it, just a little later on a slow load.
+ */
+export function createPickQueue() {
+    const handlers: Record<string, SelectHandler> = {}
+    let held: SearchRow | null = null
+    return {
+        /** Runs the row's handler now, or holds the row until its package registers one. Returns whether it ran. */
+        pick(row: SearchRow): boolean {
+            if (runHandlerFor(row, handlers)) {
+                held = null
+                return true
+            }
+            held = row
+            return false
+        },
+        /** Registers a package's handler; a held row of that package runs at once. Returns whether one ran. */
+        register(slug: string, handler: SelectHandler): boolean {
+            handlers[slug] = handler
+            if (held?.slug !== slug) return false
+            const row = held
+            held = null
+            handler(row)
+            return true
+        },
+        /** Forgets a held row: a pick made before the palette closed must not open on the next load. */
+        clear() {
+            held = null
+        },
+    }
+}

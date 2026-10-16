@@ -12,7 +12,10 @@ export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = 
     label: string
     options: SelectOption[]
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     horizontal?: boolean
+    disabled?: boolean
     wrapperProps?: ViewProps
 }
 
@@ -22,7 +25,9 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     label,
     options,
     hint,
+    hideError = false,
     horizontal = false,
+    disabled = false,
     wrapperProps = {},
 }: SelectInputProps<T>) {
     const {
@@ -42,6 +47,8 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                         <Pressable
                             key={option.value}
                             onPress={() => field.onChange(option.value)}
+                            disabled={disabled}
+                            accessibilityState={{ selected: isSelected, disabled }}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
                                 flex: horizontal ? 1 : undefined,
@@ -58,7 +65,9 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                 })}
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

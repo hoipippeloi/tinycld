@@ -34,6 +34,10 @@ type bundledPackage struct {
 // in-app install regenerates it (see findBundledPackagesJSON).
 var embeddedBundledPackages []byte
 
+// embeddedFormHosts is the form_hosts.json compiled into a single-binary
+// build, set from Options.FormHostsJSON.
+var embeddedFormHosts []byte
+
 // loadBundledPackages reads bundled-packages.json from disk, else from the
 // embedded copy. Neither present is not an error: a dev tree before the first
 // generate has none.

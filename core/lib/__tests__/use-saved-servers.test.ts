@@ -71,7 +71,12 @@ describe('useSavedServers on web', () => {
         const { result } = renderHook(() => useSavedServers())
 
         result.current.switchTo(SERVER_B)
-        await waitFor(() => expect(assign).toHaveBeenCalledWith(SERVER_B))
+        // The target URL names this server so the target can list the way back.
+        await waitFor(() =>
+            expect(assign).toHaveBeenCalledWith(
+                `${SERVER_B}/?from-server=${encodeURIComponent(SERVER_A)}`
+            )
+        )
 
         vi.unstubAllGlobals()
     })

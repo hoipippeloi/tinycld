@@ -418,6 +418,12 @@ const rules = newCollection('rules', {
     ...indexing,
 })
 
+const forms = newCollection('forms', {
+    omitOnInsert: ['created', 'updated'],
+    ...onDemand,
+    ...indexing,
+})
+
 const rule_runs = newCollection('rule_runs', {
     omitOnInsert: ['created', 'updated'],
     ...onDemand,
@@ -452,6 +458,28 @@ const comment_mentions = newCollection('comment_mentions', {
     ...onDemand,
 })
 
+// Sign-in factors. The server writes every row through /api/account/*
+// after it checks a code or a WebAuthn signature; the client lists them and
+// may delete (and rename a passkey) under the collection rules. Secrets are
+// hidden fields and never reach the client.
+const app_passwords = newCollection('app_passwords', {
+    omitOnInsert: ['created', 'updated'],
+    ...onDemand,
+    ...indexing,
+})
+
+const mfa_totp = newCollection('mfa_totp', {
+    omitOnInsert: ['created', 'updated'],
+    ...onDemand,
+    ...indexing,
+})
+
+const passkeys = newCollection('passkeys', {
+    omitOnInsert: ['created', 'updated'],
+    ...onDemand,
+    ...indexing,
+})
+
 const coreStores = {
     users,
     groups,
@@ -469,12 +497,16 @@ const coreStores = {
     notifications,
     rules,
     rule_runs,
+    forms,
     automation_catalog,
     system_settings,
     autoupgrade_state,
     org_branding,
     oauth_grants,
     comment_mentions,
+    app_passwords,
+    mfa_totp,
+    passkeys,
 }
 export type CoreStores = typeof coreStores
 

@@ -19,11 +19,15 @@ import (
 	"tinycld.org/core/automation"
 	"tinycld.org/core/autoupgrade"
 	"tinycld.org/core/backup"
+	"tinycld.org/core/forms"
 	"tinycld.org/core/groups"
 	"tinycld.org/core/logging"
+	"tinycld.org/core/mfa"
+	"tinycld.org/core/nativeauth"
 	"tinycld.org/core/notify"
 	"tinycld.org/core/oauth"
 	"tinycld.org/core/offboard"
+	"tinycld.org/core/passkey"
 	"tinycld.org/core/pkgaccess"
 	"tinycld.org/core/quota"
 	"tinycld.org/core/readonly"
@@ -85,6 +89,9 @@ type Options struct {
 	// bundled-packages.json, read when no copy is found on disk. Nil for
 	// path-based deployments.
 	BundledPackagesJSON []byte
+	// FormHostsJSON is the single-binary build's copy of form_hosts.json,
+	// read when no copy is found on disk. Nil for path-based deployments.
+	FormHostsJSON []byte
 
 	// BinaryName is the file name of the running app binary (without
 	// directory). Used by package install/upgrade flows to locate the
@@ -196,6 +203,7 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	sharequota.BindMeters(app)
 
 	embeddedBundledPackages = opts.BundledPackagesJSON
+	embeddedFormHosts = opts.FormHostsJSON
 
 	jsvm.MustRegister(app, jsvm.Config{
 		MigrationsDir: opts.MigrationsDir,
@@ -434,6 +442,8 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterPasswordResetMailer(app)
 	RegisterAuditHooks(app)
 	RegisterAccountDelete(app)
+	RegisterAppPasswords(app)
+	RegisterAdminPasswordReset(app)
 	RegisterAdminOffboard(app)
 	offboard.Register(app)
 	webhookin.RegisterRoutes(app)
@@ -441,6 +451,12 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterLastOwnerGuard(app)
 	RegisterUsersDemoAuditHook(app)
 	RegisterDisabledUserGuard(app)
+	// The second sign-in step. Binds onto the same users auth tail as the
+	// disabled guard, so a disabled account is refused before it is asked
+	// for a code.
+	mfa.Register(app)
+	passkey.Register(app)
+	nativeauth.Register(app)
 	pkgaccess.Register(app)
 	groups.Register(app)
 
@@ -464,6 +480,13 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	// automation-contributing packages), so this is a no-op call in that case.
 	automation.Register(app, automation.Options{
 		DefsPath: automationDefsPath(resolveServerDir()),
+	})
+
+	// Form host registry: binds the forms and host-record hooks. Inert with no
+	// hosts (a workspace with no form-hosting packages).
+	forms.Register(app, forms.Options{
+		HostsPath: formHostsPath(resolveServerDir()),
+		HostsJSON: embeddedFormHosts,
 	})
 
 	// Registered by core even though core serves no protocol handler itself: a

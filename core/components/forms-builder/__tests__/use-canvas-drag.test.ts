@@ -1,0 +1,294 @@
+// @vitest-environment happy-dom
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import {
+    findSlot,
+    positionOf,
+    type Rect,
+    sameSlot,
+    shiftRects,
+    slotToPosition,
+    useCanvasDrag,
+} from '../use-canvas-drag'
+
+const cells = new Map([
+    ['a', { page: 'p1', x: 0, y: 0, width: 100, height: 40 }],
+    ['b', { page: 'p1', x: 100, y: 0, width: 100, height: 40 }],
+    ['c', { page: 'p2', x: 0, y: 100, width: 200, height: 40 }],
+])
+const pages = new Map([
+    ['p1', { x: 0, y: 0, width: 200, height: 60 }],
+    ['p2', { x: 0, y: 100, width: 200, height: 80 }],
+])
+const order = [
+    { page: 'p1', keys: ['a', 'b'] },
+    { page: 'p2', keys: ['c'] },
+]
+
+describe('sameSlot', () => {
+    it('compares slots by what they name', () => {
+        expect(sameSlot(null, null)).toBe(true)
+        expect(sameSlot({ key: 'a', side: 'before' }, null)).toBe(false)
+        expect(sameSlot({ key: 'a', side: 'before' }, { key: 'a', side: 'before' })).toBe(true)
+        expect(sameSlot({ key: 'a', side: 'before' }, { key: 'a', side: 'after' })).toBe(false)
+        expect(sameSlot({ page: 'p1', end: true }, { page: 'p1', end: true })).toBe(true)
+        expect(sameSlot({ page: 'p1', end: true }, { page: 'p2', end: true })).toBe(false)
+        expect(sameSlot({ page: 'p1', end: true }, { key: 'p1', side: 'after' })).toBe(false)
+    })
+})
+
+describe('findSlot', () => {
+    it('targets before or after a cell by its horizontal midpoint', () => {
+        expect(findSlot({ x: 20, y: 20 }, cells, pages)).toEqual({ key: 'a', side: 'before' })
+        expect(findSlot({ x: 80, y: 20 }, cells, pages)).toEqual({ key: 'a', side: 'after' })
+        expect(findSlot({ x: 150, y: 20 }, cells, pages)).toEqual({ key: 'b', side: 'after' })
+    })
+    it('targets before or after a full-width cell by its vertical midpoint', () => {
+        // c spans its page: its neighbours are above and below it.
+        expect(findSlot({ x: 150, y: 110 }, cells, pages)).toEqual({ key: 'c', side: 'before' })
+        expect(findSlot({ x: 20, y: 130 }, cells, pages)).toEqual({ key: 'c', side: 'after' })
+    })
+    it('targets the end of a page when over its empty area', () => {
+        expect(findSlot({ x: 100, y: 170 }, cells, pages)).toEqual({ page: 'p2', end: true })
+    })
+    it('returns null outside every page', () => {
+        expect(findSlot({ x: 100, y: 300 }, cells, pages)).toBeNull()
+    })
+
+    // A page's header, its footer and the margins between cells are part of
+    // the page but of no cell. A drop there means the nearest place, not the
+    // page's end: a field let go above the first cell must land first.
+    const stacked = new Map([
+        ['a', { x: 0, y: 40, width: 200, height: 40 }],
+        ['b', { x: 0, y: 92, width: 200, height: 40 }],
+        ['c', { x: 0, y: 144, width: 100, height: 40 }],
+    ])
+    const tall = new Map([['p1', { x: 0, y: 0, width: 200, height: 240 }]])
+
+    it('targets before the first cell when over the page header', () => {
+        expect(findSlot({ x: 150, y: 10 }, stacked, tall)).toEqual({ key: 'a', side: 'before' })
+    })
+    it('targets the nearer cell when over the margin between two rows', () => {
+        expect(findSlot({ x: 50, y: 83 }, stacked, tall)).toEqual({ key: 'a', side: 'after' })
+        expect(findSlot({ x: 50, y: 89 }, stacked, tall)).toEqual({ key: 'b', side: 'before' })
+    })
+    it('targets after a short last cell when beside it in its row', () => {
+        expect(findSlot({ x: 180, y: 160 }, stacked, tall)).toEqual({ key: 'c', side: 'after' })
+    })
+    it('targets the end of the page only below its last row', () => {
+        expect(findSlot({ x: 50, y: 220 }, stacked, tall)).toEqual({ page: 'p1', end: true })
+    })
+    it('ignores cells of another page', () => {
+        const twoPages = new Map([
+            ['p1', { x: 0, y: 0, width: 200, height: 240 }],
+            ['p2', { x: 0, y: 300, width: 200, height: 100 }],
+        ])
+        expect(findSlot({ x: 50, y: 320 }, stacked, twoPages)).toEqual({ page: 'p2', end: true })
+    })
+})
+
+describe('shiftRects', () => {
+    it('moves every rect by the offset and keeps the other properties', () => {
+        const shifted = shiftRects(cells, { x: 0, y: -100 })
+        expect(shifted.get('c')).toEqual({ page: 'p2', x: 0, y: 0, width: 200, height: 40 })
+        expect(cells.get('c')?.y).toBe(100)
+    })
+    it('lets findSlot hit a cell after the canvas scrolled', () => {
+        // Measured at scroll 0; the canvas then scrolled down 100, so c now sits at y 0.
+        const scrolled = { x: 0, y: -100 }
+        expect(
+            findSlot({ x: 20, y: 10 }, shiftRects(cells, scrolled), shiftRects(pages, scrolled))
+        ).toEqual({ key: 'c', side: 'before' })
+    })
+})
+
+describe('slotToPosition', () => {
+    it('converts a slot to a page and index, skipping the dragged key', () => {
+        expect(slotToPosition({ key: 'b', side: 'before' }, order, 'a')).toEqual({
+            page: 'p1',
+            index: 0,
+        })
+        expect(slotToPosition({ key: 'b', side: 'after' }, order, 'a')).toEqual({
+            page: 'p1',
+            index: 1,
+        })
+        expect(slotToPosition({ key: 'c', side: 'before' }, order, 'a')).toEqual({
+            page: 'p2',
+            index: 0,
+        })
+        expect(slotToPosition({ page: 'p2', end: true }, order, 'a')).toEqual({
+            page: 'p2',
+            index: 1,
+        })
+    })
+})
+
+describe('positionOf', () => {
+    it('finds the page and index a field sits at now', () => {
+        expect(positionOf('b', order)).toEqual({ page: 'p1', index: 1 })
+        expect(positionOf('c', order)).toEqual({ page: 'p2', index: 0 })
+        expect(positionOf('zz', order)).toBeNull()
+    })
+})
+
+function deferred() {
+    let resolve: (rect: Rect | null) => void = () => {}
+    const promise = new Promise<Rect | null>(r => {
+        resolve = r
+    })
+    return { promise, resolve }
+}
+
+function setUp() {
+    const onMove = vi.fn()
+    const hook = renderHook(() => useCanvasDrag({ getOrder: () => order, onMove }))
+    for (const [key, { page: _page, ...rect }] of cells)
+        act(() => hook.result.current.cellLayout(key, rect))
+    for (const [key, rect] of pages) act(() => hook.result.current.pageLayout(key, rect))
+    return { onMove, hook }
+}
+
+describe('useCanvasDrag', () => {
+    it('ignores hovers until the drag-start measurement completes', async () => {
+        const { hook } = setUp()
+        const pending = deferred()
+        act(() => {
+            hook.result.current.registerCell('a', () => pending.promise)
+        })
+        act(() => hook.result.current.begin('c'))
+        act(() => hook.result.current.hover({ x: 20, y: 110 }))
+        expect(hook.result.current.dropTarget).toBeNull()
+        // a was measured onto the second page's row.
+        await act(async () => pending.resolve({ x: 0, y: 100, width: 100, height: 40 }))
+        act(() => hook.result.current.hover({ x: 20, y: 110 }))
+        expect(hook.result.current.dropTarget).toEqual({ key: 'a', side: 'before' })
+    })
+
+    it('ignores a hover that arrives after the drop or the end of a drag', async () => {
+        const { hook } = setUp()
+        await act(async () => hook.result.current.begin('a'))
+        act(() => hook.result.current.drop('a', { x: 150, y: 20 }))
+        act(() => hook.result.current.hover({ x: 20, y: 20 }))
+        expect(hook.result.current.dropTarget).toBeNull()
+        await act(async () => hook.result.current.begin('a'))
+        act(() => hook.result.current.cancel())
+        act(() => hook.result.current.hover({ x: 20, y: 20 }))
+        expect(hook.result.current.dropTarget).toBeNull()
+    })
+
+    it('waits for the measurement when the drop comes before it', async () => {
+        const { hook, onMove } = setUp()
+        const pending = deferred()
+        act(() => {
+            hook.result.current.registerCell('b', () => pending.promise)
+        })
+        act(() => hook.result.current.begin('a'))
+        act(() => hook.result.current.drop('a', { x: 80, y: 120 }))
+        expect(onMove).not.toHaveBeenCalled()
+        // b was measured onto the second page's row; the drop lands after it.
+        await act(async () => pending.resolve({ x: 0, y: 100, width: 100, height: 40 }))
+        expect(onMove).toHaveBeenCalledWith('a', 'p1', 1)
+        expect(hook.result.current.draggingKey).toBeNull()
+    })
+
+    // A drag starts in one event and moves in later ones, so the start's measurement settles first.
+    const begin = (hook: ReturnType<typeof setUp>['hook'], key: string) =>
+        act(async () => hook.result.current.begin(key))
+
+    it('does not move a field dropped on the slot it already holds', async () => {
+        const { hook, onMove } = setUp()
+        await begin(hook, 'b')
+        act(() => hook.result.current.drop('b', { x: 80, y: 20 }))
+        await begin(hook, 'b')
+        act(() => hook.result.current.drop('b', { x: 150, y: 20 }))
+        expect(onMove).not.toHaveBeenCalled()
+        await begin(hook, 'b')
+        act(() => hook.result.current.drop('b', { x: 20, y: 20 }))
+        expect(onMove).toHaveBeenCalledWith('b', 'p1', 0)
+    })
+
+    it('clears the drag on cancel without moving anything', async () => {
+        const { hook, onMove } = setUp()
+        await begin(hook, 'a')
+        act(() => hook.result.current.hover({ x: 20, y: 110 }))
+        expect(hook.result.current.dropTarget).toEqual({ key: 'c', side: 'before' })
+        act(() => hook.result.current.cancel())
+        expect(hook.result.current.draggingKey).toBeNull()
+        expect(hook.result.current.dropTarget).toBeNull()
+        expect(onMove).not.toHaveBeenCalled()
+    })
+
+    it('keeps the same drop target while the pointer stays in one slot', async () => {
+        const { hook } = setUp()
+        await begin(hook, 'a')
+        act(() => hook.result.current.hover({ x: 20, y: 110 }))
+        const first = hook.result.current.dropTarget
+        expect(first).toEqual({ key: 'c', side: 'before' })
+        act(() => hook.result.current.hover({ x: 40, y: 115 }))
+        expect(hook.result.current.dropTarget).toBe(first)
+        act(() => hook.result.current.hover({ x: 150, y: 130 }))
+        expect(hook.result.current.dropTarget).toEqual({ key: 'c', side: 'after' })
+    })
+
+    it('marks the dragged cell’s own edge instead of hiding the target', async () => {
+        const { hook } = setUp()
+        await begin(hook, 'a')
+        act(() => hook.result.current.hover({ x: 80, y: 20 }))
+        expect(hook.result.current.dropTarget).toEqual({ key: 'a', side: 'after' })
+    })
+
+    it('publishes the pointer from the start of a drag to its end', async () => {
+        const { hook } = setUp()
+        const seen: unknown[] = []
+        const store = hook.result.current.pointer
+        store.subscribe(() => seen.push(store.get()))
+        expect(store.get()).toBeNull()
+        await act(async () => hook.result.current.begin('a', { x: 5, y: 6 }))
+        expect(store.get()).toEqual({ x: 5, y: 6 })
+        act(() => hook.result.current.hover({ x: 20, y: 110 }))
+        expect(store.get()).toEqual({ x: 20, y: 110 })
+        act(() => hook.result.current.cancel())
+        expect(store.get()).toBeNull()
+        expect(seen).toEqual([{ x: 5, y: 6 }, { x: 20, y: 110 }, null])
+    })
+
+    it('forgets a cell whose measure was unregistered', async () => {
+        const { hook } = setUp()
+        let unregister = () => {}
+        act(() => {
+            unregister = hook.result.current.registerCell('a', async () => null)
+        })
+        act(() => unregister())
+        await act(async () => hook.result.current.begin('c'))
+        act(() => hook.result.current.hover({ x: 20, y: 20 }))
+        // Over where a was, the nearest cell still known is b.
+        expect(hook.result.current.dropTarget).toEqual({ key: 'b', side: 'before' })
+    })
+
+    it('gives up on a measure that never answers, so the drag still lands', async () => {
+        vi.useFakeTimers()
+        try {
+            const { hook, onMove } = setUp()
+            act(() => {
+                hook.result.current.registerCell('b', () => new Promise<Rect | null>(() => {}))
+            })
+            act(() => hook.result.current.begin('a'))
+            act(() => hook.result.current.drop('a', { x: 20, y: 110 }))
+            expect(onMove).not.toHaveBeenCalled()
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(250)
+            })
+            expect(onMove).toHaveBeenCalledWith('a', 'p2', 0)
+            expect(hook.result.current.draggingKey).toBeNull()
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})
+
+describe('the canvas drag handle on web', () => {
+    it('drags at once, with no hold', async () => {
+        const { HANDLE_LONG_PRESS_MS } = await import('../use-canvas-drag')
+        expect(HANDLE_LONG_PRESS_MS).toBeUndefined()
+    })
+})

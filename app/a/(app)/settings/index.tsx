@@ -1,4 +1,5 @@
 import { getIcon } from '@tinycld/core/components/workspace/package-icon-map'
+import { packageFormHosts } from '@tinycld/core/lib/forms/use-form-hosts'
 import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import {
     packageAccountSettings,
@@ -14,18 +15,21 @@ import {
     Bug,
     Cable,
     ChevronRight,
+    ClipboardList,
     DatabaseBackup,
     HardDrive,
     History,
     Image,
     Info,
     KeyRound,
+    LockKeyhole,
     Package,
     Palette,
     ScrollText,
     Send,
     Server,
     ShieldAlert,
+    ShieldCheck,
     Sliders,
     Tag,
     User,
@@ -84,6 +88,7 @@ export default function SettingsIndex() {
 // sees the whole group.
 const ACCOUNT_LINKS = [
     { label: 'Profile', route: 'settings/profile', Icon: User },
+    { label: 'Security', route: 'settings/security', Icon: ShieldCheck },
     { label: 'Appearance', route: 'settings/appearance', Icon: Palette },
     { label: 'Notifications', route: 'settings/notifications', Icon: Bell },
     { label: 'Rules', route: 'settings/rules', Icon: Workflow },
@@ -153,6 +158,16 @@ function AdminSettings({ isVisible, isOwner }: { isVisible: boolean; isOwner: bo
                     onPress={() => router.push(orgHref('settings/labels'))}
                     icon={<Tag size={20} color={foregroundColor} />}
                 />
+                <FormsLink
+                    isVisible={packageFormHosts.length > 0}
+                    onPress={() => router.push(orgHref('settings/forms'))}
+                    color={foregroundColor}
+                />
+                <SettingsLink
+                    label="Sign-in security"
+                    onPress={() => router.push(orgHref('settings/sign-in-security'))}
+                    icon={<LockKeyhole size={20} color={foregroundColor} />}
+                />
                 <SettingsLink
                     label="OAuth Clients"
                     onPress={() => router.push(orgHref('settings/oauth-clients'))}
@@ -195,6 +210,25 @@ function AdminSettings({ isVisible, isOwner }: { isVisible: boolean; isOwner: bo
                 )
             })}
         </>
+    )
+}
+
+function FormsLink({
+    isVisible,
+    onPress,
+    color,
+}: {
+    isVisible: boolean
+    onPress: () => void
+    color: string
+}) {
+    if (!isVisible) return null
+    return (
+        <SettingsLink
+            label="Forms"
+            onPress={onPress}
+            icon={<ClipboardList size={20} color={color} />}
+        />
     )
 }
 

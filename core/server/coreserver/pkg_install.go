@@ -475,3 +475,17 @@ func automationDefsPath(serverDir string) string {
 	}
 	return filepath.Join(serverDir, automationDefsFile)
 }
+
+// formHostsFile is the materialized form-host registry the generator writes
+// (scripts/gen-form-hosts.ts).
+const formHostsFile = "form_hosts.json"
+
+// formHostsPath resolves form_hosts.json the same way automationDefsPath
+// resolves automation_defs.json.
+func formHostsPath(serverDir string) string {
+	nested := filepath.Join(serverDir, "server", formHostsFile)
+	if _, err := os.Stat(nested); err == nil {
+		return nested
+	}
+	return filepath.Join(serverDir, formHostsFile)
+}

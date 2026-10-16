@@ -203,6 +203,30 @@ describe('auth-store OTP methods', () => {
             })
         })
 
+        // The share handler refuses an account with two-step verification
+        // with a PocketBase ApiError, whose text is in `message`.
+        it('shows the message of a refused sign-in', async () => {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    json: async () => ({ status: 403, message: 'Sign in to TinyCld first.' }),
+                })
+            )
+
+            const result = await verifyShareOtp(
+                'cogs',
+                'share_tok',
+                'a@example.com',
+                '123456',
+                'otp'
+            )
+            expect(result).toEqual({ user: null, error: 'Sign in to TinyCld first.' })
+            expect(mockAuthStoreSave).not.toHaveBeenCalled()
+        })
+
         it('returns error on HTTP 400', async () => {
             vi.stubGlobal(
                 'fetch',
