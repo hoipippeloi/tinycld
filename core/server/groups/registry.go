@@ -32,7 +32,11 @@
 // rule that forgets the guard.
 package groups
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/pocketbase/pocketbase/core"
+)
 
 // GrantTable declares a package membership table that carries optional `user`
 // and `group` relation fields. ResourceField names the column that points at
@@ -51,7 +55,12 @@ type GrantTable struct {
 
 // MembershipEvent describes one user joining or leaving one group. It is
 // delivered after the membership row commits.
+//
+// App is the app that saved the membership. The registry is process global,
+// so a listener must do its work through App and not through an app it held
+// when it registered: that app can be a different one.
 type MembershipEvent struct {
+	App     core.App
 	UserID  string
 	GroupID string
 	Joined  bool
