@@ -116,6 +116,9 @@ const knownIcons = {
     Loader2: Icon,
     RefreshCw: Icon,
     File: Icon,
+    // Group admin drawer (core/tests/unit/group-drawer-removal.test.tsx)
+    Search: Icon,
+    UserPlus: Icon,
     // core Toast's VARIANT_ICONS table (AlertTriangle and X are seeded above)
     CheckCircle: Icon,
     Info: Icon,
