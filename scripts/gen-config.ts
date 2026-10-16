@@ -55,6 +55,7 @@ export interface ConfigPkg {
     sidebarContributions: ConfigSidebarContribution[]
     search?: ConfigSearch
     automation?: string // exports subpath to the AutomationDefinitions module
+    notifications?: { events: string } // exports subpath to the PackageNotifyEvents module
     forms?: { hosts: string; ui: string }
     eventSources: ConfigEventSource[]
     eventSourceHost: boolean
@@ -65,7 +66,7 @@ export interface ConfigPkg {
     >
 }
 
-import { assertSafeImportField } from './validate-generated-field'
+import { assertSafeExportSubpath, assertSafeImportField } from './validate-generated-field'
 
 function ident(slug: string): string {
     return slug.replace(/-([a-z])/g, (_m, c) => c.toUpperCase())
@@ -95,6 +96,7 @@ function validateConfigPkg(p: ConfigPkg): void {
     }
     if (p.search) assertSafeImportField('search.adapter', p.search.adapter)
     if (p.automation) assertSafeImportField('automation', p.automation)
+    if (p.notifications) assertSafeExportSubpath('notifications.events', p.notifications.events)
     if (p.forms) {
         assertSafeImportField('forms.hosts', p.forms.hosts)
         assertSafeImportField('forms.ui', p.forms.ui)
@@ -201,6 +203,11 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
         if (p.automation) {
             lines.push(`import ${ident(p.slug)}Automation from '${p.packageName}/${p.automation}'`)
         }
+        if (p.notifications) {
+            lines.push(
+                `import ${ident(p.slug)}NotifyEvents from '${p.packageName}/${p.notifications.events}'`
+            )
+        }
         if (p.forms) {
             lines.push(`import ${ident(p.slug)}FormHosts from '${p.packageName}/${p.forms.hosts}'`)
         }
@@ -255,6 +262,7 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
         pushEventSourceLines(lines, p)
         pushSetupStepLines(lines, p)
         if (p.automation) lines.push(`        automation: ${ident(p.slug)}Automation,`)
+        if (p.notifications) lines.push(`        notifyEvents: ${ident(p.slug)}NotifyEvents,`)
         if (p.forms) {
             lines.push(`        formHosts: ${ident(p.slug)}FormHosts,`)
             lines.push(`        formHostsUi: () => import('${p.packageName}/${p.forms.ui}'),`)

@@ -222,6 +222,18 @@ export interface PackageManifest {
     }
 
     /**
+     * User-facing notification events this package emits: `events` is a
+     * package-exports subpath to a pure-data module default-exporting
+     * PackageNotifyEvents (event name → channels + variant). The same module
+     * augments core's NotificationEvents interface with the events' payload
+     * types, so `notify.emit` is typed in the package's own code. Core never
+     * lists a package's events; the dispatcher composes them at boot.
+     */
+    notifications?: {
+        events: string
+    }
+
+    /**
      * Form hosts: `hosts` is a package-exports subpath to a pure-data module
      * default-exporting FormHostDef[] (the generator imports it in Node);
      * `ui` is a subpath to the module default-exporting FormHostUi with the

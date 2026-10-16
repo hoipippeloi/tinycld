@@ -53,6 +53,9 @@ export interface PackageManifest {
     // Workflow-rules catalog: exports subpath to the package's
     // AutomationDefinitions module. See core/lib/packages/types.ts.
     automation?: { definitions: string }
+    // User-facing notification events: exports subpath to the package's
+    // pure-data PackageNotifyEvents module. See core/lib/packages/types.ts.
+    notifications?: { events: string }
     forms?: { hosts: string; ui: string }
     // Read-only event feeds this package contributes to another package's
     // event grid (today: the calendar). `module` is a package-exports subpath

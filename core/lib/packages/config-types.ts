@@ -6,6 +6,7 @@ import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
 import type { AutomationDefinitions } from '../automation/types'
 import type { FormHostDefInput } from '../forms/host'
 import type { FormHostUi } from '../forms/host-ui'
+import type { PackageNotifyEvents } from '../notify/registry'
 import type { PackageManifest } from './types'
 
 // --- Spike-2-proven helpers (see ~/code/tinycld/new/spike2/sim.ts) ----------
@@ -150,6 +151,7 @@ export interface PackageEntry<S extends SchemaDeclaration, R> {
     eventSources?: PackageEventSource[]
     setupSteps?: PackageSetupStep[]
     automation?: AutomationDefinitions
+    notifyEvents?: PackageNotifyEvents
     formHosts?: FormHostDefInput[]
     formHostsUi?: () => Promise<{ default: FormHostUi }>
     seed?: (pb: PocketBase, ctx: SeedContext) => Promise<void>
@@ -179,6 +181,7 @@ export function definePackageEntry<S extends SchemaDeclaration>() {
         eventSources?: PackageEntry<S, R>['eventSources']
         setupSteps?: PackageEntry<S, R>['setupSteps']
         automation?: PackageEntry<S, R>['automation']
+        notifyEvents?: PackageEntry<S, R>['notifyEvents']
         formHosts?: PackageEntry<S, R>['formHosts']
         formHostsUi?: PackageEntry<S, R>['formHostsUi']
         seed?: PackageEntry<S, R>['seed']
