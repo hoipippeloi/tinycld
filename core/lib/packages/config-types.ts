@@ -4,9 +4,9 @@ import type { createCollection, SchemaDeclaration } from 'pbtsdb/core'
 import type PocketBase from 'pocketbase'
 import type { ComponentType, LazyExoticComponent, ReactNode } from 'react'
 import type { AutomationDefinitions } from '../automation/types'
-import type { PackageNotifyEvents } from '../notify/registry'
 import type { FormHostDefInput } from '../forms/host'
 import type { FormHostUi } from '../forms/host-ui'
+import type { PackageNotifyEvents } from '../notify/registry'
 import type { PackageManifest } from './types'
 
 // --- Spike-2-proven helpers (see ~/code/tinycld/new/spike2/sim.ts) ----------
