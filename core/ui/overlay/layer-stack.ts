@@ -17,6 +17,12 @@ export interface LayerRecord {
     id: number
     /** The DOM nodes that count as inside this layer: its surface and its anchor. */
     nodes: () => (Node | null | undefined)[]
+    /**
+     * The region a press must land in to concern this layer at all. A press
+     * outside it is someone else's — app chrome around a screen-scoped panel —
+     * and neither dismisses the layer nor is consumed. Unset: the whole page.
+     */
+    within?: () => Node | null | undefined
     onDismiss: () => void
     dismissOnOutside: boolean
     dismissOnEscape: boolean
@@ -71,7 +77,10 @@ export function layerToDismiss(
 ): LayerRecord | null {
     const top = layers[layers.length - 1]
     if (!top?.dismissOnOutside) return null
-    if (target && top.nodes().some(node => node?.contains(target))) return null
+    if (!target) return top
+    const region = top.within?.()
+    if (region && !region.contains(target)) return null
+    if (top.nodes().some(node => node?.contains(target))) return null
     return top
 }
 
@@ -221,6 +230,8 @@ interface UseOverlayLayerOptions {
     isOpen: boolean
     /** The surface's node and its anchor (trigger). Read at event time. */
     nodes: () => (Node | null | undefined)[]
+    /** See LayerRecord.within. Read at event time. */
+    within?: () => Node | null | undefined
     onDismiss: () => void
     dismissOnOutside?: boolean
     dismissOnEscape?: boolean
@@ -245,6 +256,7 @@ interface UseOverlayLayerOptions {
 export function useOverlayLayer({
     isOpen,
     nodes,
+    within,
     onDismiss,
     dismissOnOutside = true,
     dismissOnEscape = true,
@@ -253,6 +265,8 @@ export function useOverlayLayer({
     const idRef = useRef<number | null>(null)
     const nodesRef = useRef(nodes)
     nodesRef.current = nodes
+    const withinRef = useRef(within)
+    withinRef.current = within
     const onDismissRef = useRef(onDismiss)
     onDismissRef.current = onDismiss
 
@@ -263,6 +277,7 @@ export function useOverlayLayer({
         pushLayer({
             id,
             nodes: () => nodesRef.current(),
+            within: withinRef.current ? () => withinRef.current?.() : undefined,
             onDismiss: () => onDismissRef.current(),
             dismissOnOutside,
             dismissOnEscape,
