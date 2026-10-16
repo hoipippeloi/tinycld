@@ -289,6 +289,7 @@ export default manifest
 | `payloads` | `{ package }` — dir (relative to the member root, e.g. `'server/api'`) of a **self-contained** Go package holding one exported struct per HTTP request/response. The generator parses it with go/ast (never imports it) and emits `lib/generated/<slug>-api.ts`, importable as `@tinycld/app-generated/<slug>-api` — the Go structs are the single source of truth for API payload shapes, consumed by both the web client and the CLI. Constraints (hard generation errors otherwise): no imports beyond `time`, structs + basic-literal consts only, every exported field json-tagged, no embedded fields, no `any`. |
 | `quota` | `[{ collection, sizeField, ownerField? }]` — storage-bearing collections `core/quota` enforces ceilings on, as record hooks. A source with no `ownerField` counts toward the org ceiling only. |
 | `automation` | `{ definitions }` — exports subpath to a pure-data module default-exporting `AutomationDefinitions<PkgSchema>`: the package's workflow-rules **triggers** (record events users build rules on) and **actions** (record-ops core executes anywhere, or native Go handlers registered via `automation.RegisterAction`). Generator-validated and materialized to `server/automation_defs.json`; the engine resolves and serves the catalog to the builder UI. Full authoring guide: [automation.md](automation.md). |
+| `notifications` | `{ events }` — exports subpath to a pure-data module default-exporting the package's notification events (`PackageNotifyEvents`: name → channels + variant) and augmenting core's `NotificationEvents` with their payload types. Core composes the dispatcher's registry from every installed package at boot; core's own list names no package. |
 | `build.script` | A build script run before bundling (e.g. an embedded webview bundle). |
 | `dependencies[]` | A **slug-only** list of other packages — **advisory + seed-ordering only.** Used to topologically sort seed execution and as a soft hint; it imposes **no** version constraint and is never a compile-time import. |
 | `peerVersions` | `{ '<slug or @tinycld/core>': '<semver range>' }` (e.g. `{ '@tinycld/core': '>=2.1 <3' }`) — **enforced** semver ranges keyed by slug. See [`dependencies` vs `peerVersions`](#dependencies-vs-peerversions) below. |
@@ -616,6 +617,7 @@ The generator fails fast on:
 - **Duplicate slot names** within one package's `manifest.slots`.
 - **`sidebarContributions` targeting an unknown slot** on a present host package — the error lists the host's actual `slots` array so you can spot the typo immediately.
 - **`ports`**: a duplicate name or port number across packages, a port outside 1-65535, a name that does not match `[a-z0-9-]+`, or a name that collides with a supervisor-reserved name (`http`, `https`, `http-redirect`).
+- **`notifications.events`**: a subpath with no plain-string `./<subpath>` entry in the package's `exports` map, an entry whose file does not exist, or a module with a runtime import from `@tinycld/core` or `@tinycld/app-generated` (use `import type`). The module must be pure data: the generated config imports it, and a runtime import that reaches the dispatcher would make `tinycldConfig` read itself while it initialises.
 
 It warns (but does not fail) when:
 
@@ -877,6 +879,7 @@ runtime. The registries that exist:
 | version snapshot/restore hooks for its drive item type | `versionhooks.Register` |
 | a sink for provider delivery notifications about its own sent messages | `deliveryevents.Register` |
 | what to stop at once when a supervised server begins to drain (e.g. stop accepting on its own ports) | `drainhooks.OnBegin` |
+| its user-facing notification events and their channels/variant | `notifications: { events }` in the manifest; core composes `notifyRegistry` from every entry at boot |
 
 `offboard.RegisterReassignable` rewrites every matching row to the successor in
 one `UPDATE`. That is wrong for a membership table: the successor inherits every

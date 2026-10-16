@@ -221,6 +221,18 @@ export interface PackageManifest {
         definitions: string
     }
 
+    /**
+     * User-facing notification events this package emits: `events` is a
+     * package-exports subpath to a pure-data module default-exporting
+     * PackageNotifyEvents (event name → channels + variant). The same module
+     * augments core's NotificationEvents interface with the events' payload
+     * types, so `notify.emit` is typed in the package's own code. Core never
+     * lists a package's events; the dispatcher composes them at boot.
+     */
+    notifications?: {
+        events: string
+    }
+
     repository?: {
         url: string
         issueTemplate?: string

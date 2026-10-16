@@ -145,6 +145,17 @@ describe('manifestToConfigPkg', () => {
         })
         expect(pkg.automation).toBeUndefined()
     })
+
+    it('maps manifest.notifications to ConfigPkg.notifications', () => {
+        const pkg = manifestToConfigPkg('@acme/gizmos', {
+            name: 'Gizmos',
+            slug: 'gizmos',
+            version: '0.1.0',
+            description: 'd',
+            notifications: { events: 'notify-events' },
+        })
+        expect(pkg.notifications).toEqual({ events: 'notify-events' })
+    })
 })
 
 describe('validateSidebarContributions', () => {
