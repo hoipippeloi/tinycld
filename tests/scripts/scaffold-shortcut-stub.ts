@@ -186,6 +186,23 @@ function patchVitestConfig(stubDir: string): void {
     if (patched !== contents) writeFileSync(path, patched)
 }
 
+/**
+ * Drop the template's `compilerOptions.baseUrl`.
+ *
+ * The pinned bootstrap emits it, and TypeScript 6 rejects it (TS5101), so the
+ * stub's own typecheck fails before it reads a source file. `paths` resolves
+ * against the tsconfig's directory without it, as in every real package. Drop
+ * this once BOOTSTRAP_VERSION stops emitting it.
+ */
+function patchTsconfig(stubDir: string): void {
+    const path = join(stubDir, 'tsconfig.json')
+    const contents = readFileSync(path, 'utf8')
+    // A line edit, not a JSON round-trip: re-serialising would undo the
+    // template's formatting and fail biome on the stub.
+    const patched = contents.replace(/^[ \t]*"baseUrl":\s*"[^"]*",?\n/m, '')
+    if (patched !== contents) writeFileSync(path, patched)
+}
+
 // The three panels the manifest declares under one shared slug. Each renders a
 // distinct testID so the settings e2e can prove which route tree resolved it.
 function writePanels(stubDir: string): void {
@@ -338,6 +355,7 @@ function main(): void {
     patchManifest(stubDir)
     patchPackageJson(stubDir)
     patchVitestConfig(stubDir)
+    patchTsconfig(stubDir)
     writeScreens(stubDir)
     writePanels(stubDir)
 
