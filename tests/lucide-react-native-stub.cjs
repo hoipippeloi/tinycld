@@ -122,6 +122,10 @@ const knownIcons = {
     // boards: the sub-task row's state glyphs, mounted whole
     CircleCheck: Icon,
     CircleDashed: Icon,
+    // boards: ViewToggle's view-mode segments (boards/tests/a11y-state.mount.test.tsx)
+    ChartGantt: Icon,
+    Columns3: Icon,
+    ListTree: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Mail domain settings (mail/tinycld/mail/settings/DnsRecordsPanel.tsx,
