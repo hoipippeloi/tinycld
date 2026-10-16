@@ -32,10 +32,7 @@
 // rule that forgets the guard.
 package groups
 
-import (
-	"errors"
-	"sync"
-)
+import "sync"
 
 // GrantTable declares a package membership table that carries optional `user`
 // and `group` relation fields. ResourceField names the column that points at
@@ -64,7 +61,6 @@ var (
 	mu        sync.RWMutex
 	tables    []GrantTable
 	listeners []func(MembershipEvent) error
-	errStop   = errors.New("groups: listener refused")
 )
 
 // RegisterGrantTable adds a membership table to the registry. Idempotent, and
@@ -93,26 +89,29 @@ func RegisteredGrantTables() []GrantTable {
 	return out
 }
 
-// OnMembershipChange registers a listener for join/leave events. Listeners run
-// in registration order; the first error stops the chain and is logged by the
-// caller. A package uses this to grant or remove per-member resources.
+// OnMembershipChange registers a listener for join/leave events. Every
+// listener runs, in registration order. An error is logged and not retried,
+// and one listener's error does not stop the others. A package uses this to
+// grant or remove per-member resources.
 func OnMembershipChange(fn func(MembershipEvent) error) {
 	mu.Lock()
 	defer mu.Unlock()
 	listeners = append(listeners, fn)
 }
 
-func notifyMembership(e MembershipEvent) error {
+// notifyMembership runs every listener. The listeners belong to different
+// packages, so one package's failure must not keep the next from hearing the
+// event.
+func notifyMembership(e MembershipEvent) {
 	mu.RLock()
 	fns := make([]func(MembershipEvent) error, len(listeners))
 	copy(fns, listeners)
 	mu.RUnlock()
-	for _, fn := range fns {
+	for i, fn := range fns {
 		if err := fn(e); err != nil {
-			return err
+			log.Error("membership listener failed", "listener", i, "user", e.UserID, "group", e.GroupID, "joined", e.Joined, "err", err)
 		}
 	}
-	return nil
 }
 
 // ResetForTesting clears tables and listeners. Tests register their own.

@@ -121,12 +121,9 @@ func nextInTx(e *core.RecordEvent, derive func(txApp core.App) error) error {
 }
 
 func notify(member *core.Record, joined bool) {
-	err := notifyMembership(MembershipEvent{
+	notifyMembership(MembershipEvent{
 		UserID:  member.GetString("user"),
 		GroupID: member.GetString("group"),
 		Joined:  joined,
 	})
-	if err != nil {
-		log.Error("membership listener failed", "user", member.GetString("user"), "group", member.GetString("group"), "joined", joined, "err", err)
-	}
 }
