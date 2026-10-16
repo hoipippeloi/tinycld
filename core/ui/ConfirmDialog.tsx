@@ -61,7 +61,7 @@ export function ConfirmDialog({
 function ConfirmBody({ message, children }: { message?: string; children?: ReactNode }) {
     if (!message && !children) return null
     return (
-        <Dialog.Body>
+        <Dialog.Body testID="confirm-dialog-body">
             <ConfirmText message={message} />
             {children}
         </Dialog.Body>

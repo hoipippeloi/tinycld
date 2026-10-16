@@ -65,6 +65,10 @@ function pressRemoveAnn(container: HTMLElement) {
     fireEvent.click(button)
 }
 
+// The stub renders testID as a plain attribute; the dialog may portal out.
+const confirmBody = (container: HTMLElement) =>
+    container.ownerDocument.querySelector('[testid="confirm-dialog-body"]')
+
 const seenUserIds: unknown[] = []
 const Notice = ({ groupId, userId }: { groupId?: string; userId?: string | null }) => {
     seenUserIds.push(userId)
@@ -91,6 +95,7 @@ describe('MembersSection removal confirm', () => {
         await findByText('Ann')
         pressRemoveAnn(container)
         expect(getByText('notice g1 u1')).not.toBeNull()
+        expect(confirmBody(container)).not.toBeNull()
         expect(getByText('Remove Ann from "Sales"?')).not.toBeNull()
         expect(memberships()).toBe(1)
 
@@ -115,6 +120,10 @@ describe('MembersSection removal confirm', () => {
         const { container, getByText, findByText } = mount()
         await findByText('Ann')
         pressRemoveAnn(container)
+        // The confirm has no message: with no notice there is nothing to show
+        // in the body, so no empty padded box renders.
+        expect(getByText('Remove Ann from "Sales"?')).not.toBeNull()
+        expect(confirmBody(container)).toBeNull()
         fireEvent.click(getByText('Remove'))
         await waitFor(() => expect(memberships()).toBe(0))
     })

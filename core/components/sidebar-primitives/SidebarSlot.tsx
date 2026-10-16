@@ -34,6 +34,11 @@ export function SlotContribution({
     )
 }
 
+/** True when an installed package contributes to the slot. A host uses it to leave out a wrapper that would show empty. */
+export function hasSlotContributions(target: string, slot: string) {
+    return (packageSidebarContributions[target]?.[slot]?.length ?? 0) > 0
+}
+
 export function SidebarSlot({ target, slot, props }: SidebarSlotProps) {
     const entries = packageSidebarContributions[target]?.[slot]
     if (!entries || entries.length === 0) return null
