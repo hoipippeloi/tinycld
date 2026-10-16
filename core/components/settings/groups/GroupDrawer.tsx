@@ -332,13 +332,22 @@ export function MembersSection({ groupId, groupName }: { groupId: string; groupN
                 isDestructive
                 isSubmitting={isPending}
             >
-                <SidebarSlot
-                    target={CORE_SLOT_TARGET}
-                    slot={GROUP_MEMBER_REMOVAL_SLOT}
-                    props={{ groupId, userId: toRemove?.userId ?? null }}
-                />
+                <MemberRemovalNotice groupId={groupId} userId={toRemove?.userId ?? null} />
             </ConfirmDialog>
         </View>
+    )
+}
+
+// A null userId means "the whole group is deleted" to a contribution, so the
+// slot renders only while a member is selected, never while the confirm closes.
+function MemberRemovalNotice({ groupId, userId }: { groupId: string; userId: string | null }) {
+    if (userId === null) return null
+    return (
+        <SidebarSlot
+            target={CORE_SLOT_TARGET}
+            slot={GROUP_MEMBER_REMOVAL_SLOT}
+            props={{ groupId, userId }}
+        />
     )
 }
 
