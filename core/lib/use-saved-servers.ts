@@ -6,6 +6,7 @@ import { navigateToOrigin } from './navigate-to-origin'
 import { isReloadAvailable, ReloadUnavailableError } from './reload-js-context'
 import { forgetServer } from './remove-server'
 import { getResolvedAddress } from './server-address'
+import { switchUrlFor } from './server-handoff'
 import {
     canSwitchInPlace,
     isSameServer,
@@ -30,7 +31,9 @@ interface SavedServersState {
     canReload: boolean
     add: () => void
     switchTo: (origin: string) => void
-    remove: (origin: string) => void
+    // Resolves to the error message it also stores, or null on success, so a
+    // surface that closes before it settles (a menu) can still report it.
+    remove: (origin: string) => Promise<string | null>
 }
 
 // seedServers gives the first render the one server we can know synchronously.
@@ -110,7 +113,7 @@ export function useSavedServers(): SavedServersState {
         // amount of repointing `pb` would produce one. The only real move is to
         // navigate there and let that origin decide who you are.
         if (!canSwitchInPlace()) {
-            navigateToOrigin(origin)
+            navigateToOrigin(switchUrlFor(origin, getResolvedAddress()))
             return
         }
 
@@ -130,28 +133,32 @@ export function useSavedServers(): SavedServersState {
         }
     }, [])
 
-    const remove = useCallback(async (origin: string) => {
+    const remove = useCallback(async (origin: string): Promise<string | null> => {
         setError(null)
         setBusyOrigin(origin)
         try {
             const outcome = await forgetServer(origin)
             if (outcome.status === 'disconnected') {
                 router.replace(CONNECT_HREF)
-                return
+                return null
             }
             // 'switched' restarts the JS context, so only 'removed' returns here
             // with UI still to update.
-            setServers(await readServers())
+            setServers(withActive(await readServers(), getResolvedAddress()))
             setBusyOrigin(null)
+            return null
         } catch (err) {
             setBusyOrigin(null)
             if (err instanceof ReloadUnavailableError) {
-                setError('Removed. Restart the app to finish switching servers.')
+                const message = 'Removed. Restart the app to finish switching servers.'
+                setError(message)
                 setServers(await readServers())
-                return
+                return message
             }
             captureException('use-saved-servers.remove', err)
-            setError('Could not remove that server. Please try again.')
+            const message = 'Could not remove that server. Please try again.'
+            setError(message)
+            return message
         }
     }, [])
 
@@ -173,6 +180,7 @@ export function useSavedServers(): SavedServersState {
 }
 
 const noop = () => {}
+const noopRemove = async () => null
 
 const INERT: SavedServersState = {
     servers: [],
@@ -182,5 +190,5 @@ const INERT: SavedServersState = {
     canReload: false,
     add: noop,
     switchTo: noop,
-    remove: noop,
+    remove: noopRemove,
 }
