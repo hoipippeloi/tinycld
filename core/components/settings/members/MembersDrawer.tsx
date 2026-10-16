@@ -1,7 +1,10 @@
 import { Avatar } from '@tinycld/core/components/Avatar'
+import { SidebarSlot } from '@tinycld/core/components/sidebar-primitives/SidebarSlot'
 import { useAuth } from '@tinycld/core/lib/auth'
+import { MEMBER_DRAWER_SLOT } from '@tinycld/core/lib/members/member-panel'
 import { mutation, useMutation } from '@tinycld/core/lib/mutations'
 import { useStore } from '@tinycld/core/lib/pocketbase'
+import { CORE_SLOT_TARGET } from '@tinycld/core/lib/setup/core-slots'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useAvatarUrl } from '@tinycld/core/lib/use-avatar-url'
 import { ButtonIcon, ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
@@ -274,6 +277,12 @@ function ViewMember({
                     {showPackageAccess && <PackageAccessPanel userId={member.userId} />}
 
                     <MemberGroupChips userId={member.userId} />
+
+                    <SidebarSlot
+                        target={CORE_SLOT_TARGET}
+                        slot={MEMBER_DRAWER_SLOT}
+                        props={{ userId: member.userId }}
+                    />
 
                     <MemberSignInHelp
                         isVisible={canHelpSignIn}

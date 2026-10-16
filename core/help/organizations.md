@@ -40,6 +40,8 @@ Every member has one role on their account:
 Owners and admins set roles under **Settings → Members**. Only an owner can
 make someone else an owner.
 
+Installed apps can add a section here, for example the person's email addresses.
+
 ## Inviting people
 
 To invite someone, open **Settings → Members** and click **Invite**. Enter a

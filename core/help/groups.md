@@ -55,3 +55,5 @@ stays.
 
 Open **Settings → Members**, choose the person, and look for **Groups** in
 their panel.
+
+Installed apps can add a section to a group's panel, for example the group's email addresses.
