@@ -1,6 +1,9 @@
 package groups
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestRegisterGrantTableIsIdempotentAndIgnoresBlanks(t *testing.T) {
 	ResetForTesting()
@@ -15,26 +18,22 @@ func TestRegisterGrantTableIsIdempotentAndIgnoresBlanks(t *testing.T) {
 	}
 }
 
-func TestMembershipListenersRunInOrderAndStopOnError(t *testing.T) {
+// One package's failure must not keep a later package from hearing the
+// event: every listener runs, in registration order.
+func TestMembershipListenersAllRunInOrderAfterAnError(t *testing.T) {
 	ResetForTesting()
+	t.Cleanup(ResetForTesting)
 	var seen []string
 	OnMembershipChange(func(e MembershipEvent) error {
-		seen = append(seen, "a:"+e.UserID)
-		return nil
+		seen = append(seen, "zoo:"+e.UserID)
+		return errors.New("zoo keepers refused")
 	})
 	OnMembershipChange(func(e MembershipEvent) error {
-		seen = append(seen, "b:"+e.UserID)
-		return errStop
-	})
-	OnMembershipChange(func(e MembershipEvent) error {
-		seen = append(seen, "c:"+e.UserID)
+		seen = append(seen, "acme:"+e.UserID)
 		return nil
 	})
-	err := notifyMembership(MembershipEvent{UserID: "u1", GroupID: "g1", Joined: true})
-	if err == nil {
-		t.Fatal("expected the second listener's error to surface")
-	}
-	if len(seen) != 2 || seen[0] != "a:u1" || seen[1] != "b:u1" {
-		t.Fatalf("seen = %v", seen)
+	notifyMembership(MembershipEvent{UserID: "u1", GroupID: "g1", Joined: true})
+	if len(seen) != 2 || seen[0] != "zoo:u1" || seen[1] != "acme:u1" {
+		t.Fatalf("seen = %v, want both listeners in order", seen)
 	}
 }
