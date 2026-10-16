@@ -87,7 +87,7 @@ available in production.
 - Import collections with `useStore('collection1', 'collection2')` from `pbtsdb` - it uses variadic arguments and returns a tuple array
   - Example: `const [tagsCollection] = useStore('tags')`
   - Example: `const [jobsCollection, addressesCollection] = useStore('jobs', 'addresses')`
-- **Use `useLiveQuery`** from `@tanstack/react-db` for data queries. Single-org deployment: the process IS one org, so there is nothing to scope by except the caller's identity. When a query filters **my own rows**, use **`useMyLiveQuery`** from `@tinycld/core/lib/use-my-live-query`: it injects a guaranteed-non-empty `userId`, disables the query until the user id is known, and auto-includes `userId` in the dependency array.
+- **Use `useLiveQuery`** from `@tanstack/react-db` for data queries. Single-org deployment: the process IS one org, so there is nothing to scope by except the caller's identity. When a query filters **my own rows**, use **`useMyLiveQuery`** from `@tinycld/core/lib/use-my-live-query`: it injects a guaranteed-non-empty `userId` and disables the query until the user id is known. A query on a hot render path (one that re-renders on each keystroke or row change) takes an explicit identity: `useLiveQuery({ queryKey: [...], query })`, or `useMyLiveQuery(fn, { queryKey: [...] })`, which adds the user id to the key. The key must name every value the query captures; a value it leaves out does not re-run the query when it changes.
   ```ts
   const { data: items } = useMyLiveQuery((query, { userId }) =>
       query.from({ item: itemsCollection }).where(({ item }) => eq(item.user, userId))
