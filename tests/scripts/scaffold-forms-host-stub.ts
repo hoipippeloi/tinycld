@@ -226,7 +226,7 @@ export default hosts
         join(dir, 'forms-ui.ts'),
         `import type { FormHostUi } from '@tinycld/core/lib/forms/host-ui'
 
-const ui: FormHostUi = { components: {}, mappers: {} }
+const ui: FormHostUi = { components: {} }
 
 export default ui
 `

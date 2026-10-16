@@ -20,6 +20,7 @@ const bareHost = {
         ),
     }),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 
@@ -29,18 +30,25 @@ function NotesField({ fieldKey }: BuiltinFieldProps) {
 
 const ui: FormHostUi = {
     components: { NotesField, CommentsSection: () => null },
-    mappers: {},
 }
 
 const definition = defaultDefinitionFor(bareHost)
 const ctx = { today: '2026-01-01', userId: 'u' }
 
-function Harness({ layout, readOnly }: { layout: FormLayoutKind; readOnly?: boolean }) {
+function Harness({
+    layout,
+    readOnly,
+    hostUi = ui,
+}: {
+    layout: FormLayoutKind
+    readOnly?: boolean
+    hostUi?: FormHostUi
+}) {
     const form = useForm<Record<string, unknown>>({ defaultValues: {} })
     return (
         <FormRenderer
             host={bareHost}
-            ui={ui}
+            ui={hostUi}
             definition={definition}
             layout={layout}
             form={form}
@@ -75,6 +83,13 @@ describe('a bare built-in', () => {
         const { container, queryByText } = render(<Harness layout="sections" />)
         expect(byId(container, 'form-field-comments')?.textContent).toBe('')
         expect(queryByText('Comments')).toBeNull()
+    })
+
+    it('keeps the labelled cell when its component is missing', () => {
+        const noNotes: FormHostUi = { components: { CommentsSection: () => null } }
+        const { container, queryByText } = render(<Harness layout="sections" hostUi={noNotes} />)
+        expect(byId(container, 'form-field-notes-box')).toBeTruthy()
+        expect(queryByText('Notes')).toBeTruthy()
     })
 
     it('keeps the labelled cell on the design canvas', () => {

@@ -132,7 +132,7 @@ function Cell(props: CellProps) {
             handle={design?.renderHandle?.(field.key)}
             isSelected={design?.selectedKey === field.key}
             hideLabel={hideLabel}
-            isBare={rendersBare(host, field, mode)}
+            isBare={rendersBare(host, field, ui, mode)}
             badge={design?.badges?.[field.key]}
             dropIndicator={dropSideFor(design, field.key)}
             isDragging={design?.draggingKey === field.key}

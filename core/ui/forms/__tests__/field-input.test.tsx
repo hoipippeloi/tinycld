@@ -15,7 +15,12 @@ afterEach(cleanup)
 // FileField stamps the uploader; the signed-in user is all it reads from auth.
 vi.mock('@tinycld/core/lib/auth', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
 
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmo Works',
+    ui: async () => ({ components: {} }),
+}
 
 function Harness({
     field,
@@ -65,6 +70,7 @@ function byTestId(container: HTMLElement, id: string) {
 const select = {
     key: 's',
     kind: 'select' as const,
+    display: 'dropdown' as const,
     multiple: false,
     options: [{ value: 'x', label: 'Ex' }],
 }
@@ -96,7 +102,6 @@ describe('FieldInput', () => {
     it('renders a host section in edit mode and nothing in create mode', () => {
         const ui: FormHostUi = {
             components: { CommentsSection: () => <Text>Comments body</Text> },
-            mappers: {},
         }
         const field: FormField = { ...base, key: 'comments', kind: 'builtin' }
         const edit = render(<Harness field={field} ui={ui} mode="edit" recordId="r1" />)
@@ -134,15 +139,42 @@ describe('FieldInput', () => {
         expect(getByText('Add files after creating.')).toBeTruthy()
     })
 
-    it.each([
-        'dropdown',
-        'radio',
-    ] as const)('does not change a %s value in read mode, and does in create mode', display => {
+    const xyOptions = [
+        { value: 'x', label: 'Ex' },
+        { value: 'y', label: 'Why' },
+    ]
+
+    it.each(['dropdown', 'radio'] as const)('read mode shows only the chosen %s label', display => {
+        const field: FormField = { ...base, ...select, display, options: xyOptions }
+        const { getByText, queryByText, container } = render(
+            <Harness field={field} mode="read" initial="x" />
+        )
+        expect(getByText('Ex')).toBeTruthy()
+        expect(queryByText('Why')).toBeNull()
+        expect(byTestId(container, 'form-input-s').tagName).not.toBe('BUTTON')
+    })
+
+    it('read mode shows every chosen label of a multiple select', () => {
+        const field: FormField = {
+            ...base,
+            ...select,
+            multiple: true,
+            options: [...xyOptions, { value: 'z', label: 'Zed' }],
+        }
+        const { getByText, queryByText } = render(
+            <Harness field={field} mode="read" initial={['x', 'z']} />
+        )
+        expect(getByText('Ex, Zed')).toBeTruthy()
+        expect(queryByText('Why')).toBeNull()
+    })
+
+    it('read mode shows Empty for no value', () => {
+        const { getByText } = render(<Harness field={{ ...base, ...select }} mode="read" />)
+        expect(getByText('Empty')).toBeTruthy()
+    })
+
+    it.each(['dropdown', 'radio'] as const)('changes a %s value in create mode', display => {
         const field: FormField = { ...base, ...select, display }
-        const read = render(<Harness field={field} mode="read" />)
-        fireEvent.click(read.getByText('Ex'))
-        expect(byTestId(read.container, 'value').textContent).toBe('')
-        cleanup()
         const create = render(<Harness field={field} mode="create" />)
         fireEvent.click(create.getByText('Ex'))
         expect(byTestId(create.container, 'value').textContent).toBe('x')
@@ -253,7 +285,6 @@ describe('FieldInput', () => {
                     return <Text testID="host-notes">host</Text>
                 },
             },
-            mappers: {},
         }
         const collab = { doc: {} as never, awareness: null, user: null, canEdit: true }
         const { container } = render(
@@ -278,7 +309,7 @@ describe('FieldInput', () => {
     })
 
     it('shows a placeholder for a host component in design mode', () => {
-        const ui = { components: { NotesField: () => <Text>never</Text> }, mappers: {} }
+        const ui = { components: { NotesField: () => <Text>never</Text> } }
         const { getByText, queryByText } = render(
             <Harness
                 field={{ ...base, key: 'notes', kind: 'builtin' }}
@@ -286,7 +317,7 @@ describe('FieldInput', () => {
                 ui={ui as unknown as FormHostUi}
             />
         )
-        expect(getByText('Shown by Gizmos')).toBeTruthy()
+        expect(getByText('Shown by Gizmo Works')).toBeTruthy()
         expect(queryByText('never')).toBeNull()
     })
 })

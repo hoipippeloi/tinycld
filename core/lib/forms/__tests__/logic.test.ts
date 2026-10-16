@@ -7,6 +7,7 @@ import {
     evaluate,
     evaluateExpression,
     type FormState,
+    ruleFieldKeys,
 } from '../logic'
 
 const def: FormDefinition = definitionSchema.parse(fixture.definition)
@@ -74,5 +75,25 @@ describe('compileCondition', () => {
         expect(compileCondition({ field: 'kind', op: 'is_empty' })).toEqual({
             isEmpty: [{ var: 'kind' }],
         })
+    })
+})
+
+describe('ruleFieldKeys', () => {
+    const withRules = (rules: FormDefinition['rules']): FormDefinition => ({ ...def, rules })
+    const rule = (key: string, fields: string[]): FormDefinition['rules'][number] => ({
+        key,
+        match: 'all',
+        when: fields.map(field => ({ field, op: 'is_empty' as const })),
+        actions: [{ action: 'hide', field: 'x' }],
+    })
+
+    it('lists the fields the rules read, sorted and unique', () => {
+        const keys = ruleFieldKeys(
+            withRules([rule('a', ['severity', 'area']), rule('b', ['severity'])])
+        )
+        expect(keys).toEqual(['area', 'severity'])
+    })
+    it('is empty for a definition with no rules', () => {
+        expect(ruleFieldKeys(withRules([]))).toEqual([])
     })
 })

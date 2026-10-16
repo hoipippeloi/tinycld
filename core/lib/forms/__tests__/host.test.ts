@@ -23,14 +23,20 @@ describe('hostDefSchema', () => {
         const bare = hostDefSchema.parse({ ...widgetHost, files })
         expect(bare.files?.copyColumns).toEqual({})
     })
+    it('insertCustomBefore must name a built-in', () => {
+        const r = hostDefSchema.safeParse({ ...widgetHost, insertCustomBefore: 'nope' })
+        expect(r.success).toBe(false)
+        expect(JSON.stringify(r.error?.issues)).toContain('insertCustomBefore')
+        expect(
+            hostDefSchema.parse({ ...widgetHost, insertCustomBefore: 'notes' }).insertCustomBefore
+        ).toBe('notes')
+    })
     it('rejects a key without a colon', () => {
         expect(hostDefSchema.safeParse({ ...widgetHost, key: 'widget' }).success).toBe(false)
     })
-    it('rejects a rows builtin without a mapper', () => {
-        const builtin = widgetHost.builtin.map(b =>
-            b.key === 'tasks' ? { ...b, mapper: undefined } : b
-        )
-        expect(hostDefSchema.safeParse({ ...widgetHost, builtin }).success).toBe(false)
+    it('accepts a rows builtin with no mapper', () => {
+        expect(widgetHost.builtin.some(b => b.storage === 'rows')).toBe(true)
+        expect(hostDefSchema.safeParse(widgetHost).success).toBe(true)
     })
     it('rejects a collaborative builtin when the host has no fragment template', () => {
         const r = hostDefSchema.safeParse({ ...widgetHost, collaborative: undefined })

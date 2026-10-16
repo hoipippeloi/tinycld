@@ -40,8 +40,13 @@ export function useFormEdit(
     rows: Record<string, ChecklistItem[]> = {}
 ) {
     const { forms, defaultForm, isReady } = useFormsOfHost(host.key)
-    const formId = (record[host.formColumn] as string) || defaultForm?.id
-    const definition: FormDefinition | undefined = forms.find(f => f.id === formId)?.definition
+    const named = (record[host.formColumn] as string) || ''
+    const found = forms.find(f => f.id === named)
+    const chosen = found ?? defaultForm
+    const definition: FormDefinition | undefined = chosen?.definition
+    // The form the record names is deleted or unreadable: the record edits on the
+    // default, and the host can log the id it lost. Not while the forms still load.
+    const fallback = named && isReady && !found ? named : undefined
     const values = definition ? mergeValues(host, definition, record, rows) : {}
     const initialSchema = definition
         ? buildSchema(definition, host, evaluate(definition, values, context))
@@ -96,6 +101,7 @@ export function useFormEdit(
         form,
         schemaRef,
         definition,
+        fallback,
         patch,
         markSaved,
         onError: formErrorHandler(host, form, 'update record'),

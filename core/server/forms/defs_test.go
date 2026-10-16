@@ -15,11 +15,14 @@ func TestLoadHosts_ReadsTheFixture(t *testing.T) {
 	if h == nil || h.Collection != "gizmos_widgets" {
 		t.Fatalf("host = %+v", h)
 	}
-	if b := h.Builtin("tasks"); b == nil || b.Storage != "rows" || b.Mapper != "tasksMapper" {
+	if b := h.Builtin("tasks"); b == nil || b.Storage != "rows" {
 		t.Fatalf("tasks builtin = %+v", b)
 	}
 	if b := h.Builtin("notes"); b == nil || b.Chrome != "bare" {
 		t.Fatalf("notes builtin keeps its chrome: %+v", b)
+	}
+	if h.InsertCustomBefore != "notes" {
+		t.Fatalf("insertCustomBefore = %q", h.InsertCustomBefore)
 	}
 	if h.Builtin("ghost") != nil {
 		t.Fatal("unknown builtin must be nil")

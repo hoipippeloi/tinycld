@@ -1,6 +1,7 @@
 package html
 
 import (
+	"strconv"
 	"strings"
 
 	nethtml "golang.org/x/net/html"
@@ -82,9 +83,18 @@ func (c *blockCollector) node(n *nethtml.Node) {
 	case atom.Ol:
 		c.add(listNode(n, true))
 	case atom.Blockquote:
-		c.add(markdown.PMNode{Type: markdown.NodeBlockquote, Content: blocksOf(n)})
+		content := blocksOf(n)
+		if len(content) == 0 {
+			// A blockquote must hold a block; an empty one is invalid in the schema.
+			content = []markdown.PMNode{{Type: markdown.NodeParagraph}}
+		}
+		c.add(markdown.PMNode{Type: markdown.NodeBlockquote, Content: content})
 	case atom.Pre:
-		c.add(markdown.PMNode{Type: markdown.NodeCodeBlock, Content: textOnly(textContent(n))})
+		block := markdown.PMNode{Type: markdown.NodeCodeBlock, Content: textOnly(textContent(n))}
+		if lang := codeLanguage(n); lang != "" {
+			block.Attrs = map[string]any{"language": lang}
+		}
+		c.add(block)
 	case atom.Br, atom.Img, atom.Span, atom.A, atom.Strong, atom.B, atom.Em, atom.I,
 		atom.U, atom.S, atom.Del, atom.Strike, atom.Code:
 		c.pending = appendInline(c.pending, n, nil)
@@ -113,6 +123,22 @@ func blocksOf(n *nethtml.Node) []markdown.PMNode {
 	return c.finish()
 }
 
+func codeLanguage(pre *nethtml.Node) string {
+	for ch := pre.FirstChild; ch != nil; ch = ch.NextSibling {
+		if ch.DataAtom != atom.Code {
+			continue
+		}
+		class, _ := attr(ch, "class")
+		for _, name := range strings.Fields(class) {
+			if lang, ok := strings.CutPrefix(name, "language-"); ok {
+				return lang
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
 func listNode(n *nethtml.Node, ordered bool) markdown.PMNode {
 	var items []markdown.PMNode
 	tasks := false
@@ -125,7 +151,8 @@ func listNode(n *nethtml.Node, ordered bool) markdown.PMNode {
 			content = []markdown.PMNode{{Type: markdown.NodeParagraph}}
 		}
 		item := markdown.PMNode{Type: markdown.NodeListItem, Content: content}
-		if checked, ok := attr(li, "data-checked"); ok {
+		// An orderedList cannot hold taskItems, so data-checked is ignored there.
+		if checked, ok := attr(li, "data-checked"); ok && !ordered {
 			tasks = true
 			item.Type = markdown.NodeTaskItem
 			item.Attrs = map[string]any{"checked": checked == "true"}
@@ -134,7 +161,11 @@ func listNode(n *nethtml.Node, ordered bool) markdown.PMNode {
 	}
 	switch {
 	case ordered:
-		return markdown.PMNode{Type: markdown.NodeOrderedList, Content: items}
+		list := markdown.PMNode{Type: markdown.NodeOrderedList, Content: items}
+		if start, err := strconv.Atoi(attrOr(n, "start")); err == nil && start != 1 {
+			list.Attrs = map[string]any{"start": start}
+		}
+		return list
 	case tasks:
 		return markdown.PMNode{Type: markdown.NodeTaskList, Content: toTaskItems(items)}
 	default:
@@ -186,7 +217,7 @@ func appendInline(out []markdown.PMNode, n *nethtml.Node, marks []markdown.PMMar
 			Attrs: map[string]any{"src": src, "alt": alt},
 		})
 	}
-	if m, ok := markFor(n); ok {
+	if m, ok := markFor(n); ok && !hasMark(marks, m.Type) {
 		marks = append(copyMarks(marks), m)
 	}
 	for ch := n.FirstChild; ch != nil; ch = ch.NextSibling {
@@ -217,11 +248,25 @@ func markFor(n *nethtml.Node) (markdown.PMMark, bool) {
 	return markdown.PMMark{}, false
 }
 
+func hasMark(marks []markdown.PMMark, t string) bool {
+	for _, m := range marks {
+		if m.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
 func copyMarks(marks []markdown.PMMark) []markdown.PMMark {
 	if len(marks) == 0 {
 		return nil
 	}
 	return append([]markdown.PMMark(nil), marks...)
+}
+
+func attrOr(n *nethtml.Node, key string) string {
+	v, _ := attr(n, key)
+	return v
 }
 
 func attr(n *nethtml.Node, key string) (string, bool) {

@@ -61,6 +61,6 @@ A field's key is set when it is created and never changes, so renaming a field k
 
 The **Rules** tab lists the form's rules. Each rule has conditions ("when all of" or "when any of") and actions. Pick a field, an operator and a value; then pick an action and its target. **Set options** is offered only for choice lists. **Hide** is not offered for a field the record always needs, nor for the page that holds one. Write a date as YYYY-MM-DD. A problem with a rule shows in that rule's card.
 
-**Preview** opens the draft as users will see it, with rules live. **Save** writes the form; the server checks it again and points at any field it refuses. The list above the form names each problem by its field or rule.
+**Preview** opens the draft as a desktop sees it, with rules live; switch to Phone to see how its columns stack on a small screen. **Save** writes the form; the server checks it again and points at any field it refuses. The list above the form names each problem by its field or rule.
 
 If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, and when you reload or close the browser tab. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.

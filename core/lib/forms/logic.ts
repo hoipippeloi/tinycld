@@ -136,6 +136,12 @@ export function evaluateExpression(
     return expr
 }
 
+/** The form keys the rules read: all `evaluate` needs from the values to produce a state. */
+export function ruleFieldKeys(def: FormDefinition): string[] {
+    const keys = new Set(def.rules.flatMap(r => r.when.map(c => c.field)))
+    return [...keys].sort()
+}
+
 export function evaluate(def: FormDefinition, values: FormValues, ctx: EvalContext): FormState {
     ensureOperations()
     currentContext = ctx

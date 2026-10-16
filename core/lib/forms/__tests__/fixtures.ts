@@ -77,7 +77,7 @@ export const widgetHost: FormHostDef = hostDefSchema.parse({
         },
         { key: 'due', label: 'Due', kind: 'date', storage: 'column' },
         { key: 'owner', label: 'Owner', kind: 'user', storage: 'column' },
-        { key: 'tasks', label: 'Tasks', kind: 'checklist', storage: 'rows', mapper: 'tasksMapper' },
+        { key: 'tasks', label: 'Tasks', kind: 'checklist', storage: 'rows' },
         {
             key: 'comments',
             label: 'Comments',

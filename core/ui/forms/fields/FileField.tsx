@@ -26,7 +26,9 @@ export interface FileFieldProps {
     accessibilityLabel?: string
 }
 
-type FileRow = { id: string; [column: string]: unknown }
+// The host's row type is only known at runtime (any package table); `column()` reads it by name.
+type HostRow = { id: string } & Record<string, unknown>
+type FileRow = HostRow
 
 // The file collection is named by the host at runtime, so its columns cannot be keys of any one row type.
 function column(ref: object, name: string): string {
@@ -53,8 +55,9 @@ function useFieldFiles(host: FormHost, fieldKey: string, recordId: string) {
 }
 
 // Read live: a copy column comes from the host row, which may still be loading when the field mounts.
-function useHostRecord(host: FormHost, recordId: string): FileRow | undefined {
-    const collection = collectionByName(host.collection)
+// Skipped when nothing is copied, so a plain attachment field never subscribes to the host table.
+function useHostRecord(host: FormHost, recordId: string, isEnabled: boolean) {
+    const collection = isEnabled ? collectionByName(host.collection) : undefined
     const { data } = useLiveQuery({
         query: query =>
             collection
@@ -64,14 +67,19 @@ function useHostRecord(host: FormHost, recordId: string): FileRow | undefined {
                       .findOne()
                 : null,
     })
-    return data as FileRow | undefined
+    return data
 }
 
-function copiedColumns(copyColumns: Record<string, string>, record: FileRow | undefined) {
+const isScalar = (v: unknown): v is string | number | boolean =>
+    typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+
+/** Only scalar columns copy: an array or object column has no single string form. */
+function copiedColumns(record: HostRow | undefined, copyColumns: Record<string, string>) {
     const copied: Record<string, string> = {}
+    if (!record) return copied
     for (const [to, from] of Object.entries(copyColumns)) {
-        const value = record?.[from]
-        if (value !== undefined && value !== null) copied[to] = String(value)
+        const value = record[from]
+        if (isScalar(value)) copied[to] = String(value)
     }
     return copied
 }
@@ -149,8 +157,8 @@ export function FileField({
     const { user } = useAuth()
     const { pickFiles } = usePickFiles()
     const { rows, collection, files } = useFieldFiles(host, fieldKey, recordId)
-    const record = useHostRecord(host, recordId)
     const hasCopies = Object.keys(files?.copyColumns ?? {}).length > 0
+    const record = useHostRecord(host, recordId, hasCopies)
     const remove = useMutation({
         mutationFn: function* (id: string) {
             if (!collection) return
@@ -167,7 +175,7 @@ export function FileField({
                 await uploadRecordWithFile({
                     collection: files.collection,
                     fields: {
-                        ...copiedColumns(files.copyColumns, record),
+                        ...copiedColumns(record, files.copyColumns),
                         id,
                         [files.recordColumn]: recordId,
                         [files.fieldColumn]: fieldKey,

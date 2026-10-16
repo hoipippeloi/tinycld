@@ -41,7 +41,11 @@ func writeNode(b *strings.Builder, n *markdown.PMNode) {
 	case markdown.NodeBulletList, markdown.NodeTaskList:
 		writeWrapped(b, "<ul>", n, "</ul>")
 	case markdown.NodeOrderedList:
-		writeWrapped(b, "<ol>", n, "</ol>")
+		open := "<ol>"
+		if start, ok := attrInt(n.Attrs, "start"); ok && start != 1 {
+			open = `<ol start="` + strconv.Itoa(start) + `">`
+		}
+		writeWrapped(b, open, n, "</ol>")
 	case markdown.NodeListItem:
 		writeWrapped(b, "<li>", n, "</li>")
 	case markdown.NodeTaskItem:
@@ -49,7 +53,11 @@ func writeNode(b *strings.Builder, n *markdown.PMNode) {
 	case markdown.NodeBlockquote:
 		writeWrapped(b, "<blockquote>", n, "</blockquote>")
 	case markdown.NodeCodeBlock:
-		writeWrapped(b, "<pre><code>", n, "</code></pre>")
+		open := "<pre><code>"
+		if lang := attrString(n.Attrs, "language"); lang != "" {
+			open = `<pre><code class="language-` + stdhtml.EscapeString(lang) + `">`
+		}
+		writeWrapped(b, open, n, "</code></pre>")
 	case markdown.NodeHardBreak:
 		b.WriteString("<br>")
 	case markdown.NodeImage:
@@ -101,12 +109,14 @@ func markRank(t string) int {
 	return -1
 }
 
-// sortedMarks drops unknown marks and orders the rest so equal content always
+// sortedMarks drops unknown and repeated marks (first wins) and orders the rest so equal content always
 // serializes to equal bytes.
 func sortedMarks(marks []markdown.PMMark) []markdown.PMMark {
 	out := make([]markdown.PMMark, 0, len(marks))
+	seen := map[string]bool{}
 	for _, m := range marks {
-		if markRank(m.Type) >= 0 {
+		if markRank(m.Type) >= 0 && !seen[m.Type] {
+			seen[m.Type] = true
 			out = append(out, m)
 		}
 	}

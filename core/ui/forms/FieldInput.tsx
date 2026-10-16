@@ -195,13 +195,22 @@ function selectDisplay(resolved: Resolved): 'dropdown' | 'radio' | 'checkbox' {
 }
 
 /**
- * True when a built-in declared `chrome: 'bare'` and the form shows a record
- * (edit or read): the host component draws its own chrome, and the cell is only
- * the width wrapper. The design canvas keeps the labelled cell.
+ * True when a built-in declared `chrome: 'bare'`, its host component is
+ * present, and the form shows a record (edit or read): the host component draws
+ * everything and the cell is only the width wrapper. Core passes it no error,
+ * required mark or description, so a bare built-in must validate and label
+ * itself. Without the component the labelled cell stays, so the field is not
+ * an empty gap. The design canvas keeps the labelled cell.
  */
-export function rendersBare(host: FormHost, field: FormField, mode: FieldMode): boolean {
+export function rendersBare(
+    host: FormHost,
+    field: FormField,
+    ui: FormHostUi | null,
+    mode: FieldMode
+): boolean {
     if (mode !== 'edit' && mode !== 'read') return false
-    return resolveKind(host, field).builtin?.chrome === 'bare'
+    const resolved = resolveKind(host, field)
+    return resolved.builtin?.chrome === 'bare' && hasHostComponent(resolved, ui)
 }
 
 /**
@@ -215,16 +224,73 @@ export function rendersOwnLabel(
     ui: FormHostUi | null,
     mode?: FieldMode
 ): boolean {
-    if (mode && rendersBare(host, field, mode)) return true
+    if (mode && rendersBare(host, field, ui, mode)) return true
     const resolved = resolveKind(host, field)
     if (hasHostComponent(resolved, ui)) return false
     if (resolved.kind === 'toggle') return true
+    // The read value has no label of its own, so the cell keeps the label.
+    if (resolved.kind === 'select' && mode === 'read') return false
     return resolved.kind === 'select' && selectDisplay(resolved) !== 'checkbox'
 }
 
-function SelectKind({ field, control, resolved, options, disabled, testID, label }: KindProps) {
+function labelsOf(value: unknown, opts: { value: string; label: string }[]): string {
+    const chosen = Array.isArray(value) ? value : value ? [value] : []
+    return chosen.map(v => opts.find(o => o.value === v)?.label ?? String(v)).join(', ')
+}
+
+/** Read mode: the chosen labels, not the whole option list as disabled chips. */
+function SelectReadValue({
+    field,
+    control,
+    options,
+    testID,
+    label,
+}: Pick<KindProps, 'field' | 'control' | 'testID' | 'label'> & {
+    options: { value: string; label: string }[]
+}) {
+    return (
+        <Uncontrolled<unknown>
+            name={field.key}
+            control={control}
+            render={value => {
+                const text = labelsOf(value, options)
+                return (
+                    <Text
+                        testID={testID}
+                        accessibilityLabel={label}
+                        className={text ? 'text-foreground' : 'text-muted-foreground'}
+                    >
+                        {text || 'Empty'}
+                    </Text>
+                )
+            }}
+        />
+    )
+}
+
+function SelectKind({
+    field,
+    control,
+    resolved,
+    options,
+    disabled,
+    testID,
+    label,
+    mode,
+}: KindProps) {
     const sel = resolved.custom?.kind === 'select' ? resolved.custom : undefined
     const opts = options ?? sel?.options ?? []
+    if (mode === 'read') {
+        return (
+            <SelectReadValue
+                field={field}
+                control={control}
+                options={opts}
+                testID={testID}
+                label={label}
+            />
+        )
+    }
     const display = selectDisplay(resolved)
     if (display === 'checkbox') {
         return (
@@ -307,20 +373,7 @@ function UserKind({ field, control, resolved, disabled, testID, label }: KindPro
     )
 }
 
-function ChecklistKind({
-    field,
-    control,
-    resolved,
-    ui,
-    mode,
-    recordId,
-    disabled,
-    testID,
-    label,
-}: KindProps) {
-    const { builtin } = resolved
-    const hostBacked = mode === 'edit' || mode === 'read'
-    const mapper = builtin?.mapper && ui && hostBacked ? ui.mappers[builtin.mapper] : undefined
+function ChecklistKind({ field, control, disabled, testID, label }: KindProps) {
     return (
         <Uncontrolled<ChecklistItem[] | null>
             name={field.key}
@@ -329,8 +382,6 @@ function ChecklistKind({
                 <ChecklistField
                     value={v}
                     onChange={set}
-                    mapper={mapper}
-                    recordId={recordId}
                     disabled={disabled}
                     testID={testID}
                     accessibilityLabel={label}
@@ -496,16 +547,11 @@ function hasHostComponent(resolved: Resolved, ui: FormHostUi | null): boolean {
     return Boolean(name && ui?.components[name])
 }
 
-function packageLabel(host: FormHost) {
-    const slug = host.pkgSlug
-    return slug.charAt(0).toUpperCase() + slug.slice(1)
-}
-
 /** The canvas never mounts a host component: it stands in for the package's own UI. */
 function DesignPlaceholder({ host }: { host: FormHost }) {
     return (
         <View className="rounded-md border border-dashed border-border px-3 py-2">
-            <Text className="text-muted-foreground text-sm">Shown by {packageLabel(host)}</Text>
+            <Text className="text-muted-foreground text-sm">Shown by {host.pkgName}</Text>
         </View>
     )
 }

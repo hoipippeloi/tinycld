@@ -48,7 +48,12 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                             key={option.value}
                             onPress={() => field.onChange(option.value)}
                             disabled={disabled}
-                            accessibilityState={{ selected: isSelected, disabled }}
+                            accessibilityRole="radio"
+                            // A radio's state is "checked"; ARIA ignores aria-selected
+                            // on it, so a reader would call every option unchecked.
+                            accessibilityState={{ checked: isSelected, disabled }}
+                            aria-checked={isSelected}
+                            aria-disabled={disabled}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
                                 flex: horizontal ? 1 : undefined,

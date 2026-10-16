@@ -20,6 +20,11 @@ function Icon({ children, ...props }) {
     return null
 }
 
+// Check draws a marker so a test can tell a selected row from an unselected one.
+function Check() {
+    return React.createElement('span', { 'data-check': 'true' })
+}
+
 // Seed target with all icon names that unit tests reference by value (not just render).
 // The Proxy's get-trap still handles any unknown name so JSX rendering always works.
 const knownIcons = {
@@ -57,7 +62,7 @@ const knownIcons = {
     AlertTriangle: Icon,
     AlignJustify: Icon,
     Ban: Icon,
-    Check: Icon,
+    Check,
     Square: Icon,
     CheckSquare: Icon,
     CalendarDays: Icon,
@@ -93,6 +98,13 @@ const knownIcons = {
     FoldHorizontal: Icon,
     Gauge: Icon,
     MoreHorizontal: Icon,
+    // boards: CardHeaderToolbar, CardActionsMenu and ColumnMenu's icon tables
+    ArrowRightLeft: Icon,
+    Expand: Icon,
+    Link: Icon,
+    Link2: Icon,
+    PanelRight: Icon,
+    Shapes: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,
@@ -107,6 +119,9 @@ const knownIcons = {
     SignalMedium: Icon,
     // boards: the card detail body, mounted whole (tests/card-detail.mount.test.tsx)
     SmilePlus: Icon,
+    // boards: the sub-task row's state glyphs, mounted whole
+    CircleCheck: Icon,
+    CircleDashed: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Package settings screens mounted by member tests.
@@ -144,6 +159,8 @@ const handler = {
                 return Icon
             }
         }
+        // The trap ignores the seeded target, so Check needs its own branch.
+        if (prop === 'Check') return Check
         // Any named icon export (ChevronDown, Plus, etc.)
         return Icon
     },

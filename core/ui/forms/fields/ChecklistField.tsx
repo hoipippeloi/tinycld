@@ -1,4 +1,3 @@
-import type { RowMapper } from '@tinycld/core/lib/forms/host-ui'
 import type { ChecklistItem } from '@tinycld/core/lib/forms/values'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
@@ -10,9 +9,6 @@ import { Pressable, Text, View } from 'react-native'
 export interface ChecklistFieldProps {
     value: ChecklistItem[] | null
     onChange: (items: ChecklistItem[]) => void
-    /** When set with a recordId, items come from and go to the host table. */
-    mapper?: RowMapper
-    recordId?: string
     disabled?: boolean
     testID?: string
     accessibilityLabel?: string
@@ -35,17 +31,6 @@ function useLocalStore(
         insert: item => onChange([...items, item]),
         update: item => onChange(items.map(i => (i.id === item.id ? item : i))),
         remove: id => onChange(items.filter(i => i.id !== id)),
-    }
-}
-
-function useMapperStore(mapper: RowMapper, recordId: string): Store {
-    const { items } = mapper.useRows(recordId)
-    const m = mapper.useMutations(recordId)
-    return {
-        items,
-        insert: item => void m.insert(item),
-        update: item => void m.update(item),
-        remove: id => void m.remove(id),
     }
 }
 
@@ -150,42 +135,6 @@ function LocalChecklist({
     )
 }
 
-function MapperChecklist({
-    mapper,
-    recordId,
-    disabled,
-    testID,
-    accessibilityLabel,
-}: {
-    mapper: RowMapper
-    recordId: string
-    disabled?: boolean
-    testID: string
-    accessibilityLabel?: string
-}) {
-    const store = useMapperStore(mapper, recordId)
-    return (
-        <ChecklistBody
-            store={store}
-            disabled={disabled}
-            testID={testID}
-            accessibilityLabel={accessibilityLabel}
-        />
-    )
-}
-
 export function ChecklistField(props: ChecklistFieldProps) {
-    const testID = props.testID ?? 'checklist'
-    if (props.mapper && props.recordId) {
-        return (
-            <MapperChecklist
-                mapper={props.mapper}
-                recordId={props.recordId}
-                disabled={props.disabled}
-                testID={testID}
-                accessibilityLabel={props.accessibilityLabel}
-            />
-        )
-    }
-    return <LocalChecklist {...props} testID={testID} />
+    return <LocalChecklist {...props} testID={props.testID ?? 'checklist'} />
 }

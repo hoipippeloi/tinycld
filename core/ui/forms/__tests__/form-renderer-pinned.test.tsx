@@ -23,6 +23,7 @@ afterEach(cleanup)
 const host = {
     ...hostDefSchema.parse(widgetHost),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 
@@ -37,7 +38,6 @@ function PinnedHeader({ fieldKey }: BuiltinFieldProps) {
 const ui: FormHostUi = {
     components: { NotesField, CommentsSection: NotesField },
     pinned: { NotesField: PinnedHeader },
-    mappers: {},
 }
 
 const bothPinned: FormHostUi = {
@@ -69,6 +69,7 @@ const titleHost = {
         builtin: widgetHost.builtin.map(b => (b.key === 'notes' ? { ...b, key: 'title' } : b)),
     }),
     pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
     ui: async () => ui,
 }
 

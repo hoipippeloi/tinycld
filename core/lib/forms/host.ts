@@ -15,22 +15,16 @@ const builtinSchema = z
         collaborative: z.boolean().default(false),
         /** Export name in the host's UI module `components` map. */
         component: z.string().min(1).optional(),
-        /** Key in the host's UI module `mappers` map; required for rows storage. */
-        mapper: z.string().min(1).optional(),
         /**
-         * `bare`: on a record (edit and read) the host component draws its own
-         * label, spacing and errors, and the cell is only the width wrapper.
-         * The design canvas still draws the labelled cell.
+         * `bare`: on a record (edit and read) the host component draws
+         * everything; core passes it no error, required mark or description, so
+         * a bare built-in must validate and label itself. The cell is only the
+         * width wrapper, and only when the component exists. The design canvas
+         * still draws the labelled cell.
          */
         chrome: z.enum(['cell', 'bare']).default('cell'),
     })
     .superRefine((b, ctx) => {
-        if (b.storage === 'rows' && !b.mapper)
-            ctx.addIssue({
-                code: 'custom',
-                path: ['mapper'],
-                message: 'rows storage needs a mapper',
-            })
         if (b.kind === 'section' && b.storage !== 'none')
             ctx.addIssue({ code: 'custom', path: ['storage'], message: 'a section has no storage' })
         if (b.kind === 'section' && !b.component)
@@ -74,7 +68,7 @@ export const hostDefSchema = z
                 nameColumn: z.string().min(1).default('name'),
                 /** The PocketBase file field. */
                 fileColumn: z.string().min(1).default('file'),
-                /** Attachment column ← host record column, copied onto every upload (a required `project`, say). */
+                /** Attachment column ← host record column, copied onto every upload (a required `project`, say). Scalar columns only; an array or object source column is skipped. */
                 copyColumns: z.record(z.string().min(1), z.string().min(1)).default({}),
             })
             .optional(),
@@ -83,6 +77,8 @@ export const hostDefSchema = z
                 fragment: z.string().includes('{record}').includes('{key}').includes('{format}'),
             })
             .optional(),
+        /** Built-in key a new custom field lands before; absent means the page end. */
+        insertCustomBefore: z.string().min(1).optional(),
     })
     .superRefine((host, ctx) => {
         const keys = new Set<string>()
@@ -101,6 +97,12 @@ export const hostDefSchema = z
                     message: 'collaborative builtins need a collaborative fragment template',
                 })
         })
+        if (host.insertCustomBefore && !keys.has(host.insertCustomBefore))
+            ctx.addIssue({
+                code: 'custom',
+                path: ['insertCustomBefore'],
+                message: 'insertCustomBefore must name a built-in key',
+            })
     })
 
 /** Parsed host with defaults applied. Every consumer of parsed data uses these types. */

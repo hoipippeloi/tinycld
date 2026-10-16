@@ -3,6 +3,7 @@ import type { FormHostUi } from '../forms/host-ui'
 
 export interface FormHost extends FormHostDef {
     pkgSlug: string
+    pkgName: string
     ui: () => Promise<FormHostUi>
 }
 
@@ -12,7 +13,7 @@ type FormHostEntryLike = {
     formHostsUi?: () => Promise<{ default: FormHostUi }>
 }
 
-const EMPTY_UI: FormHostUi = { components: {}, mappers: {} }
+const EMPTY_UI: FormHostUi = { components: {} }
 
 export function deriveFormHosts(entries: readonly FormHostEntryLike[]): FormHost[] {
     const out: FormHost[] = []
@@ -28,7 +29,7 @@ export function deriveFormHosts(entries: readonly FormHostEntryLike[]): FormHost
         }
         // The generator already validated these; a throw here means it was bypassed.
         for (const h of hostDefListSchema.parse(e.formHosts))
-            out.push({ ...h, pkgSlug: e.manifest.slug, ui })
+            out.push({ ...h, pkgSlug: e.manifest.slug, pkgName: e.manifest.name, ui })
     }
     return out
 }

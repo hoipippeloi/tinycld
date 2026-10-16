@@ -29,7 +29,12 @@ const plain = {
     order: 0,
     definition: defaultDefinitionFor(widgetHost),
 }
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {} }),
+}
 const admin = {
     host,
     forms: [plain],
@@ -55,8 +60,12 @@ const ctx = { today: '2026-01-01', userId: 'u' }
 
 let editor: ReturnType<typeof useEditorForm> | null = null
 let drag: ReturnType<typeof useEditorCanvasDrag> | null = null
+let harnessHost = host
+afterEach(() => {
+    harnessHost = host
+})
 function Harness() {
-    editor = useEditorForm(plain, host)
+    editor = useEditorForm(plain, harnessHost)
     drag = useEditorCanvasDrag(editor)
     return <Canvas editor={editor} context={ctx} drag={drag} />
 }
@@ -149,6 +158,15 @@ describe('Canvas', () => {
             kind: 'select',
             page: 'main',
         })
+    })
+
+    it('a new field lands before the host slot', async () => {
+        harnessHost = { ...host, insertCustomBefore: 'notes' }
+        const { baseElement } = render(<Harness />)
+        await addField(baseElement, 'select', 'Severity')
+        const keys = editor?.form.getValues('fields').map(f => f.key) ?? []
+        expect(keys.indexOf('severity')).toBeGreaterThan(-1)
+        expect(keys[keys.indexOf('notes') - 1]).toBe('severity')
     })
 
     it('adds nothing when the label prompt is cancelled', async () => {

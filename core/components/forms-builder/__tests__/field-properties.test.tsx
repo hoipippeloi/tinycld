@@ -33,7 +33,12 @@ const plain = {
     order: 0,
     definition: withSelect,
 }
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {} }),
+}
 const admin = {
     host,
     forms: [plain],

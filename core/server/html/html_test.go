@@ -1,6 +1,7 @@
 package html
 
 import (
+	"strings"
 	"testing"
 
 	"tinycld.org/core/markdown"
@@ -86,5 +87,105 @@ func TestToPM_WhitespaceBetweenBlocksMakesNoParagraph(t *testing.T) {
 func TestToPM_EmptyDivYieldsNothing(t *testing.T) {
 	if doc := ToPM("<div></div>"); len(doc.Content) != 0 {
 		t.Fatalf("got %+v", doc.Content)
+	}
+}
+
+func rt(t *testing.T, in string) string {
+	t.Helper()
+	return FromPM(ToPM(in))
+}
+
+func TestRoundTrip_CodeBlockLanguage(t *testing.T) {
+	in := `<pre><code class="language-go">x := 1</code></pre>`
+	if got := rt(t, in); got != in {
+		t.Fatalf("got %q", got)
+	}
+	plain := `<pre><code>x</code></pre>`
+	if got := rt(t, plain); got != plain {
+		t.Fatalf("got %q", got)
+	}
+	doc := ToPM(in)
+	if lang, _ := doc.Content[0].Attrs["language"].(string); lang != "go" {
+		t.Fatalf("language = %v", doc.Content[0].Attrs)
+	}
+}
+
+func TestRoundTrip_OrderedListStart(t *testing.T) {
+	in := `<ol start="3"><li><p>x</p></li></ol>`
+	if got := rt(t, in); got != in {
+		t.Fatalf("got %q", got)
+	}
+	if got := rt(t, `<ol><li><p>x</p></li></ol>`); strings.Contains(got, "start=") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestToPM_EmptyBlockquoteHasAParagraph(t *testing.T) {
+	doc := ToPM(`<blockquote></blockquote>`)
+	if len(doc.Content) != 1 || len(doc.Content[0].Content) != 1 || doc.Content[0].Content[0].Type != markdown.NodeParagraph {
+		t.Fatalf("got %+v", doc.Content)
+	}
+}
+
+func TestToPM_OrderedListIgnoresDataChecked(t *testing.T) {
+	doc := ToPM(`<ol><li data-checked="true"><p>a</p></li></ol>`)
+	list := doc.Content[0]
+	if list.Type != markdown.NodeOrderedList || list.Content[0].Type != markdown.NodeListItem {
+		t.Fatalf("got %+v", list)
+	}
+}
+
+func TestToPM_DuplicateMarksCollapse(t *testing.T) {
+	if got := rt(t, `<p><strong><b>x</b></strong></p>`); got != `<p><strong>x</strong></p>` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFromPM_DuplicateMarksWriteOnce(t *testing.T) {
+	doc := &markdown.PMNode{Type: markdown.NodeDoc, Content: []markdown.PMNode{{Type: markdown.NodeParagraph, Content: []markdown.PMNode{
+		{Type: markdown.NodeText, Text: "x", Marks: []markdown.PMMark{{Type: markdown.MarkBold}, {Type: markdown.MarkBold}}},
+	}}}}
+	if got := FromPM(doc); got != `<p><strong>x</strong></p>` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRoundTrip_HrefIsVerbatim(t *testing.T) {
+	in := `<p><a href="javascript:x">y</a></p>`
+	if got := rt(t, in); got != in {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestRoundTrip_NestedListsAndHardBreaks(t *testing.T) {
+	for _, in := range []string{
+		`<ul><li><p>a</p><ul><li><p>b</p></li></ul></li></ul>`,
+		`<ul><li><p>a<br>b</p></li></ul>`,
+	} {
+		if got := rt(t, in); got != in {
+			t.Fatalf("%q -> %q", in, got)
+		}
+	}
+	doc := ToPM(`<ul><li>a<br>b</li></ul>`)
+	para := doc.Content[0].Content[0].Content[0]
+	if para.Type != markdown.NodeParagraph || len(para.Content) != 3 || para.Content[1].Type != markdown.NodeHardBreak {
+		t.Fatalf("got %+v", para)
+	}
+}
+
+func TestToPM_DecodesEntities(t *testing.T) {
+	doc := ToPM(`<p>&lt;b&gt; &amp; &quot;q&quot; it&#39;s</p>`)
+	if got := doc.Content[0].Content[0].Text; got != `<b> & "q" it's` {
+		t.Fatalf("got %q", got)
+	}
+	if got := FromPM(doc); got != `<p>&lt;b&gt; &amp; &#34;q&#34; it&#39;s</p>` {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestPlainText(t *testing.T) {
+	got := PlainText("<p>a &amp; b</p><script>x()</script><ul><li>one</li><li>two</li></ul>")
+	if want := "a & b one two"; got != want {
+		t.Fatalf("PlainText = %q, want %q", got, want)
 	}
 }

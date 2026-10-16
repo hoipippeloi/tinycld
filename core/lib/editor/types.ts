@@ -257,8 +257,9 @@ export interface EditorResult {
     // mounted yet, or always on web (no WebView to post to).
     postMessage?: (message: import('./message-bus/types').EditorMessage) => boolean
     // Whether the underlying editor (Tiptap web or WebView native) has
-    // finished initializing. Web variant resolves true synchronously
-    // once the editor mounts; native flips on the page's first
+    // finished initializing. Web variant is true once the instance built
+    // for the CURRENT configuration exists (false for the render where
+    // tiptap still returns the one it is replacing); native flips on the page's first
     // stateUpdate. Consumers should gate UI that depends on a working
     // editor handle (e.g. commentBridge, findReplaceEditor) until this
     // flips true.

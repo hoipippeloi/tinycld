@@ -9,7 +9,12 @@ import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { FormRenderer } from '../FormRenderer'
 
 afterEach(cleanup)
-const host = { ...widgetHost, pkgSlug: 'gizmos', ui: async () => ({ components: {}, mappers: {} }) }
+const host = {
+    ...widgetHost,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {} }),
+}
 const ctx = { today: '2026-01-01', userId: 'u' }
 const def = definitionSchema.parse({
     ...bugDefinition,
