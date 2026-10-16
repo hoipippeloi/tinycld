@@ -54,7 +54,9 @@ export interface SidebarContribution {
     order: number
     /** Shown where the host lays contributions out as tabs. */
     label?: string
-    Component: ComponentType | LazyExoticComponent<ComponentType>
+    Component:
+        | ComponentType<Record<string, unknown>>
+        | LazyExoticComponent<ComponentType<Record<string, unknown>>>
 }
 // A read-only event feed contributed to another package's event grid. `load`
 // is a bare thunk (not React.lazy) because the module exports a HOOK
