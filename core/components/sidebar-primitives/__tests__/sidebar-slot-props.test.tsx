@@ -14,7 +14,7 @@ vi.mock('@tinycld/core/lib/packages/derive-components', () => {
     }
 })
 
-import { SidebarSlot } from '../SidebarSlot'
+import { hasSlotContributions, SidebarSlot } from '../SidebarSlot'
 
 afterEach(cleanup)
 
@@ -28,5 +28,11 @@ describe('SidebarSlot props', () => {
             />
         )
         expect(getByText('notice g1')).not.toBeNull()
+    })
+
+    it('tells a host whether any package contributes to a slot', () => {
+        expect(hasSlotContributions('core', 'group-member-removal')).toBe(true)
+        expect(hasSlotContributions('core', 'zoo-feeding-times')).toBe(false)
+        expect(hasSlotContributions('zoo_keepers', 'group-member-removal')).toBe(false)
     })
 })
