@@ -84,6 +84,21 @@ describe('Drawer presentation', () => {
         expect(onClose).toHaveBeenCalledTimes(1)
     })
 
+    it('labels a close button Close when the caller gives no label', () => {
+        const { container } = render(
+            <Drawer isOpen onClose={() => {}} anchor="right" presentation="inline">
+                <DrawerContent>
+                    <DrawerHeader>
+                        <DrawerCloseButton>
+                            <Text>x</Text>
+                        </DrawerCloseButton>
+                    </DrawerHeader>
+                </DrawerContent>
+            </Drawer>
+        )
+        expect(container.querySelector('[accessibilitylabel="Close"]')).not.toBeNull()
+    })
+
     it('leaves Escape to the page beside an inline drawer', () => {
         const onClose = vi.fn()
         renderBare(panel({ presentation: 'inline', onClose }))
