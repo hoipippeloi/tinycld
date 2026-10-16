@@ -427,8 +427,12 @@ export async function navigateToPackage(page: Page, pkg: string, options?: { wai
         // file (e.g. /a/calc/<id>), so the anchor no longer matches the bare
         // package root.
         const railLink = page.locator(`a[href^="${appHref(pkg)}"]`).first()
-        await railLink.waitFor({ state: 'visible' })
-        await railLink.click()
+        // The open package's rail item is inert (PackageRail): it has no link
+        // to click, and the screen is already this package's — still settling
+        // when the fast check above gave up on it.
+        const openRailItem = page.locator(`[data-testid="nav-${pkg}"][aria-current="page"]`)
+        await railLink.or(openRailItem).filter({ visible: true }).first().waitFor()
+        if (!(await openRailItem.isVisible())) await railLink.click()
         await onTarget.waitFor({ state: 'visible' })
     }
 

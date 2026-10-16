@@ -19,7 +19,7 @@ export const router = {
     dismiss: vi.fn(noop),
 }
 
-export const Link = ComponentStub
+export const Link = vi.fn(() => null)
 export const Stack = Object.assign(ComponentStub, { Screen: ComponentStub })
 export const Tabs = Object.assign(ComponentStub, { Screen: ComponentStub })
 export const Slot = ComponentStub

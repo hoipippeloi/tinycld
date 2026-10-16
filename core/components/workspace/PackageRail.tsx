@@ -16,6 +16,7 @@ import {
     PanelLeftOpen,
     Settings,
 } from 'lucide-react-native'
+import type { ReactElement } from 'react'
 import { Pressable, ScrollView, View } from 'react-native'
 import { getIcon } from './package-icon-map'
 import { railWidth } from './rail-width'
@@ -161,7 +162,30 @@ function SidebarToggle({ color, activePkgSlug }: { color: string; activePkgSlug:
     )
 }
 
-function PackageRailItem({
+/**
+ * The link to the package, or the bare button for the one already open. The
+ * open item is inert: a press on it has nowhere to go. Linked, it would reopen
+ * the package root, whose index redirects to the same screen and leaves a
+ * second history entry.
+ */
+function RailLink({
+    href,
+    isActive,
+    children,
+}: {
+    href: Href
+    isActive: boolean
+    children: ReactElement
+}) {
+    if (isActive) return children
+    return (
+        <Link href={href} asChild>
+            {children}
+        </Link>
+    )
+}
+
+export function PackageRailItem({
     slug,
     label,
     Icon,
@@ -192,6 +216,20 @@ function PackageRailItem({
         ? (lastHref as Href)
         : orgHref(slug as never)
 
+    const button = (
+        <Pressable
+            testID={`nav-${slug}`}
+            className="w-11 h-11 rounded-xl justify-center items-center"
+            style={isActive ? { backgroundColor: `${activeColor}22` } : undefined}
+            accessibilityLabel={label}
+            accessibilityRole={isActive ? 'button' : undefined}
+            accessibilityState={{ selected: isActive }}
+            aria-current={isActive ? 'page' : undefined}
+        >
+            <Icon size={22} color={textColor} />
+        </Pressable>
+    )
+
     return (
         <View className="relative w-11 h-11 items-center justify-center">
             {isActive && (
@@ -200,16 +238,9 @@ function PackageRailItem({
                     style={{ backgroundColor: activeColor, left: -10 }}
                 />
             )}
-            <Link href={href} asChild>
-                <Pressable
-                    testID={`nav-${slug}`}
-                    className="w-11 h-11 rounded-xl justify-center items-center"
-                    style={isActive ? { backgroundColor: `${activeColor}22` } : undefined}
-                    accessibilityLabel={label}
-                >
-                    <Icon size={22} color={textColor} />
-                </Pressable>
-            </Link>
+            <RailLink href={href} isActive={isActive}>
+                {button}
+            </RailLink>
         </View>
     )
 }

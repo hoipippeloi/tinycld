@@ -26,6 +26,11 @@ vi.mock('@tinycld/app-generated/tinycld-config', () => ({
 vi.mock('@tinycld/app-generated/package-help', () => ({
     packageHelp: [],
 }))
+// The real map imports each icon's ESM file from lucide-react-native, which the
+// node environment cannot parse; an empty map makes getIcon fall back to CircleHelp.
+vi.mock('@tinycld/app-generated/package-icons', () => ({
+    packageIcons: {},
+}))
 
 // Native module; only dynamically imported behind a Platform.OS === 'ios'
 // guard (core/lib/stores/orientation-store), so tests never load the real
