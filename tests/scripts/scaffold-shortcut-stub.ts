@@ -147,6 +147,9 @@ function patchManifest(stubDir: string): void {
     systemSettings: [
         { slug: 'panel', label: 'Stub System Panel', component: 'system-settings/panel' },
     ],
+    // Core's suite installs no real package, so the stub declares the one
+    // notify event the notify-registry spec drives through the toast.
+    notifications: { events: 'notify-events' },
 }
 
 export default manifest
@@ -165,6 +168,7 @@ function patchPackageJson(stubDir: string): void {
         './settings/*': `./tinycld/${STUB_SLUG}/settings/*.tsx`,
         './account-settings/*': `./tinycld/${STUB_SLUG}/account-settings/*.tsx`,
         './system-settings/*': `./tinycld/${STUB_SLUG}/system-settings/*.tsx`,
+        './notify-events': `./tinycld/${STUB_SLUG}/notify-events.ts`,
     }
     writeFileSync(path, `${JSON.stringify(pkg, null, 4)}\n`)
 }
@@ -232,6 +236,28 @@ export default function ${panel.component}() {
     }
 }
 
+// The events module the manifest's `notifications.events` names: data only, in
+// the shape every package's module has, so the generator's checks apply to it.
+function writeNotifyEvents(stubDir: string): void {
+    writeFileSync(
+        join(stubDir, 'tinycld', STUB_SLUG, 'notify-events.ts'),
+        `import type { PackageNotifyEvents } from '@tinycld/core/lib/notify/registry'
+
+declare module '@tinycld/core/lib/notify/events' {
+    interface NotificationEvents {
+        '${STUB_SLUG}.pinged': { at: string }
+    }
+}
+
+const notifyEvents = {
+    '${STUB_SLUG}.pinged': { channels: ['toast'], variant: 'info' },
+} satisfies PackageNotifyEvents
+
+export default notifyEvents
+`
+    )
+}
+
 function writeScreens(stubDir: string): void {
     const dir = join(stubDir, 'tinycld', STUB_SLUG, 'screens')
     mkdirSync(dir, { recursive: true })
@@ -249,10 +275,21 @@ export default function StubLayout() {
     )
     // index: the landing page when the shortcut chord lands. Renders
     // one identifiable text node the spec can assert on if needed; in
-    // practice the spec just waits for the URL change.
+    // practice the spec just waits for the URL change. The ping button emits
+    // the stub's own notify event, so the notify-registry spec can prove a
+    // package's declared event reaches the toast without naming a real package.
     writeFileSync(
         join(dir, 'index.tsx'),
-        `import { Text, View } from 'react-native'
+        `import { notify } from '@tinycld/core/lib/notify'
+import { Pressable, Text, View } from 'react-native'
+
+function ping() {
+    notify.emit({
+        event: '${STUB_SLUG}.pinged',
+        title: 'Pinged',
+        data: { at: new Date().toISOString() },
+    })
+}
 
 export default function StubIndex() {
     return (
@@ -260,6 +297,9 @@ export default function StubIndex() {
             <Text className="text-foreground" testID="shortcut-stub-landing">
                 Shortcut stub landing
             </Text>
+            <Pressable onPress={ping} accessibilityRole="button" testID="shortcut-stub-ping">
+                <Text className="text-foreground">Ping</Text>
+            </Pressable>
         </View>
     )
 }
@@ -358,6 +398,7 @@ function main(): void {
     patchTsconfig(stubDir)
     writeScreens(stubDir)
     writePanels(stubDir)
+    writeNotifyEvents(stubDir)
 
     ensureMember(wsRoot)
     regenerateConfig(wsRoot)

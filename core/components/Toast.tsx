@@ -156,7 +156,12 @@ function ToastCard({ toast, edge }: { toast: ToastType; edge: ToastEdge }) {
         >
             <Icon size={18} color={variantColor} style={{ marginTop: 1 }} />
 
-            <View style={{ flex: 1, gap: 2 }} pointerEvents="box-none">
+            {/* The variant otherwise shows only as a colour; the testID lets e2e assert it. */}
+            <View
+                style={{ flex: 1, gap: 2 }}
+                pointerEvents="box-none"
+                testID={`toast-variant-${toast.variant}`}
+            >
                 <Text className="text-sm font-semibold text-foreground" pointerEvents="none">
                     {toast.title}
                 </Text>
