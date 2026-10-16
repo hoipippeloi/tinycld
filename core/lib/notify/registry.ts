@@ -1,4 +1,4 @@
-import type { NotifyEventName } from '@tinycld/core/lib/notify/events'
+import type { CoreEventName } from '@tinycld/core/lib/notify/events'
 
 /** `'os'` is wired into the dispatcher but not yet used by any event — opt in when a future event needs native/browser push. */
 export type ChannelName = 'toast' | 'bell' | 'os'
@@ -18,7 +18,7 @@ export type PackageNotifyEvents = Record<string, EventConfig>
  * event name; a package's events are declared by the package (see
  * PackageNotifyEvents) and merged in ./composed.ts.
  */
-export const coreEvents: Record<NotifyEventName, EventConfig> = {
+export const coreEvents: Record<CoreEventName, EventConfig> = {
     'import.complete': { channels: ['toast', 'bell'], variant: 'success' },
     'import.failed': { channels: ['toast', 'bell'], variant: 'error' },
     'files.pick_rejected': { channels: ['toast'], variant: 'error' },
@@ -29,6 +29,3 @@ export const coreEvents: Record<NotifyEventName, EventConfig> = {
     'settings.avatar_upload_failed': { channels: ['toast'], variant: 'error' },
     'settings.branding_upload_failed': { channels: ['toast'], variant: 'error' },
 }
-
-// Replaced by the composed registry in the next commit.
-export const eventRegistry = coreEvents
