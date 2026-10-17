@@ -190,6 +190,16 @@ Native-action caveats:
   authorization** below.
 - Returning an error records the action as failed in `rule_runs` and
   continues to the rule's later actions (mail-filter semantics).
+- Returning `automation.Skip(reason)` (wrapped or not) records the action as
+  `skipped` with the reason, for an action that chose not to act. Run
+  history shows "Skipped" and the reason; a skip is not a failure, so it does
+  not count toward auto-disable.
+- **A send guard stops core's send.** `core:send-email` asks every guard
+  registered with `automation.RegisterSendGuard(collection, guard)` for the
+  trigger record's collection before it sends, and skips when a guard says
+  so. Every core send carries `Auto-Submitted: auto-generated` and
+  `X-TinyCld-Loop: <host>`. A package whose collection holds mail that can be
+  automatic registers a guard, so a rule does not answer it.
 
 Core ships one native action itself: `core:post-webhook` (`url`, `secret`),
 so any package's rule can POST to an external service with no

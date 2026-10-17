@@ -99,6 +99,33 @@ type Message struct {
 	HTML    string      `json:"html"`
 	Text    string      `json:"text"`
 	ReplyTo string      `json:"reply_to,omitempty"`
+
+	// Headers are extra header fields, by name. Every Sender writes them.
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// sendRequest is the message in the SendRequest shape, so the providers send
+// a Message and a SendRequest through one path. Headers are sorted by name:
+// a map has no order, and the same message must give the same wire bytes.
+func (m *Message) sendRequest() *SendRequest {
+	names := make([]string, 0, len(m.Headers))
+	for name := range m.Headers {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var headers []Header
+	for _, name := range names {
+		headers = append(headers, Header{Name: name, Value: m.Headers[name]})
+	}
+	return &SendRequest{
+		From:     m.From,
+		To:       m.To,
+		Subject:  m.Subject,
+		HTMLBody: m.HTML,
+		TextBody: m.Text,
+		ReplyTo:  m.ReplyTo,
+		Headers:  headers,
+	}
 }
 
 // Sender can send simple transactional emails.
@@ -256,6 +283,8 @@ type loggedEmail struct {
 	Text        string      `json:"text,omitempty"`
 	HTML        string      `json:"html,omitempty"`
 	Attachments int         `json:"attachments,omitempty"`
+
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // fileLogMu serializes concurrent writes so JSONL lines never interleave.
@@ -303,6 +332,9 @@ func (l *LogSender) Send(_ context.Context, msg *Message) error {
 		fmt.Printf("│  From:    %s\n", msg.From)
 	}
 	fmt.Printf("│  Subject: %s\n", msg.Subject)
+	for _, h := range msg.sendRequest().Headers {
+		fmt.Printf("│  %s: %s\n", h.Name, h.Value)
+	}
 	fmt.Println("├──────────────────────────────────────────────────────────┤")
 	if msg.Text != "" {
 		fmt.Println(msg.Text)
@@ -318,6 +350,7 @@ func (l *LogSender) Send(_ context.Context, msg *Message) error {
 		Subject:   msg.Subject,
 		Text:      msg.Text,
 		HTML:      msg.HTML,
+		Headers:   msg.Headers,
 	})
 	return nil
 }

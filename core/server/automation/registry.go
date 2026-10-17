@@ -79,6 +79,12 @@ type RelationAuthorizer func(app core.App, req ActionRequest, recordID string) e
 // allow; an error fails the action and lands in run history.
 type TriggerRecordAuthorizer func(app core.App, req ActionRequest, record *core.Record) error
 
+// SendGuard answers whether an action that sends mail must not send for this
+// trigger record: for example, because the record is mail that was itself
+// sent automatically, and a reply could start a loop. A true skip makes the
+// action return Skip(reason), so the reason shows in run history.
+type SendGuard func(app core.App, record *core.Record) (skip bool, reason string)
+
 var (
 	registryMu     sync.RWMutex
 	actionHandlers = map[string]ActionHandler{}
@@ -88,6 +94,8 @@ var (
 	relationAuthorizers = map[string]map[string]RelationAuthorizer{}
 	// actionRef -> authorizer
 	triggerRecordAuthorizers = map[string]TriggerRecordAuthorizer{}
+	// collection -> guards, in registration order
+	sendGuards = map[string][]SendGuard{}
 )
 
 // RegisterAction installs the Go handler for a native action ref. Packages
@@ -181,6 +189,35 @@ func triggerAllowed(app core.App, triggerRef string, record *core.Record) bool {
 	return filter(app, record)
 }
 
+// RegisterSendGuard installs a guard for trigger records of one collection.
+// Core's actions that send mail (core:send-email) ask every guard of the
+// trigger record's collection before they send, and skip when one says so.
+// Packages call this from their Register(app), so core never has to know
+// which collections hold mail.
+func RegisterSendGuard(collection string, guard SendGuard) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	sendGuards[collection] = append(sendGuards[collection], guard)
+}
+
+// checkSendGuards returns Skip(reason) from the first guard of the record's
+// collection that says skip, or nil. No record (a manual or scheduled run)
+// has nothing to guard.
+func checkSendGuards(app core.App, record *core.Record) error {
+	if record == nil {
+		return nil
+	}
+	registryMu.RLock()
+	guards := sendGuards[record.Collection().Name]
+	registryMu.RUnlock()
+	for _, guard := range guards {
+		if skip, reason := guard(app, record); skip {
+			return Skip(reason)
+		}
+	}
+	return nil
+}
+
 func ResetRegistriesForTest() {
 	registryMu.Lock()
 	defer registryMu.Unlock()
@@ -189,6 +226,7 @@ func ResetRegistriesForTest() {
 	triggerFilters = map[string]TriggerFilter{}
 	relationAuthorizers = map[string]map[string]RelationAuthorizer{}
 	triggerRecordAuthorizers = map[string]TriggerRecordAuthorizer{}
+	sendGuards = map[string][]SendGuard{}
 }
 
 var autoOwnerFields = []string{"user", "owner", "author"}

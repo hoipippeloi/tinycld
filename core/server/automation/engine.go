@@ -361,10 +361,8 @@ func (e *Engine) dispatch(ev event) {
 		results := make([]ActionResult, 0, len(actions))
 		failed := 0
 		for _, a := range actions {
-			res := ActionResult{Ref: a.Ref, Status: "ok"}
-			if err := e.runActionWithTimeout(a, rule, ev); err != nil {
-				res.Status = "error"
-				res.Message = err.Error()
+			res := actionResult(a.Ref, e.runActionWithTimeout(a, rule, ev))
+			if res.Status == "error" {
 				failed++
 			}
 			results = append(results, res)
@@ -383,6 +381,19 @@ func (e *Engine) dispatch(ev event) {
 			}
 		}
 	}
+}
+
+// actionResult is the run-history entry for one action's outcome. A skip is
+// its own status, not a failure, so a rule that only skips is never
+// auto-disabled.
+func actionResult(ref string, err error) ActionResult {
+	if err == nil {
+		return ActionResult{Ref: ref, Status: "ok"}
+	}
+	if reason, ok := skipReason(err); ok {
+		return ActionResult{Ref: ref, Status: "skipped", Message: reason}
+	}
+	return ActionResult{Ref: ref, Status: "error", Message: err.Error()}
 }
 
 type timeoutErr struct{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	netmail "net/mail"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +19,10 @@ import (
 // The engine's depth cap stops a rule re-triggering itself inside one
 // dispatch, but it cannot see across dispatches — an auto-reply answering
 // another system's auto-responder returns as genuinely new inbound mail at
-// depth 0, so two systems each doing one hop can loop forever. This ceiling
-// is the only control bounding that exchange.
+// depth 0, so two systems each doing one hop can loop forever. The
+// Auto-Submitted header and the send guards stop the exchanges they can
+// recognize; this ceiling bounds the ones they cannot (a receiver that
+// ignores Auto-Submitted, a trigger collection with no guard).
 //
 // Mail's send actions cap per MAILBOX because several rules share one outbox;
 // core has no mailbox to key on, so the rule is the unit. Per-recipient was
@@ -56,6 +59,11 @@ func actionSendEmail(app core.App, req ActionRequest) error {
 		return fmt.Errorf("core:send-email: %w", err)
 	}
 
+	// Before the send budget: a skipped send must not use up a slot.
+	if err := checkSendGuards(app, req.Record); err != nil {
+		return err
+	}
+
 	// A request with no rule (a dry-run style invocation) has nothing to
 	// count against; every engine path supplies the rule.
 	if req.Rule != nil {
@@ -73,12 +81,33 @@ func actionSendEmail(app core.App, req ActionRequest) error {
 		To:      []mailer.Recipient{{Email: recipient}},
 		Subject: subject,
 		Text:    req.Params["body"],
+		Headers: ruleMailHeaders(app),
 	}
 
 	if err := sendEmailNow(context.Background(), msg); err != nil {
 		return fmt.Errorf("core:send-email: %w", err)
 	}
 	return nil
+}
+
+// ruleMailHeaders mark rule mail as automatic. Auto-Submitted (RFC 3834)
+// tells a well-behaved receiver not to answer it; the loop header lets a
+// deployment know its own rule mail when it comes back, even after a relay
+// drops Auto-Submitted.
+func ruleMailHeaders(app core.App) map[string]string {
+	return map[string]string{
+		"Auto-Submitted": "auto-generated",
+		"X-TinyCld-Loop": ruleMailLoopHost(app),
+	}
+}
+
+// ruleMailLoopHost is the deployment's web host, from the app settings, or
+// "tinycld" when none is set. It tells a reader which deployment sent the mail.
+func ruleMailLoopHost(app core.App) string {
+	if u, err := url.Parse(app.Settings().Meta.AppURL); err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	return "tinycld"
 }
 
 // emailRecipient validates the rule-supplied address.
@@ -102,7 +131,7 @@ func emailRecipient(to string) (string, error) {
 // emailSendLedger tracks each rule's sends inside the rolling hour, in memory.
 //
 // In-memory is deliberate (the failureStreaks precedent): there is no query
-// that can fail, so the cap cannot fail open — this ceiling is the only
+// that can fail, so the cap cannot fail open — this ceiling is the last
 // control bounding a cross-dispatch mail loop, and an unavailable count must
 // never be read as permission to send. It also cannot be pruned out from
 // under itself the way a rule_runs-based count was (pruneRuns deletes the

@@ -100,6 +100,8 @@ select **Run history** to see:
   conditions filtered it out. "Didn't match" rows are expected and useful:
   they confirm the rule is watching, even when there's nothing to do.
 - How long the run took, and the result of each action (success or error).
+- **Skipped** and a reason, when an action did not run. For example, a rule
+  does not send a reply to mail that was sent automatically.
 
 ## Auto-disable
 

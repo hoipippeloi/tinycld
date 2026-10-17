@@ -66,14 +66,7 @@ var smtpDial = func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // Send adapts the simple Message shape onto SendFull.
 func (p *SMTPSender) Send(ctx context.Context, msg *Message) error {
-	_, err := p.SendFull(ctx, &SendRequest{
-		From:     msg.From,
-		To:       msg.To,
-		Subject:  msg.Subject,
-		HTMLBody: msg.HTML,
-		TextBody: msg.Text,
-		ReplyTo:  msg.ReplyTo,
-	})
+	_, err := p.SendFull(ctx, msg.sendRequest())
 	return err
 }
 
