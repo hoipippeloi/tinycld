@@ -166,7 +166,7 @@ func TestDryRunUnscopedRequiresAdmin(t *testing.T) {
 // push I/O.
 func TestCoreNotifyHandler(t *testing.T) {
 	t.Cleanup(ResetRegistriesForTest)
-	RegisterCoreNativeActions()
+	registerCoreNativeActions()
 
 	captured := make(chan notify.NotifyParams, 1)
 	original := deliverNotification
@@ -218,7 +218,7 @@ func TestCoreNotifyHandler(t *testing.T) {
 // run history looking healthy — and auto-disable could never see it failing.
 func TestCoreNotifyReportsDeliveryFailure(t *testing.T) {
 	t.Cleanup(ResetRegistriesForTest)
-	RegisterCoreNativeActions()
+	registerCoreNativeActions()
 
 	original := deliverNotification
 	deliverNotification = func(core.App, notify.NotifyParams) error {

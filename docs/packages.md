@@ -882,7 +882,7 @@ runtime. The registries that exist:
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
 | a CalDAV / CardDAV / WebDAV source | `caldav.Register` / `carddav.Register` / `webdav.Register` |
 | a native automation action | `automation.RegisterAction` |
-| when core's rule actions that send mail (`core:send-email`) must not send for a trigger record of its collection (e.g. mail that was sent automatically). A guard that says skip makes the action return `automation.Skip(reason)`, which run history shows as "Skipped" with the reason; a skip is not a failure | `automation.RegisterSendGuard` |
+| when core's rule actions that send mail (`core:send-email`) must not send for a trigger record of its collection (e.g. mail that was sent automatically). A guard that says skip makes the action return `automation.Skip(reason)`, which run history shows as "Skipped" with the reason; a skip is not a failure. Guards run in registration order, and the first skip wins | `automation.RegisterSendGuard` |
 | version snapshot/restore hooks for its drive item type | `versionhooks.Register` |
 | a sink for provider delivery notifications about its own sent messages | `deliveryevents.Register` |
 | what to stop at once when a supervised server begins to drain (e.g. stop accepting on its own ports) | `drainhooks.OnBegin` |

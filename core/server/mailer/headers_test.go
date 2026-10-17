@@ -99,3 +99,47 @@ func TestLogSenderSend_WritesHeaders(t *testing.T) {
 		t.Fatalf("logged headers = %v, want %v", entry.Headers, ruleHeaders)
 	}
 }
+
+// A custom header must not replace a header the sender writes, or start a
+// new header line. Every sender refuses it before anything is sent.
+func TestSenders_RefuseUnsafeHeaders(t *testing.T) {
+	withConfig(t, map[string]string{keyPostmarkAPIURL: "http://127.0.0.1:1"})
+	swapMXLookup(t, map[string][]*net.MX{})
+	senders := map[string]Sender{
+		"postmark": NewPostmarkSender("tok", "", "noreply@widgets.test"),
+		"smtp":     NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"}),
+		"log":      &LogSender{},
+	}
+	unsafe := map[string]map[string]string{
+		"From":                {"From": "evil@widgets.test"},
+		"subject (any case)":  {"subject": "other"},
+		"Message-ID":          {"Message-ID": "<x@widgets.test>"},
+		"Date":                {"Date": "Mon, 1 Jan 2024 00:00:00 +0000"},
+		"MIME-Version":        {"Mime-Version": "1.0"},
+		"Content-Type":        {"Content-Type": "text/html"},
+		"Content-* (any)":     {"content-transfer-encoding": "base64"},
+		"Bcc":                 {"BCC": "spy@widgets.test"},
+		"CR in a value":       {"X-Note": "a\rBcc: spy@widgets.test"},
+		"LF in a value":       {"X-Note": "a\nBcc: spy@widgets.test"},
+		"LF in a name":        {"X-Note\nBcc": "spy@widgets.test"},
+		"colon in a name":     {"X-Note:": "a"},
+		"space in a name":     {"X Note": "a"},
+		"non-ASCII in a name": {"X-Nöte": "a"},
+		"empty name":          {"": "a"},
+	}
+	for senderName, sender := range senders {
+		for caseName, headers := range unsafe {
+			t.Run(senderName+"/"+caseName, func(t *testing.T) {
+				err := sender.Send(context.Background(), &Message{
+					From: "alice@widgets.test", To: []Recipient{{Email: "bob@example.org"}},
+					Subject: "hi", Text: "t", Headers: headers,
+				})
+				// The provider is unreachable, so only the header check can
+				// give an error that names the header.
+				if err == nil || !strings.Contains(err.Error(), "header") {
+					t.Fatalf("headers %q: err = %v, want a header refusal", headers, err)
+				}
+			})
+		}
+	}
+}

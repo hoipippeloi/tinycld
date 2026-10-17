@@ -67,7 +67,7 @@ func zooEngineApp(t *testing.T) *zooEnv {
 			Actions:  []ActionDef{{ID: "skipper", Label: "skipper", Kind: "native"}},
 		},
 	}}
-	RegisterCoreNativeActions()
+	registerCoreNativeActions()
 	NewEngine(app, defs).Start()
 
 	u, err := app.FindFirstRecordByFilter("users", "id != ''")
@@ -274,4 +274,14 @@ func equalHeaders(got, want map[string]string) bool {
 		}
 	}
 	return true
+}
+
+func TestRuleMailHeaders(t *testing.T) {
+	app, _ := runsApp(t)
+	app.Settings().Meta.AppURL = "https://zoo.example"
+	got := RuleMailHeaders(app, AutoForwarded)
+	want := map[string]string{"Auto-Submitted": "auto-forwarded", "X-TinyCld-Loop": "zoo.example"}
+	if !equalHeaders(got, want) {
+		t.Fatalf("RuleMailHeaders = %v, want %v", got, want)
+	}
 }

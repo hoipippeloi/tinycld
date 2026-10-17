@@ -197,8 +197,11 @@ Native-action caveats:
 - **A send guard stops core's send.** `core:send-email` asks every guard
   registered with `automation.RegisterSendGuard(collection, guard)` for the
   trigger record's collection before it sends, and skips when a guard says
-  so. Every core send carries `Auto-Submitted: auto-generated` and
-  `X-TinyCld-Loop: <host>`. A package whose collection holds mail that can be
+  so. Guards run in registration order, and the first skip wins. Every core
+  send carries `Auto-Submitted: auto-generated` and `X-TinyCld-Loop: <host>`;
+  a package's own rule sends use the same contract through
+  `automation.RuleMailHeaders(app, kind)` and the `automation.LoopHeader` /
+  `automation.AutoSubmittedHeader` names. A package whose collection holds mail that can be
   automatic registers a guard, so a rule does not answer it.
 
 Core ships one native action itself: `core:post-webhook` (`url`, `secret`),

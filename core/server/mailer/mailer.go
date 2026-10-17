@@ -107,7 +107,9 @@ type Message struct {
 // sendRequest is the message in the SendRequest shape, so the providers send
 // a Message and a SendRequest through one path. Headers are sorted by name:
 // a map has no order, and the same message must give the same wire bytes.
-func (m *Message) sendRequest() *SendRequest {
+// A header the sender writes itself, or one that could inject a header line,
+// is refused (see checkHeader).
+func (m *Message) sendRequest() (*SendRequest, error) {
 	names := make([]string, 0, len(m.Headers))
 	for name := range m.Headers {
 		names = append(names, name)
@@ -115,6 +117,9 @@ func (m *Message) sendRequest() *SendRequest {
 	slices.Sort(names)
 	var headers []Header
 	for _, name := range names {
+		if err := checkHeader(name, m.Headers[name]); err != nil {
+			return nil, err
+		}
 		headers = append(headers, Header{Name: name, Value: m.Headers[name]})
 	}
 	return &SendRequest{
@@ -125,7 +130,38 @@ func (m *Message) sendRequest() *SendRequest {
 		TextBody: m.Text,
 		ReplyTo:  m.ReplyTo,
 		Headers:  headers,
+	}, nil
+}
+
+// reservedHeaders are the fields a sender writes from the Message itself, or
+// that describe the body. A custom header with one of these names would
+// replace them (SMTP) or duplicate them (Postmark).
+var reservedHeaders = map[string]bool{
+	"from": true, "to": true, "cc": true, "bcc": true, "reply-to": true, "sender": true,
+	"subject": true, "date": true, "message-id": true, "mime-version": true,
+}
+
+// checkHeader refuses a reserved name (any Content-* name too), a CR or LF in
+// the name or value (it would start a new header line), and a name with a
+// character outside the RFC 5322 field-name set: printable US-ASCII except
+// the colon.
+func checkHeader(name, value string) error {
+	lower := strings.ToLower(name)
+	if reservedHeaders[lower] || strings.HasPrefix(lower, "content-") {
+		return fmt.Errorf("header %q is reserved", name)
 	}
+	if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("header %q contains a line break", name)
+	}
+	if name == "" {
+		return fmt.Errorf("header name is empty")
+	}
+	for i := 0; i < len(name); i++ {
+		if c := name[i]; c < 33 || c > 126 || c == ':' {
+			return fmt.Errorf("header name %q has a character not allowed in a field name", name)
+		}
+	}
+	return nil
 }
 
 // Sender can send simple transactional emails.
@@ -332,7 +368,11 @@ func (l *LogSender) Send(_ context.Context, msg *Message) error {
 		fmt.Printf("│  From:    %s\n", msg.From)
 	}
 	fmt.Printf("│  Subject: %s\n", msg.Subject)
-	for _, h := range msg.sendRequest().Headers {
+	req, err := msg.sendRequest()
+	if err != nil {
+		return err
+	}
+	for _, h := range req.Headers {
 		fmt.Printf("│  %s: %s\n", h.Name, h.Value)
 	}
 	fmt.Println("├──────────────────────────────────────────────────────────┤")

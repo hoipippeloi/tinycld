@@ -46,7 +46,11 @@ func (p *PostmarkSender) Send(ctx context.Context, msg *Message) error {
 	if !deliveryEnabled() {
 		return log.Send(ctx, msg)
 	}
-	email := buildPostmarkEmail(msg.sendRequest(), p.defaultFrom)
+	req, err := msg.sendRequest()
+	if err != nil {
+		return err
+	}
+	email := buildPostmarkEmail(req, p.defaultFrom)
 
 	resp, err := p.client.SendEmail(ctx, email)
 	if err != nil {

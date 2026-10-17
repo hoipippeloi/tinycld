@@ -31,7 +31,7 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 		return
 	}
 
-	RegisterCoreNativeActions()
+	registerCoreNativeActions()
 
 	engine := NewEngine(app, defs)
 	registerEndpoints(app, engine)
@@ -45,11 +45,15 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	})
 }
 
-// RegisterCoreNativeActions installs the Go handlers for core's own native
-// action refs. Factored out of Register, and exported, so a test (a
-// package's too) can run core's actions through its own Engine without the
-// full app-bootstrap path (LoadDefs + OnServe binding).
-func RegisterCoreNativeActions() {
+// RegisterCoreNativeActionsForTest installs core's native action handlers,
+// so a package's test can run core actions (core:send-email) through its own
+// Engine. Pair it with ResetRegistriesForTest.
+func RegisterCoreNativeActionsForTest() { registerCoreNativeActions() }
+
+// registerCoreNativeActions installs the Go handlers for core's own native
+// action refs. Factored out of Register so a test can install them without
+// the full app-bootstrap path (LoadDefs + OnServe binding).
+func registerCoreNativeActions() {
 	registerCoreEmailAction()
 	registerCoreWebhookAction()
 
