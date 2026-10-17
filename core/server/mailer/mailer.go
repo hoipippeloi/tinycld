@@ -297,7 +297,12 @@ func CanDeliver() bool {
 // NoopSender silently discards messages.
 type NoopSender struct{}
 
-func (n *NoopSender) Send(_ context.Context, _ *Message) error { return nil }
+// Send discards the message, but refuses unsafe headers as every Sender does,
+// so a bad message fails the same way whichever sender is configured.
+func (n *NoopSender) Send(_ context.Context, msg *Message) error {
+	_, err := msg.sendRequest()
+	return err
+}
 func (n *NoopSender) SendFull(_ context.Context, _ *SendRequest) (*SendResult, error) {
 	return &SendResult{}, nil
 }
@@ -360,6 +365,11 @@ func appendToEmailLog(entry loggedEmail) {
 }
 
 func (l *LogSender) Send(_ context.Context, msg *Message) error {
+	// Checked before anything prints, so a refused message prints nothing.
+	req, err := msg.sendRequest()
+	if err != nil {
+		return err
+	}
 	fmt.Println("╭──────────────────────────────────────────────────────────╮")
 	fmt.Println("│  EMAIL (not delivered — delivery is disabled)       │")
 	fmt.Println("├──────────────────────────────────────────────────────────┤")
@@ -368,10 +378,6 @@ func (l *LogSender) Send(_ context.Context, msg *Message) error {
 		fmt.Printf("│  From:    %s\n", msg.From)
 	}
 	fmt.Printf("│  Subject: %s\n", msg.Subject)
-	req, err := msg.sendRequest()
-	if err != nil {
-		return err
-	}
 	for _, h := range req.Headers {
 		fmt.Printf("│  %s: %s\n", h.Name, h.Value)
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -109,6 +110,7 @@ func TestSenders_RefuseUnsafeHeaders(t *testing.T) {
 		"postmark": NewPostmarkSender("tok", "", "noreply@widgets.test"),
 		"smtp":     NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"}),
 		"log":      &LogSender{},
+		"noop":     &NoopSender{},
 	}
 	unsafe := map[string]map[string]string{
 		"From":                {"From": "evil@widgets.test"},
@@ -141,5 +143,27 @@ func TestSenders_RefuseUnsafeHeaders(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A refused message prints nothing: no half-written box on stdout.
+func TestLogSenderSend_RefusedMessagePrintsNothing(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = w
+	sendErr := (&LogSender{}).Send(context.Background(), &Message{
+		To: []Recipient{{Email: "a@widgets.test"}}, Subject: "hi", Headers: map[string]string{"From": "evil@widgets.test"},
+	})
+	os.Stdout = stdout
+	w.Close()
+	printed, _ := io.ReadAll(r)
+	if sendErr == nil {
+		t.Fatal("the reserved header was accepted")
+	}
+	if len(printed) != 0 {
+		t.Fatalf("a refused message printed:\n%s", printed)
 	}
 }
