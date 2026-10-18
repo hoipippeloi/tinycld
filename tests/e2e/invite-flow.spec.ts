@@ -1,7 +1,14 @@
 import { expect, type Page, test } from '@playwright/test'
 import { authStorageKey } from './auth-key-helpers'
 import { clearEmailLog, waitForEmailTo } from './email-log-helpers'
-import { appShell, isPackageLinked, login, TEST_USER_EMAIL, TEST_USER_PASSWORD } from './helpers'
+import {
+    appShell,
+    clearSession,
+    isPackageLinked,
+    login,
+    TEST_USER_EMAIL,
+    TEST_USER_PASSWORD,
+} from './helpers'
 
 // SPA-navigate to Settings → Members via the shell chrome (rail → settings
 // index → Members). A page.goto here would tear down the SPA and cancel the
@@ -134,10 +141,7 @@ test.describe('Invite flow', () => {
         // Rather than clicking through the menu chrome, clear auth directly —
         // that's what the UserMenu does internally, and it's more resilient to
         // menu layout changes.
-        await invitee.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(invitee)
         await invitee.goto('/')
 
         // Back to the login modal — sign in as the invitee by username with their new creds.
@@ -151,10 +155,7 @@ test.describe('Invite flow', () => {
         // Guard: original test user can still sign in (password unchanged).
         // This catches regressions where accept-invite accidentally overwrites
         // the wrong user.
-        await invitee.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(invitee)
         await invitee.goto('/')
         await invitee.getByTestId('identifier').fill(TEST_USER_EMAIL)
         await invitee.getByPlaceholder('Password').fill(TEST_USER_PASSWORD)

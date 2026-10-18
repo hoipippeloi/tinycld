@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import { clearEmailLog, extractFirstLink, waitForEmailTo } from './email-log-helpers'
-import { appShell, createInvitedUser, type InvitedUser } from './helpers'
+import { appShell, clearSession, createInvitedUser, type InvitedUser } from './helpers'
 import { totpCode } from './totp-helpers'
 
 // An owner helping a member who cannot sign in: remove their two-step
@@ -45,10 +45,7 @@ test.describe('admin sign-in help', () => {
     }
 
     async function submitPassword(page: Page, password: string) {
-        await page.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(page)
         await page.goto('/')
         await page.getByTestId('identifier').fill(invited.username)
         await page.getByPlaceholder('Password').fill(password)
@@ -134,10 +131,7 @@ test.describe('admin sign-in help', () => {
         await expect(page.getByText(/Temporary password set/)).toBeVisible()
 
         // What the app opens in the sheet: a fresh browser on this page.
-        await inviteePage.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(inviteePage)
         await inviteePage.goto(`/a/native-auth#mode=login&code_challenge=${'A'.repeat(43)}`)
         await inviteePage.getByTestId('native-auth-continue').click()
         await expect(inviteePage.getByText('Choose a new password', { exact: true })).toBeVisible()

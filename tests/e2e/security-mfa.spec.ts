@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { appShell, createInvitedUser, type InvitedUser } from './helpers'
+import { appShell, clearSession, createInvitedUser, type InvitedUser } from './helpers'
 import { totpCode } from './totp-helpers'
 
 // Two-step verification, passkeys and app passwords, driven through the UI.
@@ -32,10 +32,7 @@ test.describe('security: two-step verification', () => {
     // Signing out is clearing this browser's session; the next load shows the
     // sign-in overlay. Returns once the password step is submitted.
     async function signOutAndSubmitPassword(page: Page) {
-        await page.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(page)
         await page.goto('/')
         await page.getByTestId('identifier').fill(invited.username)
         await page.getByPlaceholder('Password').fill(invited.password)
@@ -131,10 +128,7 @@ test.describe('security: two-step verification', () => {
         await appShell(inviteePage).waitFor({ state: 'visible', timeout: 15_000 })
 
         // And it signs in on its own, with no username or password.
-        await inviteePage.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(inviteePage)
         await inviteePage.goto('/')
         await inviteePage.getByTestId('login-passkey').click()
         await appShell(inviteePage).waitFor({ state: 'visible', timeout: 15_000 })

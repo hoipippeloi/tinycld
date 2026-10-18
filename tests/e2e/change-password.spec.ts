@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { appShell, createInvitedUser, type InvitedUser } from './helpers'
+import { appShell, clearSession, createInvitedUser, type InvitedUser } from './helpers'
 
 // Password changes need a real, mutable account. Rather than mutate the shared
 // TEST_USER (whose password every other spec's login() depends on — a mutation
@@ -71,10 +71,7 @@ test.describe('change password', () => {
         await expect(inviteePage).toHaveURL(/\/settings\/security/)
 
         // The new password actually authenticates: sign out and back in with it.
-        await inviteePage.evaluate(() => {
-            window.localStorage.clear()
-            window.sessionStorage.clear()
-        })
+        await clearSession(inviteePage)
         await inviteePage.goto('/')
         await inviteePage.getByTestId('identifier').fill(invited.username)
         await inviteePage.getByPlaceholder('Password').fill(NEW_PASSWORD)

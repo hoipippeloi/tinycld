@@ -312,19 +312,24 @@ export async function createInvitedUser(
     return { user, inviteePage, close: () => inviteeContext.close() }
 }
 
-// Sign in as a specific (non-fixture) user by identifier + password. Mirrors
-// login() but for accounts minted via createInvitedUser.
-export async function loginAs(page: Page, identifier: string, password: string) {
-    // goto BEFORE clearing: storage is origin-scoped, and a freshly created
-    // context sits on about:blank, where reading localStorage throws
-    // SecurityError. Navigating first gives the page a real origin; the
-    // reload then re-mounts the app against the cleared store.
-    await page.goto('/')
+// Signs the browser out by clearing its storage on /api/health, a same-origin
+// page that runs no app code. Clearing on an app page races the app: its
+// authRefresh (at boot, and on a timer after) saves the token again after the
+// clear, and the next load is still signed in. Storage is origin-scoped, so
+// the clear cannot run on about:blank either. The caller navigates next.
+export async function clearSession(page: Page) {
+    await page.goto('/api/health')
     await page.evaluate(() => {
         window.localStorage.clear()
         window.sessionStorage.clear()
     })
-    await page.reload()
+}
+
+// Sign in as a specific (non-fixture) user by identifier + password. Mirrors
+// login() but for accounts minted via createInvitedUser.
+export async function loginAs(page: Page, identifier: string, password: string) {
+    await clearSession(page)
+    await page.goto('/')
     await page.getByTestId('identifier').fill(identifier)
     await page.getByPlaceholder('Password').fill(password)
     await page.getByText('Sign in', { exact: true }).last().click()
