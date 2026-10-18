@@ -22,6 +22,17 @@ function flattenStyle(style) {
 // listener and the component would never hear it.
 const LAYOUT_EVENT = 'rn-layout'
 
+// A custom element drops a false boolean attribute, but aria-* states are
+// meaningful as "false" (aria-selected="false"), as react-native-web writes them.
+function stringifyAria(props) {
+    const out = {}
+    for (const key of Object.keys(props)) {
+        const value = props[key]
+        out[key] = key.startsWith('aria-') && typeof value === 'boolean' ? String(value) : value
+    }
+    return out
+}
+
 function host(tag) {
     const Host = React.forwardRef(function Host({ style, onLayout, ...props }, ref) {
         const node = React.useRef(null)
@@ -40,7 +51,7 @@ function host(tag) {
             el.addEventListener(LAYOUT_EVENT, handler)
             return () => el.removeEventListener(LAYOUT_EVENT, handler)
         }, [onLayout])
-        return React.createElement(tag, { ...props, ref: setRef, style: flattenStyle(style) })
+        return React.createElement(tag, { ...stringifyAria(props), ref: setRef, style: flattenStyle(style) })
     })
     Host.displayName = tag
     return Host
@@ -112,14 +123,12 @@ TextInput.displayName = TEXT_INPUT_TAG
 
 // A Pressable answers a DOM click with its onPress, so a test can drive a
 // button the way a user does. `disabled` swallows it, as on every platform.
-const Pressable = React.forwardRef(function Pressable(
-    { style, onPress, disabled, onClick, ...props },
-    ref
-) {
-    return React.createElement('rn-pressable', {
+// It is a layout host too, since a Pressable takes onLayout like a View.
+const PressableHost = host('rn-pressable')
+const Pressable = React.forwardRef(function Pressable({ onPress, disabled, onClick, ...props }, ref) {
+    return React.createElement(PressableHost, {
         ...props,
         ref,
-        style: flattenStyle(style),
         onClick: disabled ? undefined : (onClick ?? onPress),
     })
 })

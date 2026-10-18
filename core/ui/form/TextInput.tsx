@@ -41,6 +41,8 @@ export type TextInputProps<T extends FieldValues = Record<string, unknown>> = Om
     label?: string
     labelIcon?: ComponentType<{ size: number; color: string }>
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     wrapperProps?: ViewProps
     addon?: ReactNode
     onBlur?: () => void
@@ -57,6 +59,7 @@ export function TextInput<T extends FieldValues = Record<string, unknown>>(
         label,
         labelIcon: LabelIcon,
         hint,
+        hideError = false,
         name,
         control,
         wrapperProps = {},
@@ -104,7 +107,9 @@ export function TextInput<T extends FieldValues = Record<string, unknown>>(
                 {addon}
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

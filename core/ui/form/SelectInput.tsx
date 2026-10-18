@@ -12,7 +12,10 @@ export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = 
     label: string
     options: SelectOption[]
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     horizontal?: boolean
+    disabled?: boolean
     wrapperProps?: ViewProps
 }
 
@@ -22,7 +25,9 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     label,
     options,
     hint,
+    hideError = false,
     horizontal = false,
+    disabled = false,
     wrapperProps = {},
 }: SelectInputProps<T>) {
     const {
@@ -45,11 +50,15 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                     return (
                         <Pressable
                             key={option.value}
-                            accessibilityRole="radio"
                             accessibilityLabel={option.label}
-                            accessibilityState={{ checked: isSelected }}
-                            aria-checked={isSelected}
                             onPress={() => field.onChange(option.value)}
+                            disabled={disabled}
+                            accessibilityRole="radio"
+                            // A radio's state is "checked"; ARIA ignores aria-selected
+                            // on it, so a reader would call every option unchecked.
+                            accessibilityState={{ checked: isSelected, disabled }}
+                            aria-checked={isSelected}
+                            aria-disabled={disabled}
                             className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
                             style={{
                                 flex: horizontal ? 1 : undefined,
@@ -66,7 +75,9 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                 })}
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

@@ -131,4 +131,54 @@ describe('useDragGesture (web)', () => {
             })
         )
     })
+
+    describe('pointercancel', () => {
+        const fire = (type: string, clientX: number) =>
+            act(() => {
+                window.dispatchEvent(new PointerEvent(type, { clientX, clientY: 10, pointerId: 1 }))
+            })
+        function engage(opts: Parameters<typeof useDragGesture>[0]) {
+            const { result } = renderHook(() => useDragGesture({ threshold: 3, ...opts }))
+            act(() => {
+                ;(result.current.handlers.onPointerDown as (e: unknown) => void)(makePointerDown())
+            })
+            fire('pointermove', 20)
+            return result
+        }
+
+        it('calls onDragCancel instead of onDragEnd and stops tracking', () => {
+            const onDragEnd = vi.fn()
+            const onDragCancel = vi.fn()
+            const onDragMove = vi.fn()
+            const result = engage({ onDragEnd, onDragCancel, onDragMove })
+            expect(result.current.isDragging).toBe(true)
+            fire('pointercancel', 25)
+            expect(onDragCancel).toHaveBeenCalledWith(
+                expect.objectContaining({ pointer: expect.objectContaining({ x: 25 }) })
+            )
+            expect(onDragEnd).not.toHaveBeenCalled()
+            expect(result.current.isDragging).toBe(false)
+            fire('pointermove', 40)
+            fire('pointerup', 40)
+            expect(onDragMove).not.toHaveBeenCalled()
+            expect(onDragEnd).not.toHaveBeenCalled()
+        })
+
+        it('still ends the drag through onDragEnd when no onDragCancel is given', () => {
+            const onDragEnd = vi.fn()
+            engage({ onDragEnd })
+            fire('pointercancel', 25)
+            expect(onDragEnd).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not call onDragCancel for a gesture that never engaged', () => {
+            const onDragCancel = vi.fn()
+            const { result } = renderHook(() => useDragGesture({ onDragCancel, threshold: 3 }))
+            act(() => {
+                ;(result.current.handlers.onPointerDown as (e: unknown) => void)(makePointerDown())
+            })
+            fire('pointercancel', 11)
+            expect(onDragCancel).not.toHaveBeenCalled()
+        })
+    })
 })

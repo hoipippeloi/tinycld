@@ -1,6 +1,6 @@
 {
     "name": "@tinycld/core",
-    "version": "0.7.1",
+    "version": "0.8.0",
     "license": "AGPL-3.0-only",
     "main": "./index.ts",
     "type": "module",
@@ -95,6 +95,7 @@
         "expo-screen-orientation": "~57.0.2",
         "expo-web-browser": "~57.0.3",
         "fractional-indexing": ">=3.2.0 <4",
+        "json-logic-js": ">=2.0.5 <3",
         "lib0": "^0.2.117",
         "lucide-react-native": "^1.52.0",
         "pbtsdb": ">=2.0.3 <3",

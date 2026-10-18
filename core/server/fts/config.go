@@ -15,6 +15,8 @@
 // (the schema source of truth); this package only reads and writes it.
 package fts
 
+import "github.com/pocketbase/pocketbase/core"
+
 // Config describes one feature collection's FTS index. One Config drives both
 // the index-sync hooks (Table + Columns) and the search route (Scope +
 // Output). It is the single interface both the manifest reader and the direct
@@ -79,6 +81,10 @@ type Column struct {
 	Field string
 	// Strip removes HTML tags before indexing (for editor/rich-text fields).
 	Strip bool
+	// Text, when set, computes the indexed text from the whole record instead
+	// of reading Field (a JSON column whose searchable parts depend on other
+	// rows, say). Strip still applies to its result.
+	Text func(record *core.Record) string
 }
 
 // Scope constrains search results to rows the requesting user may see. It is an

@@ -1,4 +1,4 @@
-import { chipsToText, runHandlerFor } from '@tinycld/core/lib/search/chip-text'
+import { chipsToText, createPickQueue, runHandlerFor } from '@tinycld/core/lib/search/chip-text'
 import type { SearchRow } from '@tinycld/core/lib/search/types'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -49,5 +49,52 @@ describe('runHandlerFor', () => {
 
     it('reports false against an empty handler map', () => {
         expect(runHandlerFor(row, {})).toBe(false)
+    })
+})
+
+describe('createPickQueue', () => {
+    const row: SearchRow = { id: 'r1', slug: 'gizmos', title: 'Gizmo' }
+
+    it('runs a pick at once when the package has a handler', () => {
+        const queue = createPickQueue()
+        const onSelect = vi.fn()
+        expect(queue.register('gizmos', onSelect)).toBe(false)
+        expect(queue.pick(row)).toBe(true)
+        expect(onSelect).toHaveBeenCalledWith(row)
+    })
+
+    it('holds a pick until its package registers, then runs it once', () => {
+        const queue = createPickQueue()
+        const onSelect = vi.fn()
+        expect(queue.pick(row)).toBe(false)
+        const other = vi.fn()
+        expect(queue.register('cogs', other)).toBe(false)
+        expect(other).not.toHaveBeenCalled()
+        expect(queue.register('gizmos', onSelect)).toBe(true)
+        expect(onSelect).toHaveBeenCalledTimes(1)
+        expect(onSelect).toHaveBeenCalledWith(row)
+        // Registering again (a re-render) does not replay the pick.
+        expect(queue.register('gizmos', onSelect)).toBe(false)
+        expect(onSelect).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps only the latest held pick', () => {
+        const queue = createPickQueue()
+        const onSelect = vi.fn()
+        const later = { ...row, id: 'r2' }
+        queue.pick(row)
+        queue.pick(later)
+        queue.register('gizmos', onSelect)
+        expect(onSelect).toHaveBeenCalledTimes(1)
+        expect(onSelect).toHaveBeenCalledWith(later)
+    })
+
+    it('drops a held pick once cleared', () => {
+        const queue = createPickQueue()
+        const onSelect = vi.fn()
+        queue.pick(row)
+        queue.clear()
+        expect(queue.register('gizmos', onSelect)).toBe(false)
+        expect(onSelect).not.toHaveBeenCalled()
     })
 })

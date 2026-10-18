@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { Platform, Text, View } from 'react-native'
+import { isFileDrag } from '../lib/file-drop/file-drop-controller'
 import { useThemeColor } from '../lib/use-app-theme'
 
 interface DropZoneProps {
@@ -10,6 +11,7 @@ interface DropZoneProps {
     isEnabled: boolean
     /** Overlay copy while a drag is over the zone. */
     label?: string
+    testID?: string
 }
 
 /**
@@ -27,6 +29,7 @@ export function DropZone({
     onDrop,
     isEnabled,
     label = 'Drop files to upload',
+    testID,
 }: DropZoneProps) {
     const [isDragging, setIsDragging] = useState(false)
     const accentColor = useThemeColor('primary')
@@ -35,25 +38,35 @@ export function DropZone({
         return <View className="flex-1">{children}</View>
     }
 
-    const handleDragEnter = (e: React.DragEvent) => {
-        if (!isEnabled) return
+    // A disabled zone still claims a FILE drag: left alone, the browser
+    // performs its default drop and replaces the app with the file. Only the
+    // overlay and the upload are gated on isEnabled, as in use-file-drop.
+    //
+    // A drag an inner target already claimed (the editor takes an image drop)
+    // is that target's: setting dropEffect to 'none' on it would cancel the
+    // drop before the editor ever sees it.
+    const claimDrag = (e: React.DragEvent) => {
+        if (!isEnabled && (e.defaultPrevented || !isFileDrag(e.dataTransfer))) return false
         e.preventDefault()
         e.stopPropagation()
-        if (e.dataTransfer.types.includes('Files')) {
+        if (isEnabled) return true
+        e.dataTransfer.dropEffect = 'none'
+        return false
+    }
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        if (claimDrag(e) && isFileDrag(e.dataTransfer)) {
             setIsDragging(true)
         }
     }
 
     const handleDragOver = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        if (e.defaultPrevented) return
+        claimDrag(e)
     }
 
     const handleDragLeave = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        if (!claimDrag(e)) return
         // dragleave also fires when the pointer crosses onto a CHILD element,
         // so the overlay may only be dismissed once the pointer is genuinely
         // outside the zone's own box.
@@ -70,9 +83,11 @@ export function DropZone({
     }
 
     const handleDrop = (e: React.DragEvent) => {
-        if (!isEnabled) return
-        e.preventDefault()
-        e.stopPropagation()
+        if (e.defaultPrevented) {
+            setIsDragging(false)
+            return
+        }
+        if (!claimDrag(e)) return
         setIsDragging(false)
 
         const files = Array.from(e.dataTransfer.files)
@@ -82,9 +97,20 @@ export function DropZone({
     }
 
     return (
-        // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop zone requires native DOM events
         <div
-            role="presentation"
+            // A static drop target on purpose: drag-and-drop is a pointer-only
+            // convenience with no keyboard equivalent by nature, so the div
+            // carries no interactive role. Each caller must offer a keyboard
+            // path to the same action (a button that opens the file picker).
+            // role="none" adds no semantics; it is here only because biome's
+            // static-element rule accepts it on an element with handlers, so
+            // do not read it as a deliberate accessibility choice.
+            role="none"
+            data-testid={testID}
+            // A data attribute, not aria-disabled: aria-disabled is inherited,
+            // so a zone that only refuses drops would mark every control inside
+            // it disabled — a reader's whole card, comments and reactions too.
+            data-enabled={isEnabled ? 'true' : 'false'}
             style={{
                 flex: 1,
                 position: 'relative',

@@ -236,6 +236,12 @@ jobs:
       - name: Scaffold search stub packages
         working-directory: ws
         run: pnpm exec tsx tinycld/tests/scripts/scaffold-search-stubs.ts
+      # The forms builder needs a package that declares a form host, and
+      # app-shell CI installs none. Must also precede the bundle build so the
+      # stub's host and migration are in the served app.
+      - name: Scaffold forms-host stub package
+        working-directory: ws
+        run: pnpm exec tsx tinycld/tests/scripts/scaffold-forms-host-stub.ts
       # Shared e2e prep: installs the Playwright browser and pre-builds the
       # static web bundle (expo export + sourcemaps). The E2E step's
       # TINYCLD_E2E_SKIP_EXPORT=1 makes the webServer reuse this dist/ instead

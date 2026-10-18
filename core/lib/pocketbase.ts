@@ -418,6 +418,12 @@ const rules = newCollection('rules', {
     ...indexing,
 })
 
+const forms = newCollection('forms', {
+    omitOnInsert: ['created', 'updated'],
+    ...onDemand,
+    ...indexing,
+})
+
 const rule_runs = newCollection('rule_runs', {
     omitOnInsert: ['created', 'updated'],
     ...onDemand,
@@ -491,6 +497,7 @@ const coreStores = {
     notifications,
     rules,
     rule_runs,
+    forms,
     automation_catalog,
     system_settings,
     autoupgrade_state,

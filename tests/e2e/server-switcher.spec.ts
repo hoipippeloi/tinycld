@@ -249,8 +249,8 @@ test.describe('switcher on desktop — user menu', () => {
         // Web rows carry an href (Menu.Item renders a real <a role="menuitem">),
         // which is what makes middle-click / open-in-new-tab work — so target by
         // it rather than by label text.
-        const primaryRow = page.locator(`a[role="menuitem"][href="${PRIMARY}"]`)
-        const secondRow = page.locator(`a[role="menuitem"][href="${SECOND}"]`)
+        const primaryRow = serverRow(page, PRIMARY)
+        const secondRow = serverRow(page, SECOND)
         await expect(primaryRow).toBeVisible()
         await expect(secondRow).toBeVisible()
 
@@ -263,9 +263,77 @@ test.describe('switcher on desktop — user menu', () => {
     test('choosing the other server navigates to its origin', async ({ page }) => {
         await saveBothServers(page)
         await openUserMenu(page)
-        await page.locator(`a[role="menuitem"][href="${SECOND}"]`).click()
+        await serverRow(page, SECOND).click()
 
         await page.waitForURL(new RegExp(`:${SECOND_PORT}`), { timeout: 20_000 })
         expect(new URL(page.url()).host).toBe(`localhost:${SECOND_PORT}`)
     })
+
+    // A browser cannot read another origin's list, so the switch names the
+    // server it left and the target saves it: after one trip, each server
+    // offers the way back.
+    test('the server you switch to lists the one you came from', async ({ page }) => {
+        await saveBothServers(page)
+        await openUserMenu(page)
+        await serverRow(page, SECOND).click()
+        await page.waitForURL(new RegExp(`:${SECOND_PORT}`), { timeout: 20_000 })
+
+        await expect.poll(() => savedOrigins(page), { timeout: 20_000 }).toContain(PRIMARY)
+        // The handoff parameter is consumed at boot, never left in the URL.
+        await expect(page).not.toHaveURL(/from-server/)
+
+        await loginAt(page, SECOND)
+        await openUserMenu(page)
+        await expect(serverRow(page, PRIMARY)).toBeVisible()
+    })
+
+    test('adding a server opens it and each server lists the other', async ({ page }) => {
+        await login(page)
+        await openUserMenu(page)
+        await menuItem(page, 'Settings').click()
+        await page.getByText('Servers', { exact: true }).click()
+
+        // With only the current server saved, the Add button must still show —
+        // it is the only way to get a second one.
+        await page.getByText('Add server', { exact: true }).click()
+        await page.getByPlaceholder('https://pb.example.com').fill(SECOND)
+        await page.getByText('Connect', { exact: true }).click()
+
+        await page.waitForURL(new RegExp(`:${SECOND_PORT}`), { timeout: 20_000 })
+        await expect.poll(() => savedOrigins(page), { timeout: 20_000 }).toContain(PRIMARY)
+
+        await page.goto(`${PRIMARY}/`)
+        expect(await savedOrigins(page)).toContain(SECOND)
+    })
+
+    test('removes a server from the user menu after confirming', async ({ page }) => {
+        await saveBothServers(page)
+        await openUserMenu(page)
+
+        await menuItem(page, 'Remove server').click()
+        // The submenu lists only the other server: leaving the current one is
+        // Disconnect, in Settings.
+        const submenu = page.locator('[role="menu"]').last()
+        await expect(submenu.locator('[role="menuitem"]')).toHaveCount(1)
+        await submenu.locator('[role="menuitem"]', { hasText: `localhost:${SECOND_PORT}` }).click()
+
+        await page.getByText('Remove', { exact: true }).click()
+
+        await expect.poll(() => savedOrigins(page)).not.toContain(SECOND)
+        await openUserMenu(page)
+        await expect(menuLabel(page, 'Servers')).toHaveCount(0)
+    })
 })
+
+// Web rows are links to the target, carrying the server the user is leaving.
+function serverRow(page: Page, origin: string) {
+    return page.locator(`a[role="menuitem"][href^="${origin}/"]`)
+}
+
+async function savedOrigins(page: Page): Promise<string[]> {
+    return page.evaluate(() => {
+        const raw = window.localStorage.getItem('tinycld:servers')
+        const list: { origin: string }[] = raw ? JSON.parse(raw) : []
+        return list.map(s => s.origin)
+    })
+}

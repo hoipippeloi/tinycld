@@ -31,6 +31,21 @@ export function assertSafeImportField(field: string, value: string): string {
     return value
 }
 
+// An exports subpath is appended to the package name, so it must also stay
+// inside the package: a leading '/' or a '..' segment would name a module
+// outside it, and both pass the character allowlist above.
+export function assertSafeExportSubpath(field: string, value: string): string {
+    assertSafeImportField(field, value)
+    if (value.startsWith('/') || value.split('/').includes('..')) {
+        throw new Error(
+            `Refusing to generate: manifest field "${field}" has an unsafe value ${JSON.stringify(
+                value
+            )}. An exports subpath must not start with '/' or contain a '..' segment.`
+        )
+    }
+    return value
+}
+
 // Assert a route file path (relative, no extension) is safe to interpolate into
 // a generated re-export specifier. Permits Expo Router bracket segments.
 export function assertSafeRoutePath(field: string, value: string): string {
