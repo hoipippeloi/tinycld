@@ -885,6 +885,7 @@ runtime. The registries that exist:
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
 | a CalDAV / CardDAV / WebDAV source | `caldav.Register` / `carddav.Register` / `webdav.Register` |
 | a native automation action | `automation.RegisterAction` |
+| when core's rule actions that send mail (`core:send-email`) must not send for a trigger record of its collection (e.g. mail that was sent automatically). A guard that says skip makes the action return `automation.Skip(reason)`, which run history shows as "Skipped" with the reason; a skip is not a failure. Guards run in registration order, and the first skip wins | `automation.RegisterSendGuard` |
 | which of its records carry a form, and that record's built-in fields | `forms: { hosts, ui }` in the manifest; the generator emits `server/form_hosts.json`, which core's `forms` package reads |
 | that an anonymous visitor of one of its screens (a share link) may read form definitions, and the rule clause that vouches for that visitor | `forms.RegisterPublicReader` |
 | version snapshot/restore hooks for its drive item type | `versionhooks.Register` |

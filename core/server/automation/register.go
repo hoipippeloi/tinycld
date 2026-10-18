@@ -45,6 +45,11 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	})
 }
 
+// RegisterCoreNativeActionsForTest installs core's native action handlers,
+// so a package's test can run core actions (core:send-email) through its own
+// Engine. Pair it with ResetRegistriesForTest.
+func RegisterCoreNativeActionsForTest() { registerCoreNativeActions() }
+
 // registerCoreNativeActions installs the Go handlers for core's own native
 // action refs. Factored out of Register so a test can install them without
 // the full app-bootstrap path (LoadDefs + OnServe binding).

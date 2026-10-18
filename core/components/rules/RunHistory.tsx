@@ -146,17 +146,34 @@ function ActionResultsList({ results }: { results: RunActionResult[] }) {
     )
 }
 
-function ActionResultRow({ result }: { result: RunActionResult }) {
-    const isOk = result.status === 'ok'
+// A skip is the action choosing not to act (for example, not answering
+// automatic mail): neither a success nor a failure, so it gets a neutral color.
+const RESULT_MARKS = {
+    ok: { mark: '✓', className: 'text-success' },
+    skipped: { mark: '–', className: 'text-muted-foreground' },
+    error: { mark: '✗', className: 'text-danger' },
+}
+
+function resultMark(status: string) {
+    if (status === 'ok' || status === 'skipped') return RESULT_MARKS[status]
+    return RESULT_MARKS.error
+}
+
+export function ActionResultRow({ result }: { result: RunActionResult }) {
+    const { mark, className } = resultMark(result.status)
     return (
         <View className="flex-row items-center gap-2">
-            <Text className={`text-xs ${isOk ? 'text-success' : 'text-danger'}`}>
-                {isOk ? '✓' : '✗'}
-            </Text>
+            <Text className={`text-xs ${className}`}>{mark}</Text>
             <Text className="text-xs text-foreground flex-1">{result.ref}</Text>
+            <SkippedLabel isVisible={result.status === 'skipped'} />
             <RunActionMessage message={result.message} />
         </View>
     )
+}
+
+function SkippedLabel({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return <Text className="text-xs font-semibold text-muted-foreground">Skipped</Text>
 }
 
 function RunActionMessage({ message }: { message?: string }) {

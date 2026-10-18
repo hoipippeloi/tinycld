@@ -66,14 +66,11 @@ var smtpDial = func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // Send adapts the simple Message shape onto SendFull.
 func (p *SMTPSender) Send(ctx context.Context, msg *Message) error {
-	_, err := p.SendFull(ctx, &SendRequest{
-		From:     msg.From,
-		To:       msg.To,
-		Subject:  msg.Subject,
-		HTMLBody: msg.HTML,
-		TextBody: msg.Text,
-		ReplyTo:  msg.ReplyTo,
-	})
+	req, err := msg.sendRequest()
+	if err != nil {
+		return err
+	}
+	_, err = p.SendFull(ctx, req)
 	return err
 }
 
@@ -413,8 +410,10 @@ func buildOutgoingRFC5322(req *SendRequest, messageID, helo string) ([]byte, err
 		h.Set("References", req.References)
 	}
 	for _, hdr := range req.Headers {
-		// Custom headers from the caller are appended verbatim. We do not
-		// overwrite headers we've already set (Subject, From, etc.).
+		// h.Set REPLACES a header of the same name, so a custom header named
+		// From or Subject would overwrite the one set above. Message.Headers
+		// cannot name one (sendRequest refuses them); a SendRequest caller
+		// must not either.
 		if hdr.Name == "" {
 			continue
 		}
