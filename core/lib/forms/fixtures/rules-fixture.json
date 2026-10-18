@@ -1,0 +1,536 @@
+{
+    "context": { "today": "2026-01-31", "userId": "user_me" },
+    "definition": {
+        "version": 1,
+        "pages": [{ "key": "a", "title": "A" }, { "key": "b", "title": "B" }],
+        "fields": [
+            {
+                "key": "kind",
+                "kind": "select",
+                "page": "a",
+                "label": "Kind",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [
+                    { "value": "bug", "label": "Bug" },
+                    { "value": "task", "label": "Task" }
+                ]
+            },
+            {
+                "key": "severity",
+                "kind": "number",
+                "page": "a",
+                "label": "Severity",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "steps",
+                "kind": "textarea",
+                "page": "b",
+                "label": "Steps",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "tags",
+                "kind": "select",
+                "page": "b",
+                "label": "Tags",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "checkbox",
+                "multiple": true,
+                "options": [{ "value": "x", "label": "X" }]
+            },
+            {
+                "key": "done",
+                "kind": "toggle",
+                "page": "b",
+                "label": "Done",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "when",
+                "kind": "date",
+                "page": "b",
+                "label": "When",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "time": false
+            },
+            {
+                "key": "items",
+                "kind": "checklist",
+                "page": "b",
+                "label": "Items",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "note",
+                "kind": "text",
+                "page": "b",
+                "label": "Note",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "area",
+                "kind": "select",
+                "page": "b",
+                "label": "Area",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [{ "value": "ui", "label": "UI" }, { "value": "api", "label": "API" }]
+            },
+            {
+                "key": "gate",
+                "kind": "toggle",
+                "page": "a",
+                "label": "Gate",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_flag",
+                "kind": "toggle",
+                "page": "a",
+                "label": "P Flag",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_date",
+                "kind": "date",
+                "page": "a",
+                "label": "P Date",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "time": false
+            },
+            {
+                "key": "p_num",
+                "kind": "number",
+                "page": "a",
+                "label": "P Num",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_text",
+                "kind": "text",
+                "page": "a",
+                "label": "P Text",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_sel",
+                "kind": "select",
+                "page": "a",
+                "label": "P Sel",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "display": "dropdown",
+                "multiple": false,
+                "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }]
+            },
+            {
+                "key": "p_list",
+                "kind": "checklist",
+                "page": "a",
+                "label": "P List",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "p_out",
+                "kind": "text",
+                "page": "a",
+                "label": "P Out",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            }
+        ],
+        "rules": [
+            {
+                "key": "bug_needs_steps",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "bug" }],
+                "actions": [{ "action": "require", "field": "steps" }]
+            },
+            {
+                "key": "task_hides_b",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "task" }],
+                "actions": [{ "action": "hide", "page": "b" }]
+            },
+            {
+                "key": "hidden_page_wins",
+                "match": "all",
+                "when": [{ "field": "kind", "op": "is", "value": "task" }],
+                "actions": [{ "action": "require", "field": "steps" }]
+            },
+            {
+                "key": "high_sets_tags",
+                "match": "any",
+                "when": [
+                    { "field": "severity", "op": "gte", "value": 8 },
+                    { "field": "done", "op": "is_true" }
+                ],
+                "actions": [
+                    {
+                        "action": "set_options",
+                        "field": "tags",
+                        "options": [{ "value": "urgent", "label": "Urgent" }]
+                    },
+                    { "action": "set_value", "field": "note", "value": "escalated" }
+                ]
+            },
+            {
+                "key": "all_done_hides_note",
+                "match": "all",
+                "when": [{ "field": "items", "op": "all_done" }],
+                "actions": [{ "action": "hide", "field": "note" }]
+            },
+            {
+                "key": "late",
+                "match": "all",
+                "when": [{ "field": "when", "op": "before", "value": "2026-01-31" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "nu_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "starts_with", "value": "nu" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "low_sev_hides_note",
+                "match": "all",
+                "when": [{ "field": "severity", "op": "lt", "value": 5 }],
+                "actions": [{ "action": "hide", "field": "note" }]
+            },
+            {
+                "key": "ne_prefix_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "starts_with", "value": "n\u00e9" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "tag_x_hides_done",
+                "match": "all",
+                "when": [{ "field": "tags", "op": "is", "value": "x" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "note_has_5_hides_done",
+                "match": "all",
+                "when": [{ "field": "note", "op": "contains", "value": "5" }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "area_any_hides_done",
+                "match": "all",
+                "when": [{ "field": "area", "op": "is_any_of", "value": ["ui", "api"] }],
+                "actions": [{ "action": "hide", "field": "done" }]
+            },
+            {
+                "key": "p_after",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_date", "op": "after", "value": "2026-01-15" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_gt",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "gt", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_gte",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "gte", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_lte",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_num", "op": "lte", "value": 5 }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_neq",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "neq", "value": "x" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_not",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_sel", "op": "is_not", "value": "a" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_false",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_flag", "op": "is_false" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_any_open",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_list", "op": "any_open" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_is_empty",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "is_empty" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            },
+            {
+                "key": "p_not_empty",
+                "match": "all",
+                "when": [
+                    { "field": "gate", "op": "is_true" },
+                    { "field": "p_text", "op": "not_empty" }
+                ],
+                "actions": [{ "action": "hide", "field": "p_out" }]
+            }
+        ],
+        "defaults": {
+            "when": { "addDays": [{ "today": [] }, 21] },
+            "note": "hello",
+            "kind": "task"
+        },
+        "submit": { "required": ["kind"] }
+    },
+    "cases": [
+        {
+            "name": "bug requires steps",
+            "values": { "kind": "bug" },
+            "expect": {
+                "fields": { "steps": { "visible": true, "required": true } },
+                "pages": { "b": { "visible": true } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "task hides page b and a hidden page is never required",
+            "values": { "kind": "task" },
+            "expect": {
+                "fields": { "steps": { "visible": false, "required": false } },
+                "pages": { "b": { "visible": false } },
+                "activeRules": ["task_hides_b", "hidden_page_wins"]
+            }
+        },
+        {
+            "name": "any-match with a number and set_options and set_value",
+            "values": { "kind": "bug", "severity": 9 },
+            "expect": {
+                "fields": {
+                    "tags": {
+                        "visible": true,
+                        "required": false,
+                        "options": [{ "value": "urgent", "label": "Urgent" }]
+                    }
+                },
+                "setValues": { "note": "escalated" },
+                "activeRules": ["bug_needs_steps", "high_sets_tags"]
+            }
+        },
+        {
+            "name": "all_done on a checklist",
+            "values": {
+                "kind": "bug",
+                "items": [
+                    { "id": "1", "text": "a", "done": true },
+                    { "id": "2", "text": "b", "done": true }
+                ]
+            },
+            "expect": {
+                "fields": { "note": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "all_done_hides_note"]
+            }
+        },
+        {
+            "name": "empty checklist is not all_done",
+            "values": { "kind": "bug", "items": [] },
+            "expect": {
+                "fields": { "note": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "date before",
+            "values": { "kind": "bug", "when": "2026-01-01" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "late"]
+            }
+        },
+        {
+            "name": "submit required always applies",
+            "values": {},
+            "expect": {
+                "fields": { "kind": { "visible": true, "required": true } },
+                "activeRules": []
+            }
+        },
+        {
+            "name": "starts_with on an empty field is false",
+            "values": { "kind": "bug", "note": null },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "lt on an empty number is false",
+            "values": { "kind": "bug" },
+            "expect": {
+                "fields": { "note": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "starts_with counts characters, not bytes",
+            "values": { "kind": "bug", "note": "névé" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "ne_prefix_hides_done"]
+            }
+        },
+        {
+            "name": "is matches an array field holding the value",
+            "values": { "kind": "bug", "tags": ["x"] },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "tag_x_hides_done"]
+            }
+        },
+        {
+            "name": "is does not match an array field without the value",
+            "values": { "kind": "bug", "tags": ["y"] },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "contains matches text holding a digit",
+            "values": { "kind": "bug", "note": "abc5" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "note_has_5_hides_done"]
+            }
+        },
+        {
+            "name": "contains does not match text without the digit",
+            "values": { "kind": "bug", "note": "abc" },
+            "expect": {
+                "fields": { "done": { "visible": true, "required": false } },
+                "activeRules": ["bug_needs_steps"]
+            }
+        },
+        {
+            "name": "is_any_of matches a single value in the list",
+            "values": { "kind": "bug", "area": "ui" },
+            "expect": {
+                "fields": { "done": { "visible": false, "required": false } },
+                "activeRules": ["bug_needs_steps", "area_any_hides_done"]
+            }
+        },
+        {
+            "name": "parity: empty fields under the gate",
+            "values": { "gate": true },
+            "expect": {
+                "fields": { "p_out": { "visible": false, "required": false } },
+                "activeRules": ["p_neq", "p_is_not", "p_is_false", "p_is_empty"]
+            }
+        },
+        {
+            "name": "parity: boundary values",
+            "values": {
+                "gate": true,
+                "p_date": "2026-01-20",
+                "p_num": 5,
+                "p_text": "x",
+                "p_sel": "a",
+                "p_flag": true,
+                "p_list": [
+                    { "id": "1", "text": "a", "done": false },
+                    { "id": "2", "text": "b", "done": true }
+                ]
+            },
+            "expect": { "activeRules": ["p_after", "p_gte", "p_lte", "p_any_open", "p_not_empty"] }
+        },
+        {
+            "name": "parity: the other side",
+            "values": {
+                "gate": true,
+                "p_date": "2026-01-10",
+                "p_num": 6,
+                "p_text": "y",
+                "p_sel": "b",
+                "p_flag": false,
+                "p_list": [{ "id": "1", "text": "a", "done": true }]
+            },
+            "expect": {
+                "activeRules": ["p_gt", "p_gte", "p_neq", "p_is_not", "p_is_false", "p_not_empty"]
+            }
+        }
+    ],
+    "defaults": { "when": "2026-02-21", "note": "hello", "kind": "task" }
+}

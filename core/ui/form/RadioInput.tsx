@@ -14,6 +14,9 @@ export type RadioInputProps<T extends FieldValues = Record<string, unknown>> = {
     label: string
     options: RadioOption[]
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
+    disabled?: boolean
     wrapperProps?: ViewProps
 }
 
@@ -47,6 +50,8 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
     label,
     options,
     hint,
+    hideError = false,
+    disabled = false,
     wrapperProps = {},
 }: RadioInputProps<T>) {
     const {
@@ -61,7 +66,8 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
                 key={option.value}
                 testID={`${name}-${option.value}`}
                 accessibilityRole="radio"
-                accessibilityState={{ checked: isSelected }}
+                accessibilityState={{ checked: isSelected, disabled }}
+                disabled={disabled}
                 accessibilityLabel={option.label}
                 onPress={() => field.onChange(option.value)}
                 className="flex-row items-start gap-3 py-1.5"
@@ -81,7 +87,9 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
             <Text className="text-sm font-semibold text-foreground">{label}</Text>
             <View accessibilityRole="radiogroup">{rows}</View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

@@ -18,6 +18,7 @@ import { installFatalRollbackHandler } from '@tinycld/core/lib/install-fatal-rol
 import { CONNECT_HREF } from '@tinycld/core/lib/org-routes'
 import { usePackageProviders } from '@tinycld/core/lib/packages/provider-loader'
 import { initSentry } from '@tinycld/core/lib/sentry'
+import { acceptServerHandoff } from '@tinycld/core/lib/server-handoff'
 import { useAppUpdates } from '@tinycld/core/lib/use-app-updates'
 import { useChunkLoadRecovery } from '@tinycld/core/lib/use-chunk-load-recovery'
 import { useVersionCheck } from '@tinycld/core/lib/use-version-check'
@@ -32,6 +33,9 @@ initSentry()
 // rather than clobbering it. Catches non-render fatals (which the ErrorBoundary
 // can't see) → reports to Sentry + reverts a not-yet-healthy crashing OTA bundle.
 installFatalRollbackHandler()
+// The bundle entry already took the handoff out of the URL (lib/capture-server-
+// handoff.ts); saving it waits for configure-core, which the probe needs.
+acceptServerHandoff()
 
 // Expo Router renders a route module's exported `ErrorBoundary` (wrapping its
 // subtree in <Try>) whenever a descendant throws during render. Exporting it

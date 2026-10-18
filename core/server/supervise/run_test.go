@@ -1639,6 +1639,7 @@ func TestRunSIGTERMDrainsAndExits0(t *testing.T) {
 	p := r.startFakeSupervisor(freeAddr(t))
 
 	r.waitEvent("A", "ready", 1)
+	p.waitLog(t, "the server is ready")
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
@@ -1726,6 +1727,35 @@ type fakeSupervisor struct {
 	cmd    *exec.Cmd
 	exited chan struct{}
 	err    error
+	logs   *syncBuffer
+}
+
+// syncBuffer collects the supervisor's log while the test reads it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// waitLog blocks until the supervisor has logged text. The fake server records
+// its "ready" event before it tells the supervisor, so that event alone does
+// not mean the supervisor has marked the child ready.
+func (p *fakeSupervisor) waitLog(t *testing.T, text string) {
+	t.Helper()
+	waitFor(t, 20*time.Second, fmt.Sprintf("the supervisor to log %q", text), func() bool {
+		return strings.Contains(p.logs.String(), text)
+	})
 }
 
 // startFakeSupervisor runs the supervisor role on the root, in plain mode
@@ -1745,11 +1775,12 @@ func (r *testRoot) startFakeSupervisor(addr string, env ...string) *fakeSupervis
 		"AUTOCERT_ENABLED=",
 	)
 	cmd.Env = append(cmd.Env, env...)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	logs := &syncBuffer{}
+	cmd.Stdout, cmd.Stderr = os.Stdout, io.MultiWriter(os.Stderr, logs)
 	if err := cmd.Start(); err != nil {
 		r.t.Fatal(err)
 	}
-	p := &fakeSupervisor{cmd: cmd, exited: make(chan struct{})}
+	p := &fakeSupervisor{cmd: cmd, exited: make(chan struct{}), logs: logs}
 	go func() {
 		p.err = cmd.Wait()
 		close(p.exited)

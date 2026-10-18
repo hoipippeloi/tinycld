@@ -79,7 +79,17 @@ export function useWarmEditor(
         // Gated on readiness as well as holding: acquiring during the boot is
         // ordinary (the user taps as the section opens), and handing back a
         // half-built editor is what would render a dead box.
-        result: isHolder && snapshot.ready ? singleton.result : null,
+        //
+        // And on the generation: the acquire that made this surface the holder
+        // reaches it in the same render as it reaches the singleton, before
+        // the editor is rebuilt for it. Until `resultGeneration` catches up,
+        // `result` is the previous holder's instance — its document, its text,
+        // destroyed one effect later — and rendering or focusing it here put
+        // the caret in an editor that was about to vanish.
+        result:
+            isHolder && snapshot.ready && singleton.resultGeneration === snapshot.generation
+                ? singleton.result
+                : null,
         generation: snapshot.generation,
     }
 }

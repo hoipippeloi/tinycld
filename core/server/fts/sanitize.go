@@ -3,6 +3,8 @@ package fts
 import (
 	"regexp"
 	"strings"
+
+	"tinycld.org/core/html"
 )
 
 // fts5SpecialChars matches characters that have special meaning in FTS5 queries,
@@ -63,10 +65,7 @@ func SanitizeQueryWithExclusions(include, exclude string) string {
 	return base
 }
 
-// htmlTagRegex strips HTML tags for plain-text indexing of editor fields.
-var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
-
-// stripHTML removes HTML tags from a string for plain-text indexing.
+// stripHTML reduces an editor field to plain text for indexing.
 func stripHTML(s string) string {
-	return strings.TrimSpace(htmlTagRegex.ReplaceAllString(s, " "))
+	return html.PlainText(s)
 }

@@ -13,7 +13,7 @@ describe('ToastChannel', () => {
 
     it('inserts a toast with the correct variant, title, and body', () => {
         toastChannel.dispatch({
-            event: 'mail.send_failed',
+            event: 'settings.avatar_upload_failed',
             title: 'Send failed',
             body: 'network timeout',
             variant: 'error',
@@ -29,7 +29,7 @@ describe('ToastChannel', () => {
 
     it('omits body when not provided', () => {
         toastChannel.dispatch({
-            event: 'mail.send_failed',
+            event: 'settings.avatar_upload_failed',
             title: 'No body',
             variant: 'error',
         })
@@ -40,7 +40,7 @@ describe('ToastChannel', () => {
 
     it('uses the default 4s duration when no override is provided', () => {
         toastChannel.dispatch({
-            event: 'mail.send_failed',
+            event: 'settings.avatar_upload_failed',
             title: 'Default',
             variant: 'error',
         })
@@ -49,7 +49,7 @@ describe('ToastChannel', () => {
 
     it('respects a durationMs override', () => {
         toastChannel.dispatch({
-            event: 'mail.send_blocked_warn',
+            event: 'account.password_changed',
             title: 'Long read',
             variant: 'warning',
             durationMs: 8000,

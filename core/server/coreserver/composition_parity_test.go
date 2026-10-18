@@ -81,7 +81,7 @@ var hostHookCounts = map[string]int{
 	"OnRecordUpdateExecute":               4,
 	"OnRecordUpdateRequest":               15,
 	"OnRecordValidate":                    6,
-	"OnServe":                             35,
+	"OnServe":                             36,
 	"OnSettingsReload":                    1,
 	"OnTerminate":                         6, // readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document
 }

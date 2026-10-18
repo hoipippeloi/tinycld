@@ -20,9 +20,19 @@ function Icon({ children, ...props }) {
     return null
 }
 
+// Check draws a marker so a test can tell a selected row from an unselected one.
+function Check() {
+    return React.createElement('span', { 'data-check': 'true' })
+}
+
 // Seed target with all icon names that unit tests reference by value (not just render).
 // The Proxy's get-trap still handles any unknown name so JSX rendering always works.
 const knownIcons = {
+    // Forms list (core/components/forms-builder)
+    Archive: Icon,
+    ArchiveRestore: Icon,
+    GripVertical: Icon,
+    Star: Icon,
     // Toolbar icons (core/tests/unit/responsive-toolbar.test.tsx)
     Bold: Icon,
     EllipsisVertical: Icon,
@@ -52,7 +62,10 @@ const knownIcons = {
     AlertTriangle: Icon,
     AlignJustify: Icon,
     Ban: Icon,
-    Check: Icon,
+    Check,
+    Square: Icon,
+    CheckSquare: Icon,
+    CalendarDays: Icon,
     ChevronDown: Icon,
     ChevronUp: Icon,
     HelpCircle: Icon,
@@ -77,6 +90,21 @@ const knownIcons = {
     // calc and other package icons
     FilePlus: Icon,
     Plus: Icon,
+    // boards: CardHeaderToolbar's overflow table holds the icon by value
+    Maximize2: Icon,
+    // boards: ColumnMenu, mounted whole (tests/column-menu.mount.test.tsx);
+    // ArrowLeft, FilePlus, Pencil, Plus and Trash2 are seeded elsewhere
+    ArrowRight: Icon,
+    FoldHorizontal: Icon,
+    Gauge: Icon,
+    MoreHorizontal: Icon,
+    // boards: CardHeaderToolbar, CardActionsMenu and ColumnMenu's icon tables
+    ArrowRightLeft: Icon,
+    Expand: Icon,
+    Link: Icon,
+    Link2: Icon,
+    PanelRight: Icon,
+    Shapes: Icon,
     // drive icons (if any are value-checked)
     FolderOpen: Icon,
     Folder: Icon,
@@ -84,6 +112,16 @@ const knownIcons = {
     GitMerge: Icon,
     GitPullRequest: Icon,
     GitPullRequestClosed: Icon,
+    // boards: PriorityGlyph's priority → icon table (tests/form-fields.mount.test.tsx)
+    OctagonAlert: Icon,
+    SignalHigh: Icon,
+    SignalLow: Icon,
+    SignalMedium: Icon,
+    // boards: the card detail body, mounted whole (tests/card-detail.mount.test.tsx)
+    SmilePlus: Icon,
+    // boards: the sub-task row's state glyphs, mounted whole
+    CircleCheck: Icon,
+    CircleDashed: Icon,
     // oauth: ConnectedAppsSection's revoke button
     Trash2: Icon,
     // Package settings screens mounted by member tests.
@@ -121,6 +159,8 @@ const handler = {
                 return Icon
             }
         }
+        // The trap ignores the seeded target, so Check needs its own branch.
+        if (prop === 'Check') return Check
         // Any named icon export (ChevronDown, Plus, etc.)
         return Icon
     },

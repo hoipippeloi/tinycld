@@ -2,8 +2,9 @@ import { bellChannel } from '@tinycld/core/lib/notify/channels/bell'
 import { osChannel } from '@tinycld/core/lib/notify/channels/os'
 import { toastChannel } from '@tinycld/core/lib/notify/channels/toast'
 import type { DispatchInput, NotifyChannel } from '@tinycld/core/lib/notify/channels/types'
+import { notifyRegistry } from '@tinycld/core/lib/notify/composed'
 import type { NotificationEvents, NotifyEventName } from '@tinycld/core/lib/notify/events'
-import { eventRegistry } from '@tinycld/core/lib/notify/registry'
+import type { EventConfig } from '@tinycld/core/lib/notify/registry'
 import { captureExceptionToSentry as captureException } from '@tinycld/core/lib/sentry'
 
 export type NotifyInput<K extends NotifyEventName = NotifyEventName> = {
@@ -31,8 +32,15 @@ export function __setChannelsForTests(map: ChannelMap | null) {
     activeChannels = map ?? defaultChannels
 }
 
+let activeRegistry: Record<string, EventConfig> = notifyRegistry
+
+/** Test-only: swap the event registry. Pass null to restore the composed one. */
+export function __setRegistryForTests(map: Record<string, EventConfig> | null) {
+    activeRegistry = map ?? notifyRegistry
+}
+
 function emit<K extends NotifyEventName>(input: NotifyInput<K>): void {
-    const config = eventRegistry[input.event]
+    const config = activeRegistry[input.event]
     if (!config) {
         captureException('notify.dispatcher', new Error(`unknown event: ${input.event}`))
         return

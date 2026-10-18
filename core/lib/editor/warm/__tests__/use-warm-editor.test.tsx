@@ -49,7 +49,20 @@ function createFakeHost() {
     store.setReady(true)
     const result = editorResult()
     const setOptions = vi.fn()
-    return { store, result, setOptions, drafts: null as never, declareNeed: vi.fn() }
+    // Built for the current generation unless a test pins it behind: a real
+    // singleton catches up one effect after every acquire.
+    const host = {
+        store,
+        result,
+        setOptions,
+        drafts: null as never,
+        declareNeed: vi.fn(),
+        lagging: false,
+        get resultGeneration() {
+            return host.lagging ? store.generation() - 1 : store.generation()
+        },
+    }
+    return host
 }
 
 let host = createFakeHost()
@@ -109,6 +122,26 @@ describe('useWarmEditor', () => {
         act(() => host.store.setReady(true))
         expect(lease.result).not.toBeNull()
         expect(lease.ready).toBe(true)
+    })
+
+    /**
+     * An acquire bumps the generation, and the singleton rebuilds its editor
+     * for the new holder one effect later. Until then the instance it holds
+     * still belongs to the previous holder; handing it over is what let a
+     * surface render, and focus, an editor about to be destroyed.
+     */
+    it('withholds an editor built for an earlier generation', () => {
+        let lease!: WarmEditorLease
+        const view = render(<Harness surfaceId="comment:a" onLease={l => (lease = l)} />)
+
+        host.lagging = true
+        act(() => lease.acquire())
+        expect(host.store.holder()).toBe('comment:a')
+        expect(lease.result).toBeNull()
+
+        host.lagging = false
+        view.rerender(<Harness surfaceId="comment:a" onLease={l => (lease = l)} />)
+        expect(lease.result).not.toBeNull()
     })
 
     it('hands the instance over only to the surface holding it', () => {

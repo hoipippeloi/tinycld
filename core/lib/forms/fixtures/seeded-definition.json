@@ -1,0 +1,70 @@
+{
+    "version": 1,
+    "pages": [
+        {
+            "key": "main",
+            "title": "Widget"
+        }
+    ],
+    "fields": [
+        {
+            "key": "name",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Name",
+            "width": "full",
+            "required": true,
+            "hidden": false
+        },
+        {
+            "key": "notes",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Notes",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "due",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Due",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "owner",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Owner",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "tasks",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Tasks",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "comments",
+            "kind": "builtin",
+            "page": "main",
+            "label": "Comments",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        }
+    ],
+    "rules": [],
+    "defaults": {},
+    "submit": {
+        "required": []
+    }
+}
