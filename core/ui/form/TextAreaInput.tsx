@@ -39,6 +39,8 @@ export type TextAreaInputProps<T extends FieldValues = Record<string, unknown>> 
     label?: string
     labelIcon?: ComponentType<{ size: number; color: string }>
     hint?: string
+    /** The caller renders the error itself (a form cell does), so the input only colours its border. */
+    hideError?: boolean
     numberOfLines?: number
     wrapperProps?: ViewProps
 }
@@ -50,6 +52,7 @@ export function TextAreaInput<T extends FieldValues = Record<string, unknown>>(
         label,
         labelIcon: LabelIcon,
         hint,
+        hideError = false,
         name,
         control,
         numberOfLines = 4,
@@ -87,7 +90,9 @@ export function TextAreaInput<T extends FieldValues = Record<string, unknown>>(
                 style={{ minHeight: numberOfLines * 24 }}
             />
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
+            {hasError && !hideError ? (
+                <Text className="text-xs text-danger">{error.message}</Text>
+            ) : null}
         </View>
     )
 }

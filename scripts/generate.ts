@@ -20,8 +20,10 @@ import {
     type CliPkg,
 } from './gen-cli'
 import { buildConfigSource, buildSeedsSource, type ConfigPkg } from './gen-config'
+import { emitFormHosts, loadFormHosts, mergeFormHosts } from './gen-form-hosts'
 import { buildHelpSource, type HelpGroupInput, parseFrontmatter } from './gen-help'
 import { buildPackageIconsSource } from './gen-icons'
+import { checkNotifyEventsModule } from './gen-notify'
 import { orphanPayloadFiles, planPayloadEmits, runPayloadEmits } from './gen-payload-types'
 import { emitPublicRoutes, emitRoutes, pruneOrphanRouteDirs } from './gen-routes'
 import {
@@ -526,6 +528,10 @@ async function main() {
         ports: f.manifest.ports,
     }))
     validatePorts(portsFeatures)
+    for (const f of features) {
+        const events = f.manifest.notifications?.events
+        if (events) checkNotifyEventsModule(f.dir, f.name, events)
+    }
     fs.writeFileSync(path.join(APP_DIR, 'tinycld.config.ts'), buildConfigSource(configPkgs))
     fs.writeFileSync(path.join(APP_DIR, 'tinycld.seeds.ts'), buildSeedsSource(configPkgs))
 
@@ -539,6 +545,17 @@ async function main() {
             }))
     )
     emitAutomationDefs(mergeAutomationDefs(automationFeatures))
+
+    // --- 1b2. form hosts → server/form_hosts.json ---------------------------
+    const formFeatures = await Promise.all(
+        features
+            .filter(f => f.manifest.forms)
+            .map(async f => ({
+                slug: f.manifest.slug,
+                hosts: await loadFormHosts(f.dir, f.name, f.manifest.forms!.hosts),
+            }))
+    )
+    emitFormHosts(mergeFormHosts(formFeatures))
 
     // --- 1c. @tinycld/app-generated package manifest -----------------------
     // Makes lib/generated/ a real, name-resolvable package so `@tinycld/app-generated/*`

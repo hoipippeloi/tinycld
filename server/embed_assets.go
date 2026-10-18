@@ -36,3 +36,13 @@ func embeddedBundledPackagesJSON() []byte {
 	}
 	return data
 }
+
+// The generator's form_hosts.json, so a binary run from any cwd still binds
+// the forms hooks.
+func embeddedFormHostsJSON() []byte {
+	data, err := embeddedAssets.ReadFile("embedded_assets/form_hosts.json")
+	if err != nil {
+		log.Fatalf("embedded assets: form_hosts.json missing from the build: %v", err)
+	}
+	return data
+}

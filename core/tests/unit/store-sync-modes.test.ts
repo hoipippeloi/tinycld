@@ -51,6 +51,7 @@ const CORE_COLLECTIONS = [
     'rule_runs',
     'automation_catalog',
     'comment_mentions',
+    'forms',
     'app_passwords',
     'mfa_totp',
     'passkeys',

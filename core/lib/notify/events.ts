@@ -1,21 +1,26 @@
 /**
- * Central list of every user-facing notification event.
- * Keys follow `<domain>.<verb_past>`. Adding an entry here is step 1 of registering
- * an event — also add a matching entry to eventRegistry in ./registry.ts.
+ * Every event the dispatcher accepts: core's plus each installed package's
+ * augmentation. Keys follow `<domain>.<verb_past>`.
+ *
+ * An interface, not a type alias, so a package extends it from its own
+ * events module with
+ * `declare module '@tinycld/core/lib/notify/events' { interface NotificationEvents { … } }`.
+ * Core never lists a package's events: the package declares them through the
+ * manifest's `notifications.events` module, and the dispatcher's registry is
+ * composed from every installed package at boot (see ./composed.ts).
  */
-export type NotificationEvents = {
-    'mail.send_failed': { error: string }
-    'mail.send_blocked_warn': { reason: string }
-    'mail.send_blocked_error': { reason: string }
-    'mail.attachments_rejected': { reason: string }
-    'drive.save_succeeded': { name: string; folder: string }
-    'drive.save_failed': { reason: string }
-    'drive.template_saved': { name: string }
-    'boards.attachment_failed': { card: string; name: string }
-    'boards.card_moved': { board: string; key: string }
-    'boards.sprint_completed': { sprint: string; completed: number; rolled: number }
-    'import.complete': { source: 'google-takeout' | 'csv'; count: number }
+export interface NotificationEvents extends CoreNotificationEvents {}
+
+/**
+ * The user-facing notification events core itself emits. Kept apart from the
+ * open map: core's policy table is keyed by these, so a package's augmentation
+ * does not ask core for a policy row.
+ */
+interface CoreNotificationEvents {
+    'import.complete': { source: string; count: number }
     'import.failed': { source: string; error: string }
+    // A picked file the picker refused — size or type — in any package.
+    'files.pick_rejected': { reason: string }
     'mutation.error': { operation: string; error: string }
     'account.password_changed': Record<string, never>
     // A second factor, passkey or app password was added or removed.
@@ -26,3 +31,4 @@ export type NotificationEvents = {
 }
 
 export type NotifyEventName = keyof NotificationEvents
+export type CoreEventName = keyof CoreNotificationEvents

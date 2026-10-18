@@ -2,8 +2,15 @@ import { ConnectIllustration } from '@tinycld/core/components/connect/ConnectIll
 import { DocumentTitle } from '@tinycld/core/components/DocumentTitle'
 import { getCoreConfigOptional } from '@tinycld/core/lib/core-config'
 import { useMutation } from '@tinycld/core/lib/mutations'
-import { normalizeAddress, probeServer, setResolvedAddress } from '@tinycld/core/lib/server-address'
-import { setActiveServer } from '@tinycld/core/lib/servers'
+import { navigateToOrigin } from '@tinycld/core/lib/navigate-to-origin'
+import {
+    getResolvedAddress,
+    normalizeAddress,
+    probeServer,
+    setResolvedAddress,
+} from '@tinycld/core/lib/server-address'
+import { switchUrlFor } from '@tinycld/core/lib/server-handoff'
+import { addServer, setActiveServer } from '@tinycld/core/lib/servers'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { router, useLocalSearchParams } from 'expo-router'
@@ -18,13 +25,18 @@ const urlSchema = z.object({
 })
 
 export default function ConnectWeb() {
-    const { backTo } = useLocalSearchParams<{ backTo?: string }>()
+    const { backTo, mode } = useLocalSearchParams<{ backTo?: string; mode?: string }>()
+    // `?mode=add` reaches here from the Servers list. A browser cannot hold a
+    // session on another origin, so adding a server saves its address and opens
+    // it; the switch names this server so the new one lists the way back.
+    const isAddMode = mode === 'add'
     const config = getCoreConfigOptional()
     const brandName = config?.brandName ?? 'TinyCld'
     const defaultServer = config?.defaultServer ?? FALLBACK_DEFAULT_SERVER
     const defaultServerLabel = hostLabel(defaultServer) ?? 'tinycld.org'
 
-    const [expanded, setExpanded] = useState(false)
+    // In add mode the address field is the whole point, so it starts open.
+    const [expanded, setExpanded] = useState(isAddMode)
 
     const fg = useThemeColor('foreground')
     const bg = useThemeColor('background')
@@ -42,6 +54,11 @@ export default function ConnectWeb() {
         // would pass a liveness check, so admission asks for org-info's JSON
         // shape and reports an ordinary, accurate error when it does not come.
         await probeServer(addr)
+        if (isAddMode) {
+            const origin = await addServer(addr)
+            navigateToOrigin(switchUrlFor(origin, getResolvedAddress()))
+            return
+        }
         // setActiveServer is the only sanctioned writer of the active pointer,
         // on every platform — one code path. Web resolves same-origin, so the
         // extra list entry is inert bookkeeping here.

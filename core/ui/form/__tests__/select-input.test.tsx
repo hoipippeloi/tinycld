@@ -1,58 +1,39 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { useForm } from 'react-hook-form'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SelectInput, useForm, useWatch } from '../index'
+import { SelectInput } from '../SelectInput'
 
 afterEach(cleanup)
 
-// The react-native stub renders accessibilityRole/accessibilityLabel as plain
-// attributes (lowercased by the DOM), not as ARIA role/name.
-function radio(name: string): Element {
-    const found = document.querySelector(
-        `[accessibilityrole="radio"][accessibilitylabel="${name}"]`
-    )
-    if (!found) throw new Error(`no radio named ${name}`)
-    return found
-}
-
-// On a custom element React DOM writes a true boolean prop as an empty
-// attribute and drops a false one.
-function isChecked(name: string) {
-    const value = radio(name).getAttribute('aria-checked')
-    return value !== null && value !== 'false'
-}
-
-function Harness({ initial }: { initial: string }) {
-    const { control } = useForm<{ color: string }>({ defaultValues: { color: initial } })
-    const value = useWatch({ control, name: 'color' })
+function Harness({ disabled = false }: { disabled?: boolean }) {
+    const { control } = useForm({ defaultValues: { s: 'x' } })
     return (
-        <>
-            <SelectInput
-                control={control}
-                name="color"
-                label="Color"
-                options={[
-                    { value: 'r', label: 'Red' },
-                    { value: 'b', label: 'Blue' },
-                ]}
-            />
-            <span data-testid="value">{value}</span>
-        </>
+        <SelectInput
+            control={control}
+            name="s"
+            label="Pick"
+            disabled={disabled}
+            options={[
+                { value: 'x', label: 'Ex' },
+                { value: 'y', label: 'Why' },
+            ]}
+        />
     )
 }
 
 describe('SelectInput', () => {
-    it('marks only the selected option as checked', () => {
-        render(<Harness initial="b" />)
-        expect(isChecked('Blue')).toBe(true)
-        expect(isChecked('Red')).toBe(false)
+    it('marks the chosen option checked for the web accessibility tree', () => {
+        render(<Harness />)
+        expect(screen.getByText('Ex').closest('[aria-checked="true"]')).not.toBeNull()
+        expect(screen.getByText('Why').closest('[aria-checked="false"]')).not.toBeNull()
     })
-
-    it('moves the checked state to the option the person picks', () => {
-        render(<Harness initial="b" />)
-        fireEvent.click(radio('Red'))
-        expect(screen.getByTestId('value').textContent).toBe('r')
-        expect(isChecked('Red')).toBe(true)
-        expect(isChecked('Blue')).toBe(false)
+    it('moves the selection on press and not when disabled', () => {
+        const { rerender } = render(<Harness />)
+        fireEvent.click(screen.getByText('Why'))
+        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
+        rerender(<Harness disabled />)
+        fireEvent.click(screen.getByText('Ex'))
+        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
     })
 })

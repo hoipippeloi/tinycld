@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { type ReactNode, useEffect } from 'react'
 import { Text } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { WarmEditorStore } from '../warm-editor-store'
 
 /**
  * The singleton's four guarantees, all of which the previous per-section host
@@ -35,13 +36,19 @@ vi.mock('../../rich', () => ({
             EditorComponent: () => null,
             commands: {},
             toolbarState: {},
-            isReady: true,
+            isReady: isReady(),
             generation: options.generation,
         }
     },
 }))
 
 const setContent = vi.fn()
+
+/** Whether the mocked editor reports itself built for its configuration. */
+let mockReady = true
+function isReady() {
+    return mockReady
+}
 
 /** One call per mounted editor — a re-render is not a construction. */
 function useCountMount() {
@@ -69,6 +76,7 @@ function Wrapper({ children }: { children?: ReactNode }) {
 }
 
 beforeEach(() => {
+    mockReady = true
     editorConstructions.mockClear()
     setContent.mockClear()
 })
@@ -190,5 +198,34 @@ describe('the editor singleton', () => {
         )
 
         expect(getByText('ready')).toBeTruthy()
+    })
+
+    /**
+     * A lease compares this with the store's generation, so it must say what
+     * the editor was BUILT for — and nothing while the editor is still the
+     * previous holder's instance.
+     */
+    it('publishes the generation its editor was built for, and none while rebuilding', () => {
+        let store: WarmEditorStore | undefined
+        function GenerationProbe() {
+            const singleton = useEditorSingleton()
+            store = singleton?.store
+            return <Text>{`built-for:${singleton?.resultGeneration ?? 'none'}`}</Text>
+        }
+
+        const { getByText } = render(
+            <Wrapper>
+                <Declarer />
+                <GenerationProbe />
+            </Wrapper>
+        )
+        expect(getByText('built-for:0')).toBeTruthy()
+
+        // An acquire, with the editor not yet rebuilt for it.
+        mockReady = false
+        act(() => {
+            store?.acquire('comment:a')
+        })
+        expect(getByText('built-for:none')).toBeTruthy()
     })
 })

@@ -40,5 +40,8 @@ import './lib/polyfill-dom-shim'
 // polyfill-crypto installs crypto.randomUUID (see the header comment above for
 // why this position, and not app/_layout.tsx, is the one that works).
 import './lib/polyfill-crypto'
+// capture-server-handoff must run before expo-router reads the URL on web; see
+// core/lib/server-handoff-capture.ts.
+import './lib/capture-server-handoff'
 
 import 'expo-router/entry'

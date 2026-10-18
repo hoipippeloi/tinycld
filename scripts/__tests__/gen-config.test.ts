@@ -357,6 +357,30 @@ describe('buildConfigSource', () => {
         expect(src).toContain('automation: doodadsAutomation,')
     })
 
+    it('imports a package’s notify events module and places it on the entry', () => {
+        const gizmos: ConfigPkg = {
+            ...emptyPkg('@acme/gizmos', 'gizmos'),
+            notifications: { events: 'notify-events' },
+        }
+        const src = buildConfigSource([gizmos])
+        expect(src).toContain("import gizmosNotifyEvents from '@acme/gizmos/notify-events'")
+        expect(src).toContain('notifyEvents: gizmosNotifyEvents,')
+    })
+
+    it('refuses an unsafe notify events subpath', () => {
+        const gizmos: ConfigPkg = {
+            ...emptyPkg('@acme/gizmos', 'gizmos'),
+            notifications: { events: '../escape' },
+        }
+        expect(() => buildConfigSource([gizmos])).toThrow(/notifications\.events/)
+    })
+
+    it('omits notifyEvents entirely when not declared', () => {
+        const src = buildConfigSource([doodads])
+        expect(src).not.toContain('notifyEvents:')
+        expect(src).not.toContain('NotifyEvents from')
+    })
+
     it('omits automation entirely when not declared', () => {
         const src = buildConfigSource([doodads])
         expect(src).not.toContain('automation:')

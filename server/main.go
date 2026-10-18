@@ -116,6 +116,7 @@ func main() {
 		// Only the single-binary build carries this; elsewhere the file sits
 		// beside the binary or under server/ and is read from disk.
 		BundledPackagesJSON: embeddedBundledPackagesJSON(),
+		FormHostsJSON:       embeddedFormHostsJSON(),
 		RegisterExtras:      registerPackageExtensions,
 	})
 

@@ -39,6 +39,7 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
         target: WebPointerDown['currentTarget']
         onMove: (e: PointerEvent) => void
         onUp: (e: PointerEvent) => void
+        onCancel: (e: PointerEvent) => void
     } | null>(null)
 
     const cleanup = useCallback(() => {
@@ -46,7 +47,7 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
         if (s == null) return
         window.removeEventListener('pointermove', s.onMove)
         window.removeEventListener('pointerup', s.onUp)
-        window.removeEventListener('pointercancel', s.onUp)
+        window.removeEventListener('pointercancel', s.onCancel)
         try {
             s.target.releasePointerCapture(s.pointerId)
         } catch {
@@ -126,6 +127,24 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
                 cleanup()
             }
 
+            const onCancel = (ev: PointerEvent) => {
+                const s = stateRef.current
+                const onDragCancel = optsRef.current.onDragCancel
+                if (s == null) return
+                if (!onDragCancel) {
+                    onUp(ev)
+                    return
+                }
+                if (s.engaged && !s.gestureRefused)
+                    onDragCancel({
+                        pointer: pointerLikeFromMove(ev, s.modifiers),
+                        deltaX: ev.clientX - s.startX,
+                        deltaY: ev.clientY - s.startY,
+                        startRect: s.startRect,
+                    })
+                cleanup()
+            }
+
             stateRef.current = {
                 pointerId: e.pointerId,
                 startX: e.clientX,
@@ -144,11 +163,12 @@ export function useDragGesture(opts: UseDragGestureOptions): DragGestureHandlers
                 target: e.currentTarget,
                 onMove,
                 onUp,
+                onCancel,
             }
 
             window.addEventListener('pointermove', onMove)
             window.addEventListener('pointerup', onUp)
-            window.addEventListener('pointercancel', onUp)
+            window.addEventListener('pointercancel', onCancel)
         },
         [cleanup]
     )

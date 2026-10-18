@@ -42,9 +42,9 @@ describe('notify end-to-end (toast path)', () => {
         // BellChannel also fires for this event but no-ops without notify context.
     })
 
-    it('mail.send_failed lands an error toast', () => {
+    it('settings.avatar_upload_failed lands an error toast', () => {
         notify.emit({
-            event: 'mail.send_failed',
+            event: 'settings.avatar_upload_failed',
             title: 'Send failed',
             body: 'network timeout',
             data: { error: 'timeout' },

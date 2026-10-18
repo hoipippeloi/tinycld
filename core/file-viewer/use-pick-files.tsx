@@ -126,7 +126,7 @@ async function launchSource(
         const permission = await ImagePicker.requestCameraPermissionsAsync()
         if (!permission.granted) {
             notify.emit({
-                event: 'mail.attachments_rejected',
+                event: 'files.pick_rejected',
                 title: 'Camera access required',
                 body: 'Grant camera permission in Settings to take a photo.',
                 durationMs: 5000,

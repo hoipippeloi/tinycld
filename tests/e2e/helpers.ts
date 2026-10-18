@@ -331,6 +331,19 @@ export async function loginAs(page: Page, identifier: string, password: string) 
     await appShell(page).waitFor({ state: 'visible', timeout: 15_000 })
 }
 
+// True when `target` is the top-most thing at its own position, i.e. no other
+// screen covers it. The probe point is clamped into the viewport so a target
+// taller than the window is still tested where it can be seen.
+async function isOnTop(target: Locator): Promise<boolean> {
+    return target.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        const x = Math.min(Math.max(box.left + box.width / 2, 0), window.innerWidth - 1)
+        const y = Math.min(Math.max(box.top + box.height / 2, 0), window.innerHeight - 1)
+        const hit = document.elementFromPoint(x, y)
+        return hit !== null && (element.contains(hit) || hit.contains(element))
+    })
+}
+
 // Navigate to a package's org-scoped route via the rail link in the app
 // shell. We click the rail link rather than calling page.goto() because
 // goto is a hard browser navigation that cancels every in-flight fetch,
@@ -396,10 +409,15 @@ export async function navigateToPackage(page: Page, pkg: string, options?: { wai
     // redirect is passing through.
     const landingPathname = new URL(page.url()).pathname
     const redirectMayBeInFlight = landingPathname === '/' || landingPathname === APP_PREFIX
+    // Visible is not enough: a screen another screen covers is still laid out
+    // (Settings -> Groups stays mounted under a board pushed over it) and
+    // Playwright reports it visible. Trusting it skips the navigation and the
+    // caller then finds the wrong screen on top. So the target also has to be
+    // what the user would hit at its own position.
     const alreadyThere = await onTarget
         .waitFor({ state: 'visible', timeout: redirectMayBeInFlight ? 2000 : 1 })
         .then(
-            () => true,
+            () => isOnTop(onTarget),
             () => false
         )
 
