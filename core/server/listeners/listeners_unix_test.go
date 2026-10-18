@@ -210,6 +210,46 @@ func TestChildServesOnInheritedListenersByName(t *testing.T) {
 	}
 }
 
+// Passing a listener to a new child must leave the socket non-blocking: the
+// running children share its mode, and one that calls accept(2) on a
+// blocking socket cannot be closed until a connection comes.
+func TestPassingAListenerKeepsTheSocketNonBlocking(t *testing.T) {
+	cmd, set := startChild(t, "acme-secure")
+	l := set.files[0]
+	shared, err := net.FileListener(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { shared.Close() })
+	cmd.Path, cmd.Args = "/bin/sh", []string{"sh", "-c", "exec sleep 10"}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+
+	rc, err := shared.(*net.TCPListener).SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flags int
+	var flagsErr error
+	rc.Control(func(fd uintptr) { flags, flagsErr = fcntlGetFL(fd) })
+	if flagsErr != nil {
+		t.Fatal(flagsErr)
+	}
+	if flags&syscall.O_NONBLOCK == 0 {
+		t.Fatal("starting a child switched the shared listening socket to blocking mode")
+	}
+}
+
+func fcntlGetFL(fd uintptr) (int, error) {
+	r, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_GETFL, 0)
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(r), nil
+}
+
 func TestSocketpairEndIsAnExtraFDNotAListener(t *testing.T) {
 	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
