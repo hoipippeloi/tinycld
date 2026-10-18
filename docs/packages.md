@@ -737,6 +737,10 @@ Core's slot names are listed in `core/lib/setup/core-slots.ts`. The generator us
 
 **The `group-member-removal` slot.** Core renders this slot in the confirm dialog that removes a person from a group, and in the confirm dialog that deletes a group. Use it to show what the person (or the members) lose when the group access ends. Core passes `GroupMemberRemovalNoticeProps` (from `@tinycld/core/lib/groups/removal-notice`) to every contribution: `groupId`, and `userId`. `userId` is `null` when the whole group is deleted. A contribution must render nothing when there is nothing to say.
 
+**The `member-drawer` slot.** Core renders this slot in the Settings → Members drawer, below the person's groups. Use it to add a section about that person. Core passes `MemberDrawerPanelProps` (from `@tinycld/core/lib/members/member-panel`) to every contribution: `userId`. The contribution reads its own collections and renders its own heading. Only admins see the drawer, because its screen is admin-only.
+
+**The `group-drawer` slot.** Core renders this slot in the Settings → Groups drawer, below the members list. Use it to add a section about that group. Core passes `GroupDrawerPanelProps` (from `@tinycld/core/lib/groups/group-panel`) to every contribution: `groupId`. The contribution reads its own collections and renders its own heading. Only admins see the drawer, because its screen is admin-only.
+
 ---
 
 ## Bundler & test resolution

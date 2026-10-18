@@ -347,6 +347,19 @@ describe('core slot contributions', () => {
     it('accepts the group-member-removal slot', () => {
         expect(() => validateSidebarContributions([pkg('group-member-removal')])).not.toThrow()
     })
+    it('accepts the member-drawer and group-drawer slots', () => {
+        const both = manifestToConfigPkg('@acme/acme', {
+            name: 'Acme',
+            slug: 'acme',
+            version: '1.0.0',
+            description: 'x',
+            sidebarContributions: [
+                { target: 'core', slot: 'member-drawer', component: 'x' },
+                { target: 'core', slot: 'group-drawer', component: 'y' },
+            ],
+        })
+        expect(() => validateSidebarContributions([both])).not.toThrow()
+    })
     it('rejects an unknown core slot', () => {
         expect(() => validateSidebarContributions([pkg('nope')])).toThrow(
             /unknown slot 'core:nope'/

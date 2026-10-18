@@ -1,6 +1,7 @@
 import { Avatar } from '@tinycld/core/components/Avatar'
 import { SidebarSlot } from '@tinycld/core/components/sidebar-primitives/SidebarSlot'
 import { handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
+import { GROUP_DRAWER_SLOT } from '@tinycld/core/lib/groups/group-panel'
 import { GROUP_MEMBER_REMOVAL_SLOT } from '@tinycld/core/lib/groups/removal-notice'
 import { useGroupMembersAdmin, useGroupsAdmin } from '@tinycld/core/lib/groups/use-groups-admin'
 import { CORE_SLOT_TARGET } from '@tinycld/core/lib/setup/core-slots'
@@ -156,6 +157,11 @@ function ViewGroupOpen({ groupId, onClose }: { groupId: string; onClose: () => v
                         onPress={onSave}
                     />
                     <MembersSection groupId={groupId} groupName={group?.name ?? ''} />
+                    <SidebarSlot
+                        target={CORE_SLOT_TARGET}
+                        slot={GROUP_DRAWER_SLOT}
+                        props={{ groupId }}
+                    />
                 </View>
             </DrawerBody>
             <DrawerFooter>

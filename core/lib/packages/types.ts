@@ -112,6 +112,7 @@ export interface PackageManifest {
         slot: string
         component: string
         order?: number
+        label?: string
     }[]
 
     /**

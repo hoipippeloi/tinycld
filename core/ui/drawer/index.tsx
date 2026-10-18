@@ -517,7 +517,7 @@ const DrawerFooter = React.forwardRef<
 const DrawerCloseButton = React.forwardRef<
     React.ComponentRef<typeof UIDrawer.CloseButton>,
     IDrawerCloseButtonProps
->(function DrawerCloseButton({ className, ...props }, ref) {
+>(function DrawerCloseButton({ className, accessibilityLabel = 'Close', ...props }, ref) {
     const onClose = React.useContext(DrawerCloseContext)
     const presentation = React.useContext(DrawerPresentationContext)
     // An overlay's button closes through gluestack's modal context, which an
@@ -527,6 +527,10 @@ const DrawerCloseButton = React.forwardRef<
     return (
         <UIDrawer.CloseButton
             ref={ref}
+            // The button shows only an icon, so without a label a screen
+            // reader announces nothing.
+            accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
             {...props}
             {...inlineClose}
             className={drawerCloseButtonStyle({
