@@ -1,6 +1,6 @@
 {
     "name": "tinycld",
-    "version": "0.8.0",
+    "version": "0.7.2",
     "private": true,
     "type": "module",
     "main": "index.js",
@@ -47,9 +47,7 @@
     },
     "expo": {
         "install": {
-            "exclude": [
-                "react-native-gesture-handler"
-            ]
+            "exclude": ["react-native-gesture-handler"]
         }
     },
     "dependencies": {
