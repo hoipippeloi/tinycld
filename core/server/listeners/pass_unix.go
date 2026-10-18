@@ -3,12 +3,14 @@
 package listeners
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Set is an ordered collection of named listeners and files the supervisor
@@ -20,12 +22,12 @@ type Set struct {
 	addrs map[string]net.Addr
 }
 
-// AddListener adds l under name. It keeps l.File(), a dup of the listening
-// socket; the dup is what a child's net.FileListener re-wraps, and what
-// the server code that accepts on it ultimately closes, so the
-// supervisor's own listener is never closed by a child's shutdown.
+// AddListener adds l under name. It keeps a dup of the listening socket;
+// the dup is what a child's net.FileListener re-wraps, and what the server
+// code that accepts on it ultimately closes, so the supervisor's own
+// listener is never closed by a child's shutdown.
 func (s *Set) AddListener(name string, l *net.TCPListener) error {
-	f, err := l.File()
+	f, err := dupListener(name, l)
 	if err != nil {
 		return fmt.Errorf("listeners: dup %s listener: %w", name, err)
 	}
@@ -35,6 +37,36 @@ func (s *Set) AddListener(name string, l *net.TCPListener) error {
 	}
 	s.addrs[name] = l.Addr()
 	return nil
+}
+
+// dupListener dups l's socket without l.File(). exec reads each passed
+// file's fd through os.File.Fd, and on a file from l.File() that switches
+// the socket to blocking mode. The mode belongs to the socket, which every
+// running child shares, not to the dup: a running child that calls
+// accept(2) before the new child's net.FileListener switches it back stays
+// blocked in the kernel until a connection comes, and its Close waits for
+// that accept, so a drain with no traffic never ends.
+func dupListener(name string, l *net.TCPListener) (*os.File, error) {
+	rc, err := l.SyscallConn()
+	if err != nil {
+		return nil, err
+	}
+	var fd int
+	var dupErr error
+	ctlErr := rc.Control(func(sysfd uintptr) {
+		// Under ForkLock, so a concurrent exec cannot inherit the dup
+		// before it is close-on-exec.
+		syscall.ForkLock.RLock()
+		defer syscall.ForkLock.RUnlock()
+		fd, dupErr = syscall.Dup(int(sysfd))
+		if dupErr == nil {
+			syscall.CloseOnExec(fd)
+		}
+	})
+	if err := errors.Join(ctlErr, dupErr); err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(fd), name), nil
 }
 
 // AddFile adds a plain, non-listener fd under name (e.g. the control
