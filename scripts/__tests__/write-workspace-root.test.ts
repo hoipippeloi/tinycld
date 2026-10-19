@@ -125,6 +125,20 @@ describe('writeWorkspaceRoot', () => {
         expect(yaml).toContain('  expo: 55.0.26')
         expect(yaml).not.toContain('storeDir:')
     })
+    it('lists exactly the feature members present on disk', () => {
+        const { wsRoot, appDir } = makeFixtureRoot()
+        for (const name of ['boards', 'acme-custom']) {
+            fs.mkdirSync(path.join(wsRoot, name))
+            fs.writeFileSync(path.join(wsRoot, name, 'package.json'), '{}')
+            fs.writeFileSync(path.join(wsRoot, name, 'manifest.ts'), '')
+        }
+        writeWorkspaceRoot(wsRoot, appDir)
+        const yaml = fs.readFileSync(path.join(wsRoot, 'pnpm-workspace.yaml'), 'utf8')
+        expect(yaml).toContain('  - tinycld/core\n')
+        expect(yaml).toContain('  - boards\n')
+        expect(yaml).toContain('  - acme-custom\n')
+        expect(yaml).not.toContain('  - mail\n')
+    })
     it('writes the root package-versions.json as a derived copy of the core table', () => {
         const { wsRoot, appDir } = makeFixtureRoot()
         writeWorkspaceRoot(wsRoot, appDir)

@@ -30,16 +30,10 @@ import { pathToFileURL } from 'node:url'
 // pnpm-workspace.yaml is Go-written and carries a storeDir: this script must
 // not touch either. Under the flag only the root biome.json is written.
 
-const ALL_FEATURES = [
-    'contacts',
-    'mail',
-    'calendar',
-    'drive',
-    'calc',
-    'text',
-    'google-takeout-import',
-]
-const ALL_MEMBERS = ['tinycld', 'tinycld/core', 'tinycld/package-scripts', ...ALL_FEATURES]
+// Feature members are not named here: discoverPresentMembers finds each one
+// on disk, so a first-party or third-party package is a member exactly when
+// its dir is present. A hard-coded feature list silently missed new packages.
+const CORE_MEMBERS = ['tinycld', 'tinycld/core', 'tinycld/package-scripts']
 const NON_MEMBER_DIRS = ['bootstrap', 'utils', 'web']
 
 // pnpm version pinned via package.json "packageManager" so corepack resolves
@@ -115,9 +109,8 @@ export function renderOverridesBlock(overrides: Record<string, string>): string 
 }
 
 // Direct child dirs of wsRoot that look like a feature member already on
-// disk (package.json + manifest.ts/js). Mirrors the generator's discovery so
-// a CI-checked-out or custom member absent from ALL_MEMBERS still gets
-// linked by pnpm.
+// disk (package.json + manifest.ts/js). Mirrors the generator's discovery, so
+// pnpm links every feature that is present and none that is absent.
 function discoverPresentMembers(wsRoot: string): string[] {
     let entries: string[]
     try {
@@ -191,7 +184,7 @@ function discoverNestedMembers(wsRoot: string): string[] {
 function memberUnion(wsRoot: string): string[] {
     return [
         ...new Set([
-            ...ALL_MEMBERS,
+            ...CORE_MEMBERS,
             ...discoverPresentMembers(wsRoot),
             ...discoverNestedMembers(wsRoot),
         ]),

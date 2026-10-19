@@ -95,11 +95,6 @@ const ALLOWLIST: AllowlistEntry[] = [
         reason: 'smoke test names package scopes; should read scopes_supported from discovery',
     },
     {
-        file: 'scripts/write-workspace-root.ts',
-        packages: ['contacts'],
-        reason: 'ALL_FEATURES seeds pnpm-workspace.yaml; discoverPresentMembers already finds every present member',
-    },
-    {
         file: 'core/lib/anon-identity.ts',
         packages: ['drive'],
         reason: 'anonymous share sessions post to a drive route; the share package should register its session endpoint',
