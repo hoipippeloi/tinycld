@@ -19,7 +19,10 @@ var mailLog = logging.ForPackage("mailproto")
 
 // NewIMAPSession builds the per-connection IMAP session. The session speaks the
 // feature's own schema, so the feature package supplies it; mailproto only owns
-// the listener around it.
+// the listener around it. The session must implement
+// imapserver.SessionIMAP4rev2, the set IMAPCaps advertises; mailproto wraps it
+// so a shutdown can wait for its calls, and the wrapper forwards nothing
+// beyond that set.
 type NewIMAPSession func(app core.App, conn *imapserver.Conn) imapserver.Session
 
 // ListenFunc opens the socket a mail service serves on, given the address the
@@ -93,7 +96,12 @@ var IMAPCaps = imap.CapSet{
 }
 
 // StartIMAP reads configuration from environment variables, creates an IMAP
-// server, starts listening, and returns a shutdown function.
+// server, starts listening, and returns a shutdown function. The shutdown is
+// also bound to app's terminate, ahead of the default-priority handlers, and
+// runs once: it closes the listeners, says BYE to the sessions with no
+// command in progress, lets the commands in progress finish within
+// drainBound, and returns only when no session can use the database (see
+// drain). A caller may still call it earlier.
 //
 // In production with TLS (via env vars or autocert), only an implicit TLS
 // listener on :993 is started — no plain-text IMAP is exposed.
@@ -150,22 +158,17 @@ func startIMAPExternalTLS(app core.App, opts IMAPOptions) (func(), error) {
 		imapsAddr = ":993"
 	}
 
-	server := newIMAPServerInstance(app, nil, true, opts.NewSession)
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, nil, true, opts.NewSession, d)
 
 	ln, err := opts.Listen(imapsAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", imapsAddr, err)
 	}
 	mailLog.Info("IMAP server listening (external TLS termination)", "addr", imapsAddr)
-	go func() {
-		logServeExit("IMAP", imapsAddr, server.Serve(ln))
-	}()
+	d.serve(d.listen(ln), "IMAP", imapsAddr, server.Serve)
 
-	return func() {
-		mailLog.Info("Shutting down IMAP server")
-		ln.Close()
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }
 
 func startIMAPTLSOnly(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func(), error) {
@@ -174,23 +177,17 @@ func startIMAPTLSOnly(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (fu
 		imapsAddr = ":993"
 	}
 
-	server := newIMAPServerInstance(app, tlsConfig, false, opts.NewSession)
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, tlsConfig, false, opts.NewSession, d)
 
 	rawLn, err := listenWith(opts.Listen, imapsAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", imapsAddr, err)
 	}
-	tlsLn := tls.NewListener(rawLn, tlsConfig)
 	mailLog.Info("IMAPS server listening (implicit TLS, no plain listener)", "addr", imapsAddr)
-	go func() {
-		logServeExit("IMAPS", imapsAddr, server.Serve(tlsLn))
-	}()
+	d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), "IMAPS", imapsAddr, server.Serve)
 
-	return func() {
-		mailLog.Info("Shutting down IMAP server")
-		tlsLn.Close()
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }
 
 func startIMAPDev(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func(), error) {
@@ -200,18 +197,16 @@ func startIMAPDev(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func()
 	}
 
 	insecureAuth := os.Getenv("IMAP_INSECURE_AUTH") == "true" || app.IsDev()
-	server := newIMAPServerInstance(app, tlsConfig, insecureAuth, opts.NewSession)
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, tlsConfig, insecureAuth, opts.NewSession, d)
 
 	plainLn, err := listenWith(opts.Listen, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	mailLog.Info("IMAP server listening", "addr", addr, "starttls", tlsConfig != nil)
-	go func() {
-		logServeExit("IMAP", addr, server.Serve(plainLn))
-	}()
+	d.serve(d.listen(plainLn), "IMAP", addr, server.Serve)
 
-	var tlsLn net.Listener
 	if tlsConfig != nil {
 		imapsAddr := os.Getenv("IMAPS_ADDR")
 		if imapsAddr == "" {
@@ -238,22 +233,12 @@ func startIMAPDev(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func()
 				"err", err,
 			)
 		} else {
-			tlsLn = tls.NewListener(rawLn, tlsConfig)
 			mailLog.Info("IMAPS server listening (implicit TLS)", "addr", imapsAddr)
-			go func() {
-				logServeExit("IMAPS", imapsAddr, server.Serve(tlsLn))
-			}()
+			d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), "IMAPS", imapsAddr, server.Serve)
 		}
 	}
 
-	return func() {
-		mailLog.Info("Shutting down IMAP server")
-		plainLn.Close()
-		if tlsLn != nil {
-			tlsLn.Close()
-		}
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }
 
 func newIMAPServerInstance(
@@ -261,13 +246,19 @@ func newIMAPServerInstance(
 	tlsConfig *tls.Config,
 	insecureAuth bool,
 	newSession NewIMAPSession,
+	d *drain,
 ) *imapserver.Server {
-	return imapserver.New(&imapserver.Options{
+	server := imapserver.New(&imapserver.Options{
 		NewSession: func(conn *imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
-			return newSession(app, conn), nil, nil
+			session, err := d.newIMAPSession(conn, func() imapserver.Session {
+				return newSession(app, conn)
+			})
+			return session, nil, err
 		},
 		Caps:         IMAPCaps,
 		TLSConfig:    tlsConfig,
 		InsecureAuth: insecureAuth,
 	})
+	d.closeServer = func() { _ = server.Close() }
+	return server
 }

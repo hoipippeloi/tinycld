@@ -3,7 +3,6 @@ package mailproto
 import (
 	"crypto/tls"
 	"fmt"
-	"net"
 	"os"
 	"time"
 
@@ -63,7 +62,9 @@ type SMTPOptions struct {
 // StartSMTP builds an SMTP listener from opts, starts it, and returns a
 // shutdown function. It mirrors StartIMAP's policy: implicit TLS only in
 // production, plain + optional STARTTLS in dev, and a loud failure rather than
-// a silent fallthrough when production has no TLS.
+// a silent fallthrough when production has no TLS. The shutdown is the one
+// ServeSMTP documents, and like StartIMAP's it is also bound to app's
+// terminate.
 func StartSMTP(app core.App, certManager *autocert.Manager, opts SMTPOptions) (func(), error) {
 	if opts.EnabledEnv != "" && os.Getenv(opts.EnabledEnv) == "false" {
 		mailLog.Info("server disabled by env", "server", opts.Label, "env", opts.EnabledEnv)
@@ -71,7 +72,7 @@ func StartSMTP(app core.App, certManager *autocert.Manager, opts SMTPOptions) (f
 	}
 
 	if opts.ExternalTLS {
-		return startSMTPExternalTLS(opts)
+		return startSMTPExternalTLS(app, opts)
 	}
 
 	tlsConfig, err := ResolveTLSConfig(
@@ -82,7 +83,7 @@ func StartSMTP(app core.App, certManager *autocert.Manager, opts SMTPOptions) (f
 	}
 
 	if !app.IsDev() && tlsConfig != nil {
-		return startSMTPTLSOnly(tlsConfig, opts)
+		return startSMTPTLSOnly(app, tlsConfig, opts)
 	}
 
 	if !app.IsDev() && opts.ProductionTLSError != "" {
@@ -118,7 +119,7 @@ func newSMTPServerInstance(tlsConfig *tls.Config, insecureAuth bool, opts SMTPOp
 
 // startSMTPExternalTLS serves plaintext SMTP on the injected listener with the
 // TLS-terminated posture ExternalTLS documents: auth allowed, no STARTTLS.
-func startSMTPExternalTLS(opts SMTPOptions) (func(), error) {
+func startSMTPExternalTLS(app core.App, opts SMTPOptions) (func(), error) {
 	if opts.Listen == nil {
 		return nil, fmt.Errorf("%s ExternalTLS requires an injected listener (SMTPOptions.Listen)", opts.Label)
 	}
@@ -133,24 +134,19 @@ func startSMTPExternalTLS(opts SMTPOptions) (func(), error) {
 
 	server := newSMTPServerInstance(nil, true, opts)
 	server.Addr = addr
+	d := newSMTPDrain(server, opts.Label)
 
 	ln, err := opts.Listen(addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	mailLog.Info("server listening (external TLS termination)", "server", opts.Label, "addr", addr)
-	go func() {
-		logServeExit(opts.Label, addr, server.Serve(ln))
-	}()
+	d.serve(d.listen(ln), opts.Label, addr, server.Serve)
 
-	return func() {
-		mailLog.Info("shutting down server", "server", opts.Label)
-		ln.Close()
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }
 
-func startSMTPTLSOnly(tlsConfig *tls.Config, opts SMTPOptions) (func(), error) {
+func startSMTPTLSOnly(app core.App, tlsConfig *tls.Config, opts SMTPOptions) (func(), error) {
 	addr := os.Getenv(opts.TLSAddrEnv)
 	if addr == "" {
 		addr = opts.DefaultTLSAddr
@@ -158,22 +154,16 @@ func startSMTPTLSOnly(tlsConfig *tls.Config, opts SMTPOptions) (func(), error) {
 
 	server := newSMTPServerInstance(tlsConfig, false, opts)
 	server.Addr = addr
+	d := newSMTPDrain(server, opts.Label)
 
 	rawLn, err := listenWith(opts.Listen, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
-	tlsLn := tls.NewListener(rawLn, tlsConfig)
 	mailLog.Info("server listening (implicit TLS, no plain listener)", "server", opts.Label, "addr", addr)
-	go func() {
-		logServeExit(opts.Label, addr, server.Serve(tlsLn))
-	}()
+	d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), opts.Label, addr, server.Serve)
 
-	return func() {
-		mailLog.Info("shutting down server", "server", opts.Label)
-		tlsLn.Close()
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }
 
 func startSMTPDev(app core.App, tlsConfig *tls.Config, opts SMTPOptions) (func(), error) {
@@ -188,17 +178,15 @@ func startSMTPDev(app core.App, tlsConfig *tls.Config, opts SMTPOptions) (func()
 	}
 	server := newSMTPServerInstance(tlsConfig, insecureAuth, opts)
 	server.Addr = addr
+	d := newSMTPDrain(server, opts.Label)
 
 	plainLn, err := listenWith(opts.Listen, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
 	mailLog.Info("server listening", "server", opts.Label, "addr", addr, "starttls", tlsConfig != nil)
-	go func() {
-		logServeExit(opts.Label, addr, server.Serve(plainLn))
-	}()
+	d.serve(d.listen(plainLn), opts.Label, addr, server.Serve)
 
-	var tlsLn net.Listener
 	if tlsConfig != nil && opts.DefaultDevTLSAddr != "" {
 		tlsAddr := os.Getenv(opts.TLSAddrEnv)
 		if tlsAddr == "" {
@@ -219,20 +207,10 @@ func startSMTPDev(app core.App, tlsConfig *tls.Config, opts SMTPOptions) (func()
 				"err", err,
 			)
 		} else {
-			tlsLn = tls.NewListener(rawLn, tlsConfig)
 			mailLog.Info("server listening (implicit TLS)", "server", opts.Label, "addr", tlsAddr)
-			go func() {
-				logServeExit(opts.Label, tlsAddr, server.Serve(tlsLn))
-			}()
+			d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), opts.Label, tlsAddr, server.Serve)
 		}
 	}
 
-	return func() {
-		mailLog.Info("shutting down server", "server", opts.Label)
-		plainLn.Close()
-		if tlsLn != nil {
-			tlsLn.Close()
-		}
-		server.Close()
-	}, nil
+	return d.bind(app), nil
 }

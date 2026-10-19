@@ -100,10 +100,12 @@ type options struct {
 	// SIGKILL.
 	//
 	// A child's terminate chain waits in sequence, each wait bounded on its
-	// own: a backup run (coreserver backupStopBound, 8 s), tail writes
+	// own: the mail protocol servers' drain (mailproto drainBound, 5 s, all
+	// servers at once, plus any write in progress), a backup run
+	// (coreserver backupStopBound, 8 s), tail writes
 	// (readonly tailStopBound, 5 s), the boot notices (coreserver
 	// bootNoticeStopBound, 2 s) and the automation worker (automation
-	// shutdownDrainWait, 5 s). Their worst cases add up to about 20 s, more
+	// shutdownDrainWait, 5 s). Their worst cases add up to about 25 s, more
 	// than this bound and more than what drainBound leaves after a full
 	// drain. Each worst case is stuck work, and they seldom coincide; when
 	// they do, SIGKILL ends the child with the database open, which SQLite's
