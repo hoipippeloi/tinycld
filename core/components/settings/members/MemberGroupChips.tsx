@@ -9,15 +9,14 @@ import { Text, View } from 'react-native'
  */
 export function MemberGroupChips({ userId }: { userId: string }) {
     const [membersCollection, groupsCollection] = useStore('group_members', 'groups')
-    const { data: rows } = useLiveQuery(
-        query =>
+    const { data: rows } = useLiveQuery({
+        query: query =>
             query
                 .from({ m: membersCollection })
                 .innerJoin({ g: groupsCollection }, ({ m, g }) => eq(m.group, g.id))
                 .where(({ m }) => eq(m.user, userId))
                 .select(({ g }) => ({ id: g.id, name: g.name })),
-        [userId]
-    )
+    })
     // .orderBy() after .innerJoin() isn't supported by this TanStack DB
     // version (see useGroupMembersAdmin for the same pattern), so sort here.
     const groups = [...(rows ?? [])].sort((a, b) => a.name.localeCompare(b.name))

@@ -11,30 +11,27 @@ import { useStore } from '@tinycld/core/lib/pocketbase'
 // factor rows (never their own, and an admin never an owner's).
 function useMemberFactorRows(userId: string) {
     const [totp, passkeys, appPasswords] = useStore('mfa_totp', 'passkeys', 'app_passwords')
-    const { data: totpRows = [] } = useLiveQuery(
-        query =>
+    const { data: totpRows = [] } = useLiveQuery({
+        query: query =>
             query
                 .from({ t: totp })
                 .where(({ t }) => eq(t.user, userId))
                 .select(({ t }) => ({ id: t.id, enabledAt: t.enabled_at })),
-        [userId]
-    )
-    const { data: passkeyRows = [] } = useLiveQuery(
-        query =>
+    })
+    const { data: passkeyRows = [] } = useLiveQuery({
+        query: query =>
             query
                 .from({ p: passkeys })
                 .where(({ p }) => eq(p.user, userId))
                 .select(({ p }) => ({ id: p.id })),
-        [userId]
-    )
-    const { data: appPasswordRows = [] } = useLiveQuery(
-        query =>
+    })
+    const { data: appPasswordRows = [] } = useLiveQuery({
+        query: query =>
             query
                 .from({ a: appPasswords })
                 .where(({ a }) => eq(a.user, userId))
                 .select(({ a }) => ({ id: a.id })),
-        [userId]
-    )
+    })
     return { totp, passkeys, appPasswords, totpRows, passkeyRows, appPasswordRows }
 }
 
