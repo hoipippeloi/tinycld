@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import type { RecordLabelDecl } from '../core/lib/record-labels/label'
 
 export interface PackageManifest {
     name: string
@@ -57,6 +58,9 @@ export interface PackageManifest {
     // pure-data PackageNotifyEvents module. See core/lib/packages/types.ts.
     notifications?: { events: string }
     forms?: { hosts: string; ui: string }
+    // How core's relation pickers name a record of this package's collections.
+    // Validated by describe-packages.ts. See core/lib/packages/types.ts.
+    recordLabels?: Record<string, RecordLabelDecl>
     // Read-only event feeds this package contributes to another package's
     // event grid (today: the calendar). `module` is a package-exports subpath
     // to a module exporting `useEventSource` — see the PackageManifest doc in

@@ -1,3 +1,4 @@
+import { parseRecordLabel, type RecordLabelDecl } from '../core/lib/record-labels/label'
 import { CORE_SLOT_TARGET, CORE_SLOTS } from '../core/lib/setup/core-slots'
 import { isValidOrderKey } from '../core/lib/setup/order'
 import type { ConfigPkg, ConfigSetupStep } from './gen-config'
@@ -40,7 +41,35 @@ function toSetupSteps(manifest: PackageManifest): ConfigSetupStep[] {
     })
 }
 
+// A package labels only the collections it owns: the same `<slug>_*` naming
+// convention core/server/pkgaccess resolves ownership by. Relabelling core's
+// `users`, or another package's collection, would change every picker over it
+// from outside the package that knows what its rows mean.
+function ownsCollection(slug: string, collection: string): boolean {
+    const prefix = slug.replace(/-/g, '_')
+    return collection === prefix || collection.startsWith(`${prefix}_`)
+}
+
+function toRecordLabels(manifest: PackageManifest): Record<string, RecordLabelDecl> | undefined {
+    if (!manifest.recordLabels) return undefined
+    for (const [collection, decl] of Object.entries(manifest.recordLabels)) {
+        if (!ownsCollection(manifest.slug, collection)) {
+            throw new Error(
+                `[generate] ${manifest.slug}: recordLabels names '${collection}', which is not one of its own collections (they are named ${manifest.slug.replace(/-/g, '_')}_*)`
+            )
+        }
+        try {
+            parseRecordLabel(decl)
+        } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err)
+            throw new Error(`[generate] ${manifest.slug}: recordLabels.${collection}: ${reason}`)
+        }
+    }
+    return manifest.recordLabels
+}
+
 export function manifestToConfigPkg(packageName: string, manifest: PackageManifest): ConfigPkg {
+    const recordLabels = toRecordLabels(manifest)
     const hasRegister = Boolean(manifest.collections?.register)
     const slots = manifest.slots ?? []
     const seenSlots = new Set<string>()
@@ -108,6 +137,7 @@ export function manifestToConfigPkg(packageName: string, manifest: PackageManife
             ...(manifest.publicRoutes ? { publicRoutes: manifest.publicRoutes } : {}),
             ...(manifest.repository ? { repository: manifest.repository } : {}),
             ...(manifest.dependencies ? { dependencies: manifest.dependencies } : {}),
+            ...(recordLabels ? { recordLabels } : {}),
         },
     }
 }
@@ -137,6 +167,27 @@ export function validateNavShortcuts(pkgs: ConfigPkg[]): void {
             )
         }
         claimedBy.set(letter, p.slug)
+    }
+}
+
+/**
+ * Cross-package validation for `recordLabels`. Ownership is a name prefix, so
+ * two slugs where one prefixes the other (`gizmo`, `gizmo-x`) can both claim
+ * `gizmo_x_*`; the picker would show whichever loaded first.
+ */
+export function validateRecordLabels(pkgs: ConfigPkg[]): void {
+    const claimedBy = new Map<string, string>()
+    for (const p of pkgs) {
+        const labels = p.manifest.recordLabels as Record<string, unknown> | undefined
+        for (const collection of Object.keys(labels ?? {})) {
+            const existing = claimedBy.get(collection)
+            if (existing) {
+                throw new Error(
+                    `[generate] recordLabels for '${collection}' are declared by both '${existing}' and '${p.slug}'. Only the package that owns a collection may label it.`
+                )
+            }
+            claimedBy.set(collection, p.slug)
+        }
     }
 }
 

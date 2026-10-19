@@ -8,6 +8,7 @@ import {
     validateEventSources,
     validateNavShortcuts,
     validatePorts,
+    validateRecordLabels,
     validateSidebarContributions,
 } from './describe-packages'
 import { emitAutomationDefs, loadAutomationDefs, mergeAutomationDefs } from './gen-automation'
@@ -523,6 +524,7 @@ async function main() {
     validateSidebarContributions(configPkgs)
     validateEventSources(configPkgs)
     validateNavShortcuts(configPkgs)
+    validateRecordLabels(configPkgs)
     const portsFeatures: PortsFeature[] = features.map(f => ({
         slug: f.manifest.slug,
         ports: f.manifest.ports,

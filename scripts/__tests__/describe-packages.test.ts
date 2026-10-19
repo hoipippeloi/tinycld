@@ -6,6 +6,7 @@ import {
     validateEventSources,
     validateNavShortcuts,
     validatePorts,
+    validateRecordLabels,
     validateSidebarContributions,
 } from '../describe-packages'
 
@@ -393,6 +394,65 @@ describe('validateNavShortcuts', () => {
         expect(() =>
             validateNavShortcuts([withShortcut('a'), withShortcut('b'), withShortcut('c', 'c')])
         ).not.toThrow()
+    })
+})
+
+describe('recordLabels', () => {
+    const withLabels = (
+        slug: string,
+        recordLabels: Record<string, { format: string; relations?: Record<string, string> }>
+    ) =>
+        manifestToConfigPkg(`@tinycld/${slug}`, {
+            name: slug,
+            slug,
+            version: '0.1.0',
+            description: 'd',
+            recordLabels,
+        })
+
+    it('passes a valid declaration through on the manifest', () => {
+        const recordLabels = {
+            gizmo_tags: { format: '{code}@{family.name}', relations: { family: 'gizmo_families' } },
+        }
+        expect(withLabels('gizmo', recordLabels).manifest.recordLabels).toEqual(recordLabels)
+    })
+
+    it('leaves the manifest without recordLabels when none are declared', () => {
+        const cp = manifestToConfigPkg('@tinycld/gizmo', {
+            name: 'gizmo',
+            slug: 'gizmo',
+            version: '0.1.0',
+            description: 'd',
+        })
+        expect(cp.manifest).not.toHaveProperty('recordLabels')
+    })
+
+    it('accepts a collection named exactly the slug, with dashes as underscores', () => {
+        expect(() => withLabels('gizmo-box', { gizmo_box: { format: '{name}' } })).not.toThrow()
+    })
+
+    it("rejects a label for a collection the package doesn't own", () => {
+        expect(() => withLabels('gizmo', { users: { format: '{name}' } })).toThrow(
+            /gizmo: recordLabels names 'users', which is not one of its own collections/
+        )
+        expect(() => withLabels('gizmo', { gizmos_extra: { format: '{name}' } })).toThrow(
+            /not one of its own collections/
+        )
+    })
+
+    it('rejects a format that does not parse, naming the collection', () => {
+        expect(() => withLabels('gizmo', { gizmo_tags: { format: '{family.name}' } })).toThrow(
+            /gizmo: recordLabels\.gizmo_tags: .*does not name its collection/
+        )
+    })
+
+    it('rejects two packages labelling the same collection', () => {
+        const a = withLabels('gizmo', { gizmo_box_items: { format: '{name}' } })
+        const b = withLabels('gizmo-box', { gizmo_box_items: { format: '{title}' } })
+        expect(() => validateRecordLabels([a, b])).toThrow(
+            /'gizmo_box_items' are declared by both 'gizmo' and 'gizmo-box'/
+        )
+        expect(() => validateRecordLabels([a])).not.toThrow()
     })
 })
 

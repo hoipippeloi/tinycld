@@ -1,6 +1,12 @@
-import { eq, like } from '@tanstack/db'
-import { useLiveQuery } from '@tanstack/react-db'
 import { collectionByName } from '@tinycld/core/lib/pocketbase'
+import { fieldLabel, type RecordLabel } from '@tinycld/core/lib/record-labels/label'
+import { packageRecordLabels } from '@tinycld/core/lib/record-labels/registry'
+import {
+    type LabelSources,
+    useLabelledRecord,
+    useLabelledRecords,
+    VISIBLE_LIMIT,
+} from '@tinycld/core/lib/record-labels/use-labelled-records'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useDebouncedValue } from '@tinycld/core/lib/use-debounced-value'
 import { Menu } from '@tinycld/core/ui/menu'
@@ -11,25 +17,23 @@ import { Pressable, Text } from 'react-native'
 
 export interface RelationRecordPickerProps {
     target: string
+    /**
+     * The field to name a record by when the target's package declares no
+     * `recordLabels` entry for it (the server's display-field heuristic).
+     */
     displayField: string
     value: string
     onChange: (id: string) => void
     accessibilityLabel?: string
 }
 
-function recordLabel(record: Record<string, unknown>, displayField: string): string {
-    const raw = record[displayField]
-    const id = record.id
-    return typeof raw === 'string' && raw ? raw : typeof id === 'string' ? id : ''
-}
-
 // Relation targets are arbitrary collections declared by a package's
 // automation catalog — not guaranteed to be registered in the client's
 // pbtsdb store map (an unlinked package, or a name outside the tinycld
 // schema entirely). collectionByName resolves it dynamically when it IS
-// registered; the query itself no-ops (returns null, same pattern as
-// useMyLiveQuery) when it isn't, rather than conditionally skipping the
-// useLiveQuery call — hooks must run unconditionally.
+// registered; the queries themselves no-op when it isn't, rather than
+// conditionally skipping the useLiveQuery calls — hooks must run
+// unconditionally.
 //
 // Raw useLiveQuery (not useMyLiveQuery) is correct here, same rationale as
 // use-packages.ts: the collection may be a global, non-org-scoped store (or
@@ -37,72 +41,29 @@ function recordLabel(record: Record<string, unknown>, displayField: string): str
 // concern, not this generic picker's — rows are already RLS-filtered by the
 // server.
 
-// How many matches the menu will render at once — and, because both the filter
-// and the cap are now in the request, how many rows are ever fetched.
-const VISIBLE_LIMIT = 50
 const SEARCH_DEBOUNCE_MS = 250
 
-// The target collection is named at runtime by a package's automation catalog, so
-// `displayField` cannot be a key of any one row type — it is a key of whichever
-// of the registered row types `target` resolved to. The ref proxy does answer an
-// arbitrary property; only the static union of row shapes refuses to be indexed
-// by a plain string. `string` is the narrowest type both `like` and `orderBy`
-// accept for a value expression, so the cast lands there rather than on `any`,
-// and it covers exactly this one access.
-function fieldRef(record: object, displayField: string): string {
-    return (record as Record<string, string>)[displayField]
-}
-
-function useRelationRecords(target: string, displayField: string, search: string) {
-    const collection = collectionByName(target)
-    const { data, isReady } = useLiveQuery({
-        query: q => {
-            if (!collection) return null
-            // Both the filter and the cap belong in the request. The target is an
-            // arbitrary collection a package's catalog named, so it could be the
-            // deployment's largest table — an unfiltered read here was the only
-            // one in the app whose worst case is unbounded. `like` compiles to
-            // `<field> ~ "%<term>%"`; the explicit `%` on both sides is what
-            // makes it a contains match, since PocketBase only auto-wraps an
-            // operand that carries no `%` of its own (`wrapLikeParams`). The
-            // order is the display field rather than id because id order is
-            // meaningless to a human.
-            let query = q.from({ record: collection })
-            if (search) {
-                query = query.where(({ record }) =>
-                    like(fieldRef(record, displayField), `%${search}%`)
-                )
-            }
-            return query
-                .orderBy(({ record }) => fieldRef(record, displayField))
-                .limit(VISIBLE_LIMIT)
-        },
-    })
-    return {
-        isReady,
-        records: (data ?? []) as Record<string, unknown>[],
+/**
+ * The label the target's package declared, else the server's display field.
+ * A declared label whose related collection is not registered here falls back
+ * too: there would be no rows to read the related text from.
+ */
+function pickerLabel(target: string, displayField: string): RecordLabel {
+    const declared = packageRecordLabels[target]
+    if (!declared) return fieldLabel(displayField)
+    if (declared.related && !collectionByName(declared.related.collection)) {
+        return fieldLabel(displayField)
     }
+    return declared
 }
 
-// The selected record, resolved on its own.
-//
-// The trigger has to name the selection even when it is nowhere near the search
-// window — after a save-and-reopen the picker starts with no term at all, so a
-// label read off the 50-row window is a raw record id in the common case.
-//
-// A one-row query, not `collection.get(id)`: the target syncs on demand, so a
-// row that was never fetched is simply absent from the store and `get` answers
-// undefined. The query fetches it. It is bounded by construction — one id, one
-// row — and runs no request at all while nothing is selected.
-function useSelectedRecord(target: string, value: string) {
-    const collection = collectionByName(target)
-    const { data } = useLiveQuery({
-        query: q => {
-            if (!collection || !value) return null
-            return q.from({ record: collection }).where(({ record }) => eq(record.id, value))
-        },
-    })
-    return (data?.[0] ?? undefined) as Record<string, unknown> | undefined
+function pickerSources(target: string, displayField: string) {
+    const label = pickerLabel(target, displayField)
+    const sources: LabelSources = {
+        collection: collectionByName(target),
+        related: label.related ? collectionByName(label.related.collection) : undefined,
+    }
+    return { label, sources }
 }
 
 // Rendered only inside the open menu, so a closed picker runs no results query.
@@ -115,7 +76,8 @@ function PickerResults({ target, displayField, value, onChange }: RelationRecord
     // `\"` compiles to an unterminated filter literal and PocketBase answers 400.
     const term = search.trim().replace(/\\/g, '')
     const debouncedSearch = useDebouncedValue(term, SEARCH_DEBOUNCE_MS)
-    const { isReady, records } = useRelationRecords(target, displayField, debouncedSearch)
+    const { label, sources } = pickerSources(target, displayField)
+    const { isReady, records } = useLabelledRecords(sources, label, debouncedSearch)
 
     // The debounce window, plus the request it then issues, is a stretch of time
     // in which `records` still answers the PREVIOUS term. Rendering those rows is
@@ -124,9 +86,7 @@ function PickerResults({ target, displayField, value, onChange }: RelationRecord
     // shrank, lands on whatever is behind the menu. Show the searching hint until
     // the results answer the term that is actually in the box.
     const isSearching = debouncedSearch !== term || !isReady
-    const matches = isSearching
-        ? []
-        : records.map(record => ({ record, label: recordLabel(record, displayField) }))
+    const matches = isSearching ? [] : records
 
     return (
         <>
@@ -139,12 +99,12 @@ function PickerResults({ target, displayField, value, onChange }: RelationRecord
                     className="border rounded-lg px-2.5 py-1.5 text-sm text-foreground bg-background border-border"
                 />
             </Menu.Custom>
-            {matches.map(({ record, label: recordName }) => (
+            {matches.map(record => (
                 <Menu.Item
-                    key={record.id as string}
-                    label={recordName}
+                    key={record.id}
+                    label={record.name}
                     isSelected={record.id === value}
-                    onSelect={() => onChange(record.id as string)}
+                    onSelect={() => onChange(record.id)}
                 />
             ))}
             <SearchingHint isVisible={isSearching} />
@@ -160,10 +120,10 @@ function PickerResults({ target, displayField, value, onChange }: RelationRecord
 export function RelationRecordPicker(props: RelationRecordPickerProps) {
     const { target, displayField, value, onChange, accessibilityLabel } = props
     const mutedColor = useThemeColor('muted-foreground')
-    const isRegistered = Boolean(collectionByName(target))
-    const selectedRecord = useSelectedRecord(target, value)
+    const { label: recordLabel, sources } = pickerSources(target, displayField)
+    const selectedRecord = useLabelledRecord(sources, recordLabel, value)
 
-    if (!isRegistered) {
+    if (!sources.collection) {
         return (
             <PlainInput
                 value={value}
@@ -178,7 +138,7 @@ export function RelationRecordPicker(props: RelationRecordPickerProps) {
     // The trigger names the selection from its own one-row query, so it stays
     // correct while the menu's window shows something else entirely. It falls
     // back to the raw id only while that row is still in flight.
-    const label = selectedRecord ? recordLabel(selectedRecord, displayField) : value || 'Select…'
+    const label = selectedRecord?.name ?? (value || 'Select…')
 
     return (
         <Menu

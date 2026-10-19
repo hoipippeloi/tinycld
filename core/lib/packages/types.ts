@@ -1,3 +1,5 @@
+import type { RecordLabelDecl } from '../record-labels/label'
+
 export interface PackageManifest {
     name: string
     slug: string
@@ -245,6 +247,15 @@ export interface PackageManifest {
         hosts: string
         ui: string
     }
+
+    /**
+     * How core's relation pickers (the rule builder's record picker, a form's
+     * person field) name a record of this package's collections, keyed by
+     * collection name. Without one, a picker shows the first of the fields
+     * name, title, label, subject, display_name, email or username, else the
+     * id. The picker's search matches the same text. See RecordLabelDecl.
+     */
+    recordLabels?: Record<string, RecordLabelDecl>
 
     repository?: {
         url: string

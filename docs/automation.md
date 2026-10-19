@@ -415,8 +415,11 @@ collection metadata — field types, relation targets with display-field
 heuristics, select options, native availability — and materializes rows
 into the read-only `automation_catalog` collection. The builder UI
 live-queries it; you never write catalog code. Consequences worth knowing:
-relation params get a record picker automatically (display field chosen
-from `name`/`title`/`label`/`subject`/`display_name`/`email`/`username`);
+relation params and relation-field conditions get a record picker
+automatically. The picker names each record by the `recordLabels` entry the
+target's package declares in its manifest (see
+[packages.md](packages.md#field-reference)); without one, by a display field
+chosen from `name`/`title`/`label`/`subject`/`display_name`/`email`/`username`;
 an action on a collection that doesn't exist in the deployment shows as
 unavailable rather than vanishing.
 

@@ -27,7 +27,10 @@ parts in order:
 2. **If** — appears only for triggers tied to a record (not for "Run
    manually" or "On a schedule", which have no fields to filter on). Add one
    or more conditions, and combine multiple conditions or groups with "all"
-   (AND) or "any" (OR).
+   (AND) or "any" (OR). A condition on a field that points at another record
+   (an address, a folder, a person) shows a menu of those records. To find
+   one, type part of its name in the menu's search box; each word you type
+   must appear somewhere in the name.
 3. **Then** — add one or more actions. Some actions take parameters — for
    text parameters tied to the trigger's fields, the `{{ }}` button inserts a
    placeholder like `{{subject}}` that's filled in with the actual value when
