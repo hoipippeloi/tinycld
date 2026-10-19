@@ -15,9 +15,9 @@ repo into one `tinycld/` repo. The ecosystem is a pnpm workspace rooted at
 `~/code/tinycld/`; the app shell (`tinycld`), core (`tinycld/core`),
 `@tinycld/package-scripts` (`tinycld/package-scripts`), and every feature
 sibling (`@tinycld/contacts`, `@tinycld/mail`, `@tinycld/calendar`,
-`@tinycld/drive`, `@tinycld/calc`, `@tinycld/text`,
+`@tinycld/drive`, `@tinycld/calc`, `@tinycld/text`, `@tinycld/boards`,
 `@tinycld/google-takeout-import`) are workspace members listed in
-`pnpm-workspace.yaml`. `pnpm install` at the workspace root runs the postinstall,
+`pnpm-workspace.yaml`, which the install writes from the member dirs on disk. `pnpm install` at the workspace root runs the postinstall,
 whose `link-members` step creates `node_modules/@tinycld/<name>` symlinks for
 every present member (pnpm only links depended-on members itself, so
 link-members covers the feature siblings nothing depends on).
@@ -57,7 +57,7 @@ available in production.
 - Extract: If a sub-section of a function or JSX is complex, break it into separate, smaller parts.
 - Conditional visibility: Instead of hiding/showing large blocks using `{condition && <Component />}`, have the component accept an `isVisible` prop and return null when it shouldn't render.
 - Comments: Only add comments that explain "why", not "what". Avoid trivial comments like `// Delete users` before `deleteFrom('user')` or `// Create profile` before `insertInto('profile')`. If the code is self-explanatory, no comment is needed.
-- Testing: Write unit tests for new features. Only mock using helpers in tests/unit.helpers.tsx as needed, do not mock out any of our own components or actions.
+- Testing: Write unit tests for new features. Only mock through the shared stubs in `tests/` (the `*-stub.cjs` files that `vitest.config.ts` aliases in), do not mock out any of our own components or actions.
 - Run quality checks after any changes:
    - From inside the member: `pnpm exec tinycld-pkg check` (biome + tsc + vitest, scoped)
    - From `tinycld/` for an ecosystem-wide sweep: `pnpm run checks` (biome + tsc + core-isolation and fork-drift checks) and `pnpm run pkg:test:unit` (vitest across all members)
@@ -283,8 +283,8 @@ signals it ran.
 - For dynamic package navigation where the slug is a runtime value (e.g. rail/tab bar), pass it through the same hook: `orgHref(pkg.slug)` (see `CoreShortcuts.tsx`)
 
 ## Package System
-- Feature packages live in **sibling git repos** at `~/code/tinycld/{contacts,mail,calendar,drive,calc,text,google-takeout-import}/` (source at `<slug>/tinycld/<slug>/`) and are **pnpm workspace members** (listed in `pnpm-workspace.yaml`) of a workspace root at `~/code/tinycld/`. `@tinycld/core` is **not** a separate sibling repo — it is nested at `tinycld/core/` inside the merged `tinycld` repo (still a workspace member, listed as `tinycld/core`), alongside `@tinycld/package-scripts` at `tinycld/package-scripts/`. The postinstall's `link-members` step creates `node_modules/@tinycld/<name>` symlinks for every member; pnpm itself only links depended-on members, so this covers the rest.
-- `tinycld.packages.ts::getPackages()` (at the workspace root) enumerates the workspace members that carry a `manifest.ts` — that set is the source of truth. To add a feature package, clone it as a sibling at the workspace root, add it to `pnpm-workspace.yaml`'s `packages:` list, and run `pnpm install` at the **workspace root** (`~/code/tinycld/`). There is no `packages:link`/`packages:install` — the workspace install does the linking.
+- Feature packages live in **sibling git repos** at `~/code/tinycld/{contacts,mail,calendar,drive,calc,text,boards,google-takeout-import}/` (source at `<slug>/tinycld/<slug>/`) and are **pnpm workspace members** (listed in `pnpm-workspace.yaml`) of a workspace root at `~/code/tinycld/`. `@tinycld/core` is **not** a separate sibling repo — it is nested at `tinycld/core/` inside the merged `tinycld` repo (still a workspace member, listed as `tinycld/core`), alongside `@tinycld/package-scripts` at `tinycld/package-scripts/`. The postinstall's `link-members` step creates `node_modules/@tinycld/<name>` symlinks for every member; pnpm itself only links depended-on members, so this covers the rest.
+- `tinycld.packages.ts::getPackages()` (at the workspace root) enumerates the workspace members that carry a `manifest.ts` — that set is the source of truth. To add a feature package, clone it as a sibling at the workspace root and run `pnpm install` at the **workspace root** (`~/code/tinycld/`). There is no `packages:link`/`packages:install` — the workspace install does the linking.
 - `pnpm run packages:generate` (runs as the workspace-root `postinstall`, and before `dev`) wires linked feature packages into the app. It is a **thin** step; most wiring is derived at runtime. It:
   - Re-exports package screens into `tinycld/app/a/(app)/{slug}/` (app routes) and public routes into `tinycld/app/p/<path>` (Expo Router needs files on disk).
   - Writes `tinycld.config.ts` (the installed-package source of truth — a typed `definePackageEntry` array) and `tinycld.seeds.ts` (Node-only seed list, kept out of the app bundle).

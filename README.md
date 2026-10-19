@@ -119,8 +119,9 @@ pnpm run ssl:generate
 ## Adding / removing feature packages
 
 There is no `packages:link`/`packages:install` step — linking is the pnpm workspace install.
-`pnpm-workspace.yaml`'s `packages:` list already enumerates every known first-party feature, so
-adding one is just cloning the sibling and re-installing. The fastest path is bootstrap:
+The install rewrites `pnpm-workspace.yaml`'s `packages:` list from the member dirs on disk
+(each dir with a `package.json` and a `manifest.ts`), so adding one is just cloning the
+sibling and re-installing. The fastest path is bootstrap:
 
 ```sh
 cd ~/code/tinycld
@@ -136,8 +137,8 @@ git clone git@github.com:tinycld/<slug>.git <slug>
 pnpm install        # links it + regenerates
 ```
 
-For a third-party package, also add its directory name to the `packages:` list in
-the workspace-root `pnpm-workspace.yaml` before installing.
+This is the same for a third-party package. Do not edit `pnpm-workspace.yaml` by hand;
+the next install overwrites it.
 
 Remove one by deleting its sibling clone and re-running `pnpm install`. The set of
 linked packages = the set of installed workspace members.
