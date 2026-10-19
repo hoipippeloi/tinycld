@@ -154,7 +154,13 @@ needs its authorizer (see **Record-level authorization** below):
   param accepts `{{field}}` placeholders filled from the trigger's exposed
   fields — no opt-in flag; relation params are never template-substituted
   (ids are picker-chosen, and letting trigger content pick the id would be
-  an injection channel).
+  an injection channel). A placeholder for a relation field renders the
+  name of the record it points at, not its id — the same name the record
+  picker shows (see **The catalog** below), and a multi relation renders
+  every name, comma-separated. A record that is gone, or that the rule
+  owner's view rule refuses, renders its id. The generator copies every
+  manifest's `recordLabels` into `automation_defs.json` for this. The ids
+  stay in the `core:post-webhook` payload.
 
 **Native actions** dispatch to a Go handler you register in `Register(app)`
 (mirrors `$`-binding registration — must run before hooks load):
@@ -416,10 +422,11 @@ heuristics, select options, native availability — and materializes rows
 into the read-only `automation_catalog` collection. The builder UI
 live-queries it; you never write catalog code. Consequences worth knowing:
 relation params and relation-field conditions get a record picker
-automatically. The picker names each record by the `recordLabels` entry the
-target's package declares in its manifest (see
-[packages.md](packages.md#field-reference)); without one, by a display field
-chosen from `name`/`title`/`label`/`subject`/`display_name`/`email`/`username`;
+automatically. The picker, and a `{{placeholder}}` for a relation field,
+names each record by the `recordLabels` entry the target's package declares
+in its manifest (see [packages.md](packages.md#field-reference)); without
+one, by a display field chosen from
+`name`/`title`/`label`/`subject`/`display_name`/`email`/`username`, else the id;
 an action on a collection that doesn't exist in the deployment shows as
 unavailable rather than vanishing.
 

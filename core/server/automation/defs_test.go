@@ -39,7 +39,10 @@ const fixtureJSON = `{
             ],
             "actions": []
         }
-    ]
+    ],
+    "recordLabels": {
+        "gizmos_tags": { "format": "{code}-{family.name}", "relations": { "family": "gizmos_families" } }
+    }
 }`
 
 func writeFixture(t *testing.T) string {
@@ -83,6 +86,17 @@ func TestLookupByQualifiedRef(t *testing.T) {
 	}
 	if _, _, ok := defs.Trigger("gizmos:nope"); ok {
 		t.Fatal("unknown ref must miss")
+	}
+}
+
+func TestLoadDefsDecodesRecordLabels(t *testing.T) {
+	defs, err := LoadDefs(writeFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl, ok := defs.RecordLabels["gizmos_tags"]
+	if !ok || decl.Format != "{code}-{family.name}" || decl.Relations["family"] != "gizmos_families" {
+		t.Fatalf("recordLabels not decoded: %+v", defs.RecordLabels)
 	}
 }
 

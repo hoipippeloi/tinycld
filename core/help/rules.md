@@ -34,7 +34,9 @@ parts in order:
 3. **Then** — add one or more actions. Some actions take parameters — for
    text parameters tied to the trigger's fields, the `{{ }}` button inserts a
    placeholder like `{{subject}}` that's filled in with the actual value when
-   the rule runs.
+   the rule runs. A placeholder for a field that points at another record
+   (an address, a folder, a person) is filled in with that record's name, as
+   the record menus show it.
 
 Select **Save** when you're done. If something's missing — no name, no
 trigger, no action — the builder lists exactly what to fix before it will

@@ -57,16 +57,22 @@ func exposedFields(record *core.Record, trigger TriggerDef) map[string]bool {
 
 // SubstituteTemplates fills {{field}} placeholders from the trigger record.
 // Non-exposed and unknown fields become empty strings: a template must never
-// leak a column the trigger's declaration curated away.
-func SubstituteTemplates(s string, record *core.Record, trigger TriggerDef) string {
+// leak a column the trigger's declaration curated away. A relation field
+// renders the name of each record it points at (record_labels.go), because a
+// record id means nothing in a notification or an email.
+func SubstituteTemplates(s string, record *core.Record, trigger TriggerDef, env TemplateEnv) string {
 	if record == nil || !strings.Contains(s, "{{") {
 		return s
 	}
 	exposed := exposedFields(record, trigger)
+	namer := &recordNamer{env: env}
 	return placeholderRe.ReplaceAllStringFunc(s, func(m string) string {
 		key := placeholderRe.FindStringSubmatch(m)[1]
 		if !exposed[key] {
 			return ""
+		}
+		if field, ok := record.Collection().Fields.GetByName(key).(*core.RelationField); ok {
+			return namer.relationText(field, record)
 		}
 		return normalize(record.Get(key))
 	})

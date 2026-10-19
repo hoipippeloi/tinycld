@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { loadAutomationDefs, mergeAutomationDefs } from '../gen-automation'
+import { collectRecordLabels, loadAutomationDefs, mergeAutomationDefs } from '../gen-automation'
 
 const tmpDirs: string[] = []
 afterEach(() => {
@@ -111,5 +111,24 @@ describe('mergeAutomationDefs', () => {
                 },
             ])
         ).toThrow(/synthetic/)
+    })
+})
+
+describe('collectRecordLabels', () => {
+    it('merges the labels of every manifest, keyed by collection in key order', () => {
+        const labels = collectRecordLabels([
+            { recordLabels: { gizmos_tags: { format: '{code}' } } },
+            {},
+            {
+                recordLabels: {
+                    doodads_bins: {
+                        format: '{name}@{site.name}',
+                        relations: { site: 'doodads_sites' },
+                    },
+                },
+            },
+        ])
+        expect(Object.keys(labels)).toEqual(['doodads_bins', 'gizmos_tags'])
+        expect(labels.doodads_bins.relations).toEqual({ site: 'doodads_sites' })
     })
 })

@@ -122,9 +122,10 @@ func resolveFieldType(field core.Field) string {
 
 // displayFieldCandidates is the DisplayField heuristic order: first existing
 // field among these on the target collection; else "id". It is the fallback:
-// the client's record picker prefers the label the target's package declares
-// in its manifest's recordLabels (core/lib/record-labels), which can read more
-// than one field and a related record.
+// the client's record picker and a relation placeholder (record_labels.go)
+// prefer the label the target's package declares in its manifest's
+// recordLabels (core/lib/record-labels), which can read more than one field
+// and a related record.
 var displayFieldCandidates = []string{"name", "title", "label", "subject", "display_name", "email", "username"}
 
 func displayFieldFor(col *core.Collection) string {

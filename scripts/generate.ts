@@ -11,7 +11,12 @@ import {
     validateRecordLabels,
     validateSidebarContributions,
 } from './describe-packages'
-import { emitAutomationDefs, loadAutomationDefs, mergeAutomationDefs } from './gen-automation'
+import {
+    collectRecordLabels,
+    emitAutomationDefs,
+    loadAutomationDefs,
+    mergeAutomationDefs,
+} from './gen-automation'
 import { type BuildPkg, runPackageBuilds } from './gen-build'
 import {
     buildCliExtensionsSource,
@@ -546,7 +551,10 @@ async function main() {
                 defs: await loadAutomationDefs(f.dir, f.name, f.manifest.automation!.definitions),
             }))
     )
-    emitAutomationDefs(mergeAutomationDefs(automationFeatures))
+    emitAutomationDefs({
+        ...mergeAutomationDefs(automationFeatures),
+        recordLabels: collectRecordLabels(features.map(f => f.manifest)),
+    })
 
     // --- 1b2. form hosts → server/form_hosts.json ---------------------------
     const formFeatures = await Promise.all(

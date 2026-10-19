@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { CORE_AUTOMATION, CORE_PKG_SLUG } from '../core/lib/automation/core-defs'
 import { validateDefinitions } from '../core/lib/automation/schemas'
 import type { ActionDef, AutomationDefinitions, TriggerDef } from '../core/lib/automation/types'
+import type { RecordLabelDecl } from '../core/lib/record-labels/label'
 import { SERVER_DIR } from './paths'
 
 export interface MergedAutomation {
@@ -70,9 +71,29 @@ export function mergeAutomationDefs(
     }
 }
 
+/** What automation_defs.json holds: the merged definitions, plus the record labels. */
+export interface AutomationDefsFile extends MergedAutomation {
+    recordLabels: Record<string, RecordLabelDecl>
+}
+
+/**
+ * Every package's manifest `recordLabels`, keyed by collection, in key order
+ * so the file is stable. The engine names the record a relation placeholder
+ * points at with them, and any package's collection can be such a target, so
+ * this reads every manifest, not only those that declare automation.
+ * validateRecordLabels has already refused a collection two packages label.
+ */
+export function collectRecordLabels(
+    manifests: { recordLabels?: Record<string, RecordLabelDecl> }[]
+): Record<string, RecordLabelDecl> {
+    const entries = manifests.flatMap(m => Object.entries(m.recordLabels ?? {}))
+    entries.sort(([a], [b]) => a.localeCompare(b))
+    return Object.fromEntries(entries)
+}
+
 // Materialized for the Go engine (Phase 2 input) — same idiom as the caldav
 // manifest block: TS is the authoring format, the server consumes JSON.
-export function emitAutomationDefs(merged: MergedAutomation): void {
+export function emitAutomationDefs(merged: AutomationDefsFile): void {
     fs.writeFileSync(
         path.join(SERVER_DIR, 'automation_defs.json'),
         `${JSON.stringify(merged, null, 4)}\n`
