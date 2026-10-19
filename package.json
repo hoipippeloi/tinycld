@@ -47,7 +47,9 @@
     },
     "expo": {
         "install": {
-            "exclude": ["react-native-gesture-handler"]
+            "exclude": [
+                "react-native-gesture-handler"
+            ]
         }
     },
     "dependencies": {
