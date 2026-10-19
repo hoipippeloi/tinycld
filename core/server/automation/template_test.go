@@ -9,7 +9,8 @@ import (
 )
 
 func TestSubstituteTemplates(t *testing.T) {
-	_, r := evalRecord(t)
+	app, r := evalRecord(t)
+	env := TemplateEnv{App: app}
 	trig := TriggerDef{Fields: []FieldRef{{Key: "subject"}, {Key: "sender"}}}
 
 	cases := []struct{ in, want string }{
@@ -21,17 +22,17 @@ func TestSubstituteTemplates(t *testing.T) {
 		{"{{subject", "{{subject"}, // unterminated stays verbatim
 	}
 	for _, tc := range cases {
-		if got := SubstituteTemplates(tc.in, r, trig); got != tc.want {
+		if got := SubstituteTemplates(tc.in, r, trig, env); got != tc.want {
 			t.Fatalf("%q: got %q want %q", tc.in, got, tc.want)
 		}
 	}
 
 	// Empty Fields = all non-system columns exposed.
 	open := TriggerDef{}
-	if got := SubstituteTemplates("{{size}}", r, open); got != "1500" {
+	if got := SubstituteTemplates("{{size}}", r, open, env); got != "1500" {
 		t.Fatalf("open trigger exposes all columns, got %q", got)
 	}
-	if got := SubstituteTemplates("{{subject}}", nil, trig); got != "{{subject}}" {
+	if got := SubstituteTemplates("{{subject}}", nil, trig, env); got != "{{subject}}" {
 		t.Fatalf("nil record leaves input unchanged, got %q", got)
 	}
 }
@@ -48,13 +49,13 @@ func TestSystemAndHiddenFieldsNeverSubstitute(t *testing.T) {
 	}
 	// Open trigger (all columns): hidden/system auth fields must never substitute,
 	// even if they have values. They should become empty strings.
-	got := SubstituteTemplates("{{tokenKey}}x{{password}}", u, TriggerDef{})
+	got := SubstituteTemplates("{{tokenKey}}x{{password}}", u, TriggerDef{}, TemplateEnv{App: app})
 	if got != "x" {
 		t.Fatalf("system/hidden fields must not substitute, got %q want 'x'", got)
 	}
 	// Even an explicit allowlist naming system/hidden fields must not leak.
 	curated := TriggerDef{Fields: []FieldRef{{Key: "tokenKey"}, {Key: "name"}}}
-	gotAllowlist := SubstituteTemplates("{{tokenKey}}|{{name}}", u, curated)
+	gotAllowlist := SubstituteTemplates("{{tokenKey}}|{{name}}", u, curated, TemplateEnv{App: app})
 	// tokenKey should have been filtered out (it's system/hidden), so it becomes empty.
 	if !strings.HasPrefix(gotAllowlist, "|") {
 		t.Fatalf("tokenKey (system field) must not substitute in curated allowlist, got %q", gotAllowlist)
@@ -66,13 +67,13 @@ func TestSystemAndHiddenFieldsNeverSubstitute(t *testing.T) {
 	}
 
 	// Autodate timestamps must still work on open triggers.
-	created := SubstituteTemplates("{{created}}", u, TriggerDef{})
+	created := SubstituteTemplates("{{created}}", u, TriggerDef{}, TemplateEnv{App: app})
 	if created == "" || created == "{{created}}" {
 		t.Fatalf("created (autodate) must substitute on open trigger, got %q", created)
 	}
 	// And on curated allowlists that explicitly name them.
 	curatedCreated := TriggerDef{Fields: []FieldRef{{Key: "created"}}}
-	if got := SubstituteTemplates("{{created}}", u, curatedCreated); got == "" || got == "{{created}}" {
+	if got := SubstituteTemplates("{{created}}", u, curatedCreated, TemplateEnv{App: app}); got == "" || got == "{{created}}" {
 		t.Fatalf("created (autodate) must substitute when explicitly allowlisted, got %q", got)
 	}
 }

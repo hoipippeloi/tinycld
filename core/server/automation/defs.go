@@ -106,6 +106,10 @@ type PackageDefs struct {
 
 type Defs struct {
 	Packages []PackageDefs `json:"packages"`
+	// RecordLabels is every package's manifest recordLabels, keyed by
+	// collection name: how a relation placeholder names the record it
+	// points at (record_labels.go).
+	RecordLabels map[string]RecordLabelDecl `json:"recordLabels,omitempty"`
 }
 
 type QualifiedTrigger struct {

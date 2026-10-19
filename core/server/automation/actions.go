@@ -61,7 +61,7 @@ func MarkEngineWrite(req ActionRequest, recordID string, write func() error) err
 	return nil
 }
 
-func substituteParams(defs ActionDef, raw map[string]any, record *core.Record, trigger TriggerDef, relationKeys map[string]bool) map[string]string {
+func substituteParams(defs ActionDef, raw map[string]any, record *core.Record, trigger TriggerDef, relationKeys map[string]bool, env TemplateEnv) map[string]string {
 	out := map[string]string{}
 	for _, p := range defs.Params {
 		v, ok := raw[p.Key]
@@ -76,7 +76,7 @@ func substituteParams(defs ActionDef, raw map[string]any, record *core.Record, t
 			out[p.Key] = s
 			continue
 		}
-		out[p.Key] = SubstituteTemplates(s, record, trigger)
+		out[p.Key] = SubstituteTemplates(s, record, trigger, env)
 	}
 	return out
 }
@@ -272,7 +272,8 @@ func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]an
 			relationKeys[p.Key] = true
 		}
 	}
-	params := substituteParams(action, rawParams, record, trigger, relationKeys)
+	env := TemplateEnv{App: app, Labels: defs.RecordLabels, OwnerID: ownerID}
+	params := substituteParams(action, rawParams, record, trigger, relationKeys, env)
 	req := ActionRequest{Rule: rule, OwnerID: ownerID, Params: params, Record: record, Depth: depth}
 
 	// Both kinds pass the relation-id gates: a record-op's superuser Save
