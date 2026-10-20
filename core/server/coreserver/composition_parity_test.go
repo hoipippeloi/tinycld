@@ -83,7 +83,7 @@ var hostHookCounts = map[string]int{
 	"OnRecordValidate":                    6,
 	"OnServe":                             36,
 	"OnSettingsReload":                    1,
-	"OnTerminate":                         6, // readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document
+	"OnTerminate":                         7, // readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document; notify's background runner waiting for mention notifications (shared, via RegisterSharedCore)
 }
 
 func TestRegisterBindsTheRecordedHandlerCounts(t *testing.T) {
