@@ -65,4 +65,4 @@ require (
 	modernc.org/sqlite v1.54.0 // indirect
 )
 
-replace github.com/osshield/gopbs => github.com/nathanstitt/gopbs v1.0.0
+replace github.com/osshield/gopbs => github.com/nathanstitt/gopbs v1.0.1

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osshield/gopbs/chunker"
 	gopbs "github.com/osshield/gopbs/pbs"
 	"github.com/osshield/gopbs/pbstest"
 
@@ -288,11 +290,109 @@ func TestPutEndsWhenUploadFailsWithoutCtxWhileAFileIsStillQueued(t *testing.T) {
 		t.Fatal("Put never returned after its upload failed")
 	}
 	if n := open.Load(); n != 0 {
-		t.Fatalf("Put returned with %d stored files still open (the queued file must never be opened)", n)
+		t.Fatalf("Put returned with %d stored files still open", n)
 	}
 	if n := len(srv.Snapshots()); n != 0 {
 		t.Fatalf("%d snapshots kept", n)
 	}
+}
+
+// The upload can fail while its chunker is blocked reading the tar pipe and
+// the tar writer is stuck in a stored file. Only Put can unstick that file, by
+// cancelling the tar writer, so the upload must return without waiting for the
+// chunker's read.
+func TestPutEndsWhenUploadFailsWhileAStoredFileIsStuck(t *testing.T) {
+	srv := pbstest.NewServer(t)
+	c := srv.Config()
+	proxy := newStallProxy(t, c.BaseURL[len("https://"):])
+	// Small enough that the first chunk upload stalls in flight, so the cut
+	// below fails it.
+	proxy.stallUpload.Store(512 << 10)
+	raw, _ := json.Marshal(Config{
+		Server: proxy.addr(), Fingerprint: c.Fingerprint, Datastore: c.Datastore,
+		AuthID: "test@pbs!test", Secret: "secret", BackupID: "acme.example",
+	})
+	repository, err := Open(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "data.db")
+	if err := os.WriteFile(dbPath, []byte("SQLite format 3\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := chunkedWithin(t, 12<<20, 1, 4)
+	var open atomic.Int32
+	stuck := &stuckFile{reading: make(chan struct{}, 1), closed: make(chan struct{}), open: &open}
+	snap := &snapshot.Snapshot{
+		Manifest: format.Manifest{Format: format.FormatV1, Created: time.Now().UTC().Truncate(time.Second)},
+		DBPath:   dbPath,
+		Files: []snapshot.StoredFile{
+			{Key: "c1/r1/first.bin", Size: int64(len(first)), Open: func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(first)), nil
+			}},
+			{Key: "c1/r2/stuck.bin", Size: 1, Open: func() (io.ReadCloser, error) {
+				open.Add(1)
+				return stuck, nil
+			}},
+		},
+		Release: func() error { return nil },
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := repository.Put(context.Background(), snap, nil)
+		done <- err
+	}()
+	<-stuck.reading
+	proxy.severNow()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a put through a dropped connection succeeded")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("Put never returned after its upload failed")
+	}
+	if n := open.Load(); n != 0 {
+		t.Fatalf("Put returned with %d stored files still open", n)
+	}
+}
+
+// chunkedWithin returns size bytes of fixed pseudo-random content that the
+// upload's chunker, at gopbs's default 4 MiB target, cuts into between minCuts
+// and maxCuts whole chunks before the end of the file in its tar stream. Random
+// content can hold no cut at all, and then no chunk is in flight to fail when
+// a test cuts the connection; more chunks than the upload has workers would
+// hold the chunker up handing them over, before it reads the next file.
+func chunkedWithin(t *testing.T, size, minCuts, maxCuts int) []byte {
+	t.Helper()
+	data := make([]byte, size)
+	mrand.New(mrand.NewSource(7)).Read(data)
+
+	var stream bytes.Buffer
+	file := snapshot.StoredFile{Key: "c1/r1/first.bin", Size: int64(size), Open: func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(data)), nil
+	}}
+	if err := writeTar(context.Background(), &stream, []snapshot.StoredFile{file}); err != nil {
+		t.Fatal(err)
+	}
+	fileEnd := uint64(512 + size) // one tar header, then the file
+	cuts := 0
+	for c, err := range chunker.Split(bytes.NewReader(stream.Bytes()), 4<<20) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Offset+uint64(len(c.Data)) < fileEnd {
+			cuts++
+		}
+	}
+	if cuts < minCuts || cuts > maxCuts {
+		t.Fatalf("seeded content gives %d chunks, want %d–%d: change the seed", cuts, minCuts, maxCuts)
+	}
+	return data
 }
 
 // PBS speaks only https. A pasted http:// URL used to become
