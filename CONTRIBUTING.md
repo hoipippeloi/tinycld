@@ -281,6 +281,8 @@ signals it ran.
   ```
 - **Never** use `as OneRouter.Href` casts for app routes — always use `useOrgHref()`
 - For dynamic package navigation where the slug is a runtime value (e.g. rail/tab bar), pass it through the same hook: `orgHref(pkg.slug)` (see `CoreShortcuts.tsx`)
+- **Read the current URL with `useUrl()`** from `@tinycld/core/lib/use-url`: `{ pathname, params, href }` from one snapshot. Biome refuses expo-router's `usePathname`, `useGlobalSearchParams`, `useSearchParams`, `useSegments`, `useUnstableGlobalHref`, `useRootNavigationState` and `useCurrentRouteInfo`. After a deep-linked child route is closed, expo-router's global params keep the closed route's params ([expo/expo#32241](https://github.com/expo/expo/issues/32241)), and its pathname and params can disagree.
+- For the params of the route a component is mounted in, use `useLocalSearchParams`. A screen lower in a stack stays mounted, and it must keep its own record when another screen is pushed over it.
 
 ## Package System
 - Feature packages live in **sibling git repos** at `~/code/tinycld/{contacts,mail,calendar,drive,calc,text,boards,google-takeout-import}/` (source at `<slug>/tinycld/<slug>/`) and are **pnpm workspace members** (listed in `pnpm-workspace.yaml`) of a workspace root at `~/code/tinycld/`. `@tinycld/core` is **not** a separate sibling repo — it is nested at `tinycld/core/` inside the merged `tinycld` repo (still a workspace member, listed as `tinycld/core`), alongside `@tinycld/package-scripts` at `tinycld/package-scripts/`. The postinstall's `link-members` step creates `node_modules/@tinycld/<name>` symlinks for every member; pnpm itself only links depended-on members, so this covers the rest.

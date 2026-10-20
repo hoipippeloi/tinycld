@@ -1,4 +1,4 @@
-import { usePathname } from 'expo-router'
+import { useUrl } from '@tinycld/core/lib/use-url'
 import { useEffect, useRef } from 'react'
 
 // Close an open drawer when the user navigates to a different route. Drawers
@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react'
 // genuine change away from it, never on the initial mount — and re-baselines
 // each time the drawer reopens.
 export function useCloseOnNavigate(isOpen: boolean | undefined, onClose?: () => void) {
-    const pathname = usePathname()
+    const { pathname } = useUrl()
     const onCloseRef = useRef(onClose)
     onCloseRef.current = onClose
     // The route the drawer was opened on. While closed it tracks the current

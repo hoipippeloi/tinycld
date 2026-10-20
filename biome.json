@@ -124,6 +124,25 @@
                         "syntax": "shorthand"
                     }
                 },
+                "noRestrictedImports": {
+                    "level": "error",
+                    "options": {
+                        "paths": {
+                            "expo-router": {
+                                "importNames": [
+                                    "usePathname",
+                                    "useGlobalSearchParams",
+                                    "useSearchParams",
+                                    "useSegments",
+                                    "useUnstableGlobalHref",
+                                    "useRootNavigationState",
+                                    "useCurrentRouteInfo"
+                                ],
+                                "message": "Use useUrl from @tinycld/core/lib/use-url: expo-router's global params keep the params of a closed deep-linked route (expo/expo#32241). For the params of the route a component is mounted in, use useLocalSearchParams."
+                            }
+                        }
+                    }
+                },
                 "noRestrictedGlobals": {
                     "level": "error",
                     "options": {
@@ -180,6 +199,16 @@
                     "style": {
                         "noNonNullAssertion": "off",
                         "noRestrictedGlobals": "off"
+                    }
+                }
+            }
+        },
+        {
+            "includes": ["**/core/lib/use-url.ts"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noRestrictedImports": "off"
                     }
                 }
             }

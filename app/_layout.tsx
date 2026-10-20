@@ -1,3 +1,4 @@
+import { useUrl } from '@tinycld/core/lib/use-url'
 // diagnose-regexp and the two polyfills are NOT imported here — they live in the
 // bundle entry (index.js, referenced by package.json "main"). expo-router's entry
 // eagerly requires the whole app/ route tree via `_ctx` BEFORE this module's body
@@ -22,7 +23,7 @@ import { acceptServerHandoff } from '@tinycld/core/lib/server-handoff'
 import { useAppUpdates } from '@tinycld/core/lib/use-app-updates'
 import { useChunkLoadRecovery } from '@tinycld/core/lib/use-chunk-load-recovery'
 import { useVersionCheck } from '@tinycld/core/lib/use-version-check'
-import { Slot, usePathname } from 'expo-router'
+import { Slot } from 'expo-router'
 import { View } from 'react-native'
 import { BlankScreen, ConnectSlot, GateFailedScreen } from '~/lib/gate-screens'
 import { MarkBundleHealthy } from '~/lib/use-mark-bundle-healthy'
@@ -44,7 +45,7 @@ acceptServerHandoff()
 export { AppErrorBoundary as ErrorBoundary }
 
 export default function Layout() {
-    const pathname = usePathname()
+    const { pathname } = useUrl()
     const state = useServerAddressGate(pathname)
     useVersionCheck()
     useChunkLoadRecovery()

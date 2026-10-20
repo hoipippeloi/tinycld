@@ -1,4 +1,4 @@
-import { usePathname } from 'expo-router'
+import { useUrl } from '@tinycld/core/lib/use-url'
 import { searchPackages } from './registry'
 
 /**
@@ -10,7 +10,7 @@ import { searchPackages } from './registry'
  * valid chip.
  */
 export function useActivePackageSlug(): string | null {
-    const pathname = usePathname()
+    const { pathname } = useUrl()
     const segments = pathname.split('/').filter(Boolean)
     for (const segment of segments) {
         if (searchPackages.some(p => p.slug === segment)) return segment

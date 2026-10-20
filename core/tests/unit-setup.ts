@@ -39,6 +39,9 @@ vi.mock('expo-router', () => ({
     Redirect: () => null,
     usePathname: () => '/',
     useLocalSearchParams: () => ({}),
+    useGlobalSearchParams: () => ({}),
+    useUnstableGlobalHref: () => '/',
+    useNavigationContainerRef: () => ({ isReady: () => false, addListener: () => () => {} }),
 }))
 
 // @tinycld/app-generated/* is provided by the runnable app shell at

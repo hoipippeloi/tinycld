@@ -2,11 +2,13 @@
 import { renderHook } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
-// Drive usePathname from a mutable module-level value, following the pattern
+// Drive useUrl's pathname from a mutable module-level value, following the pattern
 // in use-close-on-navigate.test.tsx, so each test can simulate a different
 // route without touching the router.
 let pathname = '/'
-vi.mock('expo-router', () => ({ usePathname: () => pathname }))
+vi.mock('@tinycld/core/lib/use-url', () => ({
+    useUrl: () => ({ pathname, params: {}, href: pathname }),
+}))
 
 // Control the installed-package list independently of whatever happens to be
 // assembled in this dev workspace, so the test doesn't drift if a sibling is
