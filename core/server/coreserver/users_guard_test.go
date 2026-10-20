@@ -6,6 +6,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"tinycld.org/core/usernames"
 )
 
 // setupGuardTestApp builds a TestApp with the users.role / is_demo schema the
@@ -87,7 +88,7 @@ func makeUserWithRole(t *testing.T, app core.App, email, role string) *core.Reco
 // short prefixes like "ma@..." and "mb@..." (both → "user") don't collide.
 func uniqueDerivedUsername(t *testing.T, app core.App, email string) string {
 	t.Helper()
-	base := DeriveUsername(email)
+	base := usernames.Derive(email)
 	candidate := base
 	for i := 2; ; i++ {
 		existing, _ := app.FindFirstRecordByFilter(

@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { deriveUsername } from '@tinycld/core/lib/derive-username'
 import { handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { appHref } from '@tinycld/core/lib/org-routes'
 import { getResolvedAddress } from '@tinycld/core/lib/server-address'
 import { NEEDS_SETUP_QUERY_KEY } from '@tinycld/core/lib/setup/use-needs-setup'
 import { useAuthStore } from '@tinycld/core/lib/stores/auth-store'
-import { TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
+import { TextInput, useForm, useWatch, z, zodResolver } from '@tinycld/core/ui/form'
 import { useRouter } from 'expo-router'
 import { Platform, Text, View } from 'react-native'
 import { claimErrorMessage, refusalBodyOf } from './ClaimServerStep'
@@ -17,6 +18,15 @@ const ownerSchema = z
     .object({
         name: z.string().trim().min(1, 'Enter your name').max(255),
         email: z.string().email('Enter a valid email address'),
+        // Empty takes the name derived from the email, which the field shows.
+        username: z
+            .string()
+            .trim()
+            .regex(
+                /^[a-z0-9][a-z0-9_-]{0,31}$/,
+                'Use 1-32 chars: lowercase letters, digits, dash or underscore'
+            )
+            .or(z.literal('')),
         password: z.string().min(8, 'Use at least 8 characters'),
         confirmPassword: z.string(),
     })
@@ -57,6 +67,7 @@ function useCreateOwner(code: string, onCodeRejected: (message: string) => void)
         defaultValues: {
             name: '',
             email: '',
+            username: '',
             password: '',
             confirmPassword: '',
         },
@@ -72,6 +83,7 @@ function useCreateOwner(code: string, onCodeRejected: (message: string) => void)
             const result = await postSetup<InitResult>('init', {
                 code,
                 name: data.name.trim(),
+                username: data.username || deriveUsername(data.email),
                 email: data.email,
                 password: data.password,
                 appUrl: appUrl(),
@@ -135,11 +147,13 @@ export function CreateOwnerStep({
 }) {
     const { form, onSubmit, isPending } = useCreateOwner(code, onCodeRejected)
     const { control } = form
+    const email = useWatch({ control, name: 'email' })
+    const usernamePlaceholder = email.includes('@') ? deriveUsername(email) : 'alice'
     return (
         <View>
             <StepHeading
                 title="Create your owner account"
-                lead="This account is the owner of the server. It can change every setting, manage apps and people, and hand the owner role to someone else later. Use the name and email you sign in with."
+                lead="This account is the owner of the server. It can change every setting, manage apps and people, and hand the owner role to someone else later."
             />
             <RootError message={form.formState.errors.root?.message} />
             <TextInput
@@ -157,6 +171,18 @@ export function CreateOwnerStep({
                 autoCapitalize="none"
                 autoComplete="email"
                 textContentType="emailAddress"
+                hint="Where invitations and password reset links go."
+            />
+            <TextInput
+                control={control}
+                name="username"
+                label="Username"
+                placeholder={usernamePlaceholder}
+                hint="You sign in with your username."
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="username"
+                textContentType="username"
             />
             <TextInput
                 control={control}

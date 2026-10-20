@@ -38,12 +38,14 @@ func setupPutAuthzApp(t *testing.T) (*tests.TestApp, *Backend, *core.Record) {
 		t.Fatal(err)
 	}
 	users.Fields.Add(&core.BoolField{Name: "disabled"})
+	users.Fields.Add(&core.TextField{Name: "username"})
 	if err := app.Save(users); err != nil {
 		t.Fatal(err)
 	}
 
 	user := core.NewRecord(users)
 	user.Set("email", "alice@example.com")
+	user.Set("username", "alice")
 	user.Set("password", "Password123!")
 	if err := app.Save(user); err != nil {
 		t.Fatal(err)
@@ -95,13 +97,13 @@ func setContactRules(t *testing.T, app *tests.TestApp, create, update string) {
 }
 
 // authedCtx builds the context the backend reads credentials from.
-func authedCtx(t *testing.T, email, password string) context.Context {
+func authedCtx(t *testing.T, username, password string) context.Context {
 	t.Helper()
 	r, err := http.NewRequest(http.MethodPut, "/contacts/u/ab/default/x.vcf", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.SetBasicAuth(email, password)
+	r.SetBasicAuth(username, password)
 	return context.WithValue(context.Background(), httpRequestKey, r)
 }
 
@@ -119,7 +121,7 @@ func TestPutAddressObject_CreateDeniedByCreateRule(t *testing.T) {
 	// consults nothing sails through.
 	setContactRules(t, app, `owner = "nobody"`, `owner = @request.auth.id`)
 
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:new.vcf",
 		newCard("urn:uuid:new", "Blocked"), nil)
 	if err == nil {
@@ -154,7 +156,7 @@ func TestPutAddressObject_UpdateDeniedByUpdateRule(t *testing.T) {
 	// Now forbid updates and try to overwrite it.
 	setContactRules(t, app, `@request.auth.id != ""`, `owner = "nobody"`)
 
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 	_, err = backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:existing.vcf",
 		newCard("urn:uuid:existing", "Overwritten"), nil)
 	if err == nil {
@@ -179,7 +181,7 @@ func TestPutAddressObject_AllowedWritesStillSucceed(t *testing.T) {
 	own := `owner = @request.auth.id`
 	setContactRules(t, app, `@request.auth.id != ""`, own)
 
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	if _, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:ok.vcf",
 		newCard("urn:uuid:ok", "Created"), nil); err != nil {

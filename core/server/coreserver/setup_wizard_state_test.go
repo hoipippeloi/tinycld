@@ -59,7 +59,7 @@ func TestCreateOperatorIdentitiesStartsWizard(t *testing.T) {
 	t.Cleanup(app.Cleanup)
 	createSystemSettingsCollection(t, app)
 
-	if _, err := createOperatorIdentities(app, "owner@example.com", "", "OwnerPass1234!", ""); err != nil {
+	if _, _, err := createOperatorIdentities(app, "owner@example.com", "", "", "OwnerPass1234!", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := app.FindFirstRecordByFilter("system_settings", "key = {:k}", map[string]any{"k": setupWizardKey}); err != nil {
@@ -94,7 +94,7 @@ func TestCreateOperatorIdentitiesStartsWizardOnRerun(t *testing.T) {
 	}
 
 	// Create the owner without the wizard row (simulate a pre-wizard deployment).
-	if _, err := createOperatorIdentities(app, "owner@example.com", "", "OwnerPass1234!", ""); err != nil {
+	if _, _, err := createOperatorIdentities(app, "owner@example.com", "", "", "OwnerPass1234!", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Delete the wizard row to simulate a deployment that never had one.
@@ -107,7 +107,7 @@ func TestCreateOperatorIdentitiesStartsWizardOnRerun(t *testing.T) {
 	}
 
 	// Re-run create-owner (the idempotent path — owner already exists).
-	created, err := createOperatorIdentities(app, "owner@example.com", "", "OwnerPass1234!", "")
+	_, created, err := createOperatorIdentities(app, "owner@example.com", "", "", "OwnerPass1234!", "")
 	if err != nil {
 		t.Fatal(err)
 	}

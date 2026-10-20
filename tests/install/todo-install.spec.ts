@@ -146,6 +146,7 @@ const LANDED_URL =
 
 const APP_USER_NAME = 'Todo Owner'
 const APP_USER_EMAIL = 'owner@todo.example'
+const APP_USER_USERNAME = 'todoowner'
 const APP_USER_PASSWORD = 'OwnerPass1234!'
 
 const TODO_TEXT = 'Buy milk'
@@ -282,7 +283,7 @@ async function createAppUser(page: Page) {
             password: APP_USER_PASSWORD,
             passwordConfirm: APP_USER_PASSWORD,
             name: APP_USER_NAME,
-            username: 'todoowner',
+            username: APP_USER_USERNAME,
             verified: true,
             role: 'owner',
         },
@@ -813,7 +814,7 @@ async function assertNewExpoUpdate(
 async function openTodoAsOwner(page: Page): Promise<Page> {
     const appPage = await page.context().newPage()
     await appPage.goto('/')
-    await appPage.getByTestId('identifier').fill(APP_USER_EMAIL)
+    await appPage.getByTestId('identifier').fill(APP_USER_USERNAME)
     await appPage.getByTestId('login-password').fill(APP_USER_PASSWORD)
     await appPage.getByTestId('login-submit').click()
     await appPage.waitForURL(LANDED_URL, { timeout: 30_000 })

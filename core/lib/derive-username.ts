@@ -1,7 +1,7 @@
-// Mirrors coreserver/usernames.go::DeriveUsername and the parity-tested JS
+// Mirrors usernames.Derive (core/server/usernames) and the parity-tested JS
 // migration in pb_migrations/1820000000_users_username_required.js. Keep the
-// three implementations behaviorally identical — the Go test
-// TestDeriveUsername is the contract.
+// three implementations behaviorally identical — the Go test TestDerive is the
+// contract.
 
 const NON_USERNAME_CHAR = /[^a-z0-9_-]/g
 

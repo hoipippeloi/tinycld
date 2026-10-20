@@ -6,49 +6,6 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func TestDeriveUsername(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-	}{
-		{"foo@bar.com", "foo"},
-		{"Bob.Smith+work@example.com", "bobsmithwork"},
-		{"alice123@x.com", "alice123"},
-		{"", "user"},             // empty → falls back to "user"
-		{"@example.com", "user"}, // no local part → empty after strip → "user"
-		{"UPPER@example.com", "upper"},
-		{"dots.and+plus@x.com", "dotsandplus"},
-		{"under_score-dash@x.com", "under_score-dash"},
-		{"noemail", "noemail"},
-		{"ab@x.com", "ab"}, // 2-char prefix is preserved
-		{"a@x.com", "a"},   // 1-char prefix is preserved
-	}
-	for _, tc := range cases {
-		got := DeriveUsername(tc.input)
-		if got != tc.want {
-			t.Errorf("DeriveUsername(%q) = %q, want %q", tc.input, got, tc.want)
-		}
-	}
-}
-
-func TestIsValidUsername(t *testing.T) {
-	// Length floor relaxed to 1; single-char emails like "a@x.com" must be
-	// representable as usernames. Character set and start-with-alphanumeric
-	// rule are unchanged.
-	valid := []string{"a", "ab", "abc", "foo", "foo123", "a1b", "foo-bar", "foo_bar"}
-	invalid := []string{"", "FOO", "foo@bar", "foo bar", "foo!", "-foo", "_foo"}
-	for _, s := range valid {
-		if !IsValidUsername(s) {
-			t.Errorf("IsValidUsername(%q) = false, want true", s)
-		}
-	}
-	for _, s := range invalid {
-		if IsValidUsername(s) {
-			t.Errorf("IsValidUsername(%q) = true, want false", s)
-		}
-	}
-}
-
 func TestBackfillUsernames(t *testing.T) {
 	app := setupInviteTestApp(t)
 
@@ -60,7 +17,7 @@ func TestBackfillUsernames(t *testing.T) {
 	// PocketBase requires a non-empty username on save. We set each user to
 	// a sentinel that BackfillUsernames will treat as already-set (non-empty).
 	// The real backfill scenario is tested by seeding explicit usernames and
-	// asserting idempotency, plus unit-testing DeriveUsername above.
+	// asserting idempotency, plus unit-testing usernames.Derive.
 	//
 	// To test actual derivation/collision we set two users with the *same*
 	// base (derived from email) and verify the collision resolver works. We

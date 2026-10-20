@@ -18,7 +18,13 @@ import { bootBinary, buildBinary, setupCodeFromLog } from './boot-binary'
 // and port, so the three tests are independent. tests/standalone/playwright.config.ts
 // already runs with workers: 1.
 
-const OWNER = { name: 'Dana Reyes', email: 'dana@example.com', password: 'OwnerPass1234!' }
+// No username is typed: the owner signs in with the one derived from the email.
+const OWNER = {
+    name: 'Dana Reyes',
+    email: 'dana@example.com',
+    username: 'dana',
+    password: 'OwnerPass1234!',
+}
 
 type Server = Awaited<ReturnType<typeof bootBinary>>
 
@@ -45,7 +51,7 @@ async function claimServer(page: Page, server: Server) {
 
 async function signIn(page: Page, baseURL: string) {
     await page.goto(baseURL)
-    await page.getByTestId('identifier').fill(OWNER.email)
+    await page.getByTestId('identifier').fill(OWNER.username)
     await page.getByPlaceholder('Password').fill(OWNER.password)
     await page.getByRole('button', { name: 'Sign in' }).click()
 }

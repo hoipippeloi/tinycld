@@ -18,6 +18,7 @@ import (
 	"tinycld.org/core/background"
 	"tinycld.org/core/notify"
 	"tinycld.org/core/readonly"
+	"tinycld.org/core/usernames"
 )
 
 type inviteRequest struct {
@@ -79,7 +80,7 @@ func handleInviteMember(app core.App, jobs *background.Jobs, re *core.RequestEve
 	if req.Username == "" {
 		return re.BadRequestError("username is required", nil)
 	}
-	if !IsValidUsername(req.Username) {
+	if !usernames.Valid(req.Username) {
 		return re.BadRequestError(
 			"username must be 3-32 chars, lowercase letters, digits, dash or underscore", nil)
 	}

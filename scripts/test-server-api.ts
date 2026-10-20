@@ -7,7 +7,7 @@
  * calendar) live in their own repos so a core-only checkout stays green.
  *
  * Usage:
- *   pnpm exec tsx scripts/test-server-api.ts [--email <email>] [--password <pw>] [--url <url>]
+ *   pnpm exec tsx scripts/test-server-api.ts [--username <username>] [--password <pw>] [--url <url>]
  */
 
 import { loadEnv } from '@tinycld/core/lib/load-env'
@@ -16,7 +16,7 @@ loadEnv()
 
 interface Config {
     url: string
-    email: string
+    username: string
     password: string
 }
 
@@ -24,7 +24,7 @@ function parseArgs(): Config {
     const args = process.argv.slice(2)
     const config: Config = {
         url: process.env.SMOKE_TEST_ADDRESS || 'http://127.0.0.1:7100',
-        email: process.env.SMOKE_TEST_USER || '',
+        username: process.env.SMOKE_TEST_USER || '',
         password: process.env.SMOKE_TEST_PW || '',
     }
 
@@ -33,24 +33,24 @@ function parseArgs(): Config {
             case '--url':
                 config.url = args[++i]
                 break
-            case '--email':
-                config.email = args[++i]
+            case '--username':
+                config.username = args[++i]
                 break
             case '--password':
                 config.password = args[++i]
                 break
             case '--help':
                 console.log(
-                    'Usage: pnpm exec tsx scripts/test-server-api.ts [--email <email>] [--password <pw>] [--url <url>]'
+                    'Usage: pnpm exec tsx scripts/test-server-api.ts [--username <username>] [--password <pw>] [--url <url>]'
                 )
                 console.log('  Or set SMOKE_TEST_USER and SMOKE_TEST_PW in .env')
                 process.exit(0)
         }
     }
 
-    if (!config.email || !config.password) {
+    if (!config.username || !config.password) {
         console.error(
-            'Error: credentials required via --email/--password flags or SMOKE_TEST_USER/SMOKE_TEST_PW in .env'
+            'Error: credentials required via --username/--password flags or SMOKE_TEST_USER/SMOKE_TEST_PW in .env'
         )
         process.exit(1)
     }
@@ -93,7 +93,7 @@ async function testAuth(config: Config) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                identity: config.email,
+                identity: config.username,
                 password: config.password,
             }),
         })
@@ -121,7 +121,7 @@ async function testAuth(config: Config) {
 
 async function main() {
     const config = parseArgs()
-    console.log(`\nTesting core server at ${config.url} as ${config.email}`)
+    console.log(`\nTesting core server at ${config.url} as ${config.username}`)
 
     await testHealth(config)
     await testAuth(config)

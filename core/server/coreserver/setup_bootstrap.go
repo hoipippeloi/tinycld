@@ -15,6 +15,7 @@ import (
 	validation "github.com/pocketbase/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/usernames"
 )
 
 var setupState = newSetupGuard(time.Now, announceSetupCode)
@@ -91,6 +92,7 @@ func RegisterSetupBootstrap(app *pocketbase.PocketBase) {
 type setupInitRequest struct {
 	Code     string `json:"code"`
 	Name     string `json:"name"`
+	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	AppURL   string `json:"appUrl"`
@@ -128,7 +130,7 @@ func runSetupInit(app core.App, guard *setupGuard, ip string, req setupInitReque
 	if err != nil {
 		return map[string]string{"error": "Owner created but failed to generate auth token."}, http.StatusInternalServerError
 	}
-	return map[string]string{"authToken": authToken, "email": req.Email, "userId": operator.Id}, http.StatusOK
+	return map[string]string{"authToken": authToken, "email": req.Email, "username": operator.GetString("username"), "userId": operator.Id}, http.StatusOK
 }
 
 // createSetupOwner mints both identities (see createOperatorIdentities for
@@ -168,7 +170,7 @@ func createSetupOwner(app core.App, req setupInitRequest) (*core.Record, error) 
 		if err := txApp.Save(superuser); err != nil {
 			return fmt.Errorf("create superuser: %w", err)
 		}
-		created, err := createOwnerOperator(txApp, req.Email, req.Name, req.Password)
+		created, err := createOwnerOperator(txApp, req.Email, req.Name, req.Username, req.Password)
 		if err != nil {
 			return fmt.Errorf("create owner: %w", err)
 		}
@@ -231,11 +233,11 @@ func IsBcryptHash(v string) bool {
 // the plaintext never crosses a process boundary.
 // name is the display name; empty falls back to the email local-part, the
 // same default the plaintext path uses.
-func CreateOwnerAccountWithHash(app core.App, email, name, passwordHash string) (*core.Record, error) {
+func CreateOwnerAccountWithHash(app core.App, email, name, username, passwordHash string) (*core.Record, error) {
 	if !IsBcryptHash(passwordHash) {
 		return nil, fmt.Errorf("password hash must be a bcrypt hash")
 	}
-	operator, err := newOwnerRecord(app, email, name)
+	operator, err := newOwnerRecord(app, email, name, username)
 	if err != nil {
 		return nil, err
 	}
@@ -256,22 +258,15 @@ func CreateOwnerAccountWithHash(app core.App, email, name, passwordHash string) 
 // org with zero users. Both paths must mint the SAME shape of account, so
 // they share this one implementation rather than each assembling the record.
 func CreateOwnerAccount(app core.App, email, password string) (*core.Record, error) {
-	return createOwnerOperator(app, email, "", password)
-}
-
-// CreateOwnerAccountNamed is CreateOwnerAccount with an explicit display
-// name. Kept as a separate export, rather than changing CreateOwnerAccount's
-// signature, so existing callers of the two-arg form keep compiling.
-func CreateOwnerAccountNamed(app core.App, email, name, password string) (*core.Record, error) {
-	return createOwnerOperator(app, email, name, password)
+	return createOwnerOperator(app, email, "", "", password)
 }
 
 // createOwnerOperator creates the first operator as a regular `users` record
 // with role=owner. Returns the users record so the caller can mint its auth
 // token. This runs in the app's Go context, which bypasses record rules, so
 // the insert is authorized without an authenticated superuser.
-func createOwnerOperator(app core.App, email, name, password string) (*core.Record, error) {
-	operator, err := newOwnerRecord(app, email, name)
+func createOwnerOperator(app core.App, email, name, username, password string) (*core.Record, error) {
+	operator, err := newOwnerRecord(app, email, name, username)
 	if err != nil {
 		return nil, err
 	}
@@ -282,10 +277,25 @@ func createOwnerOperator(app core.App, email, name, password string) (*core.Reco
 	return operator, nil
 }
 
+// errInvalidOwnerUsername is a validation error, so the setup wizard shows it
+// on the field.
+var errInvalidOwnerUsername = validation.Errors{
+	"username": validation.NewError("validation_invalid_username",
+		"Use 1 to 32 lowercase letters, digits, dashes or underscores, starting with a letter or digit."),
+}
+
 // newOwnerRecord assembles the owner record every path shares: verified,
-// visible email, username from the shared helper, role=owner. Only the
-// password is left to the caller.
-func newOwnerRecord(app core.App, email, name string) (*core.Record, error) {
+// visible email, username, role=owner. Only the password is left to the
+// caller. An empty username is derived from the email by the shared helper;
+// the owner signs in with it, so every path reports it to them.
+func newOwnerRecord(app core.App, email, name, username string) (*core.Record, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		username = usernames.Derive(email)
+	}
+	if !usernames.Valid(username) {
+		return nil, errInvalidOwnerUsername
+	}
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		return nil, fmt.Errorf("find users collection: %w", err)
@@ -300,8 +310,8 @@ func newOwnerRecord(app core.App, email, name string) (*core.Record, error) {
 	operator.SetVerified(true)
 	operator.Set("emailVisibility", true)
 	operator.Set("name", name)
-	// `username` is the unique handle, derived by the shared helper.
-	operator.Set("username", DeriveUsername(email))
+	// `username` is the unique handle and the owner's sign-in name.
+	operator.Set("username", username)
 	// `role` is required (1940000000_backfill_and_require_users_role).
 	//
 	// owner is the whole of the operator's authority: it gates the /admin

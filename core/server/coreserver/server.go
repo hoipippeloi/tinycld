@@ -16,6 +16,7 @@ import (
 	"github.com/pocketbase/pocketbase/plugins/migratecmd"
 	"github.com/pocketbase/pocketbase/tools/hook"
 
+	"tinycld.org/core/authidentity"
 	"tinycld.org/core/automation"
 	"tinycld.org/core/autoupgrade"
 	"tinycld.org/core/backup"
@@ -450,6 +451,9 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	RegisterUsersFieldGuard(app)
 	RegisterLastOwnerGuard(app)
 	RegisterUsersDemoAuditHook(app)
+	// Before the disabled guard: it reads the record this hook finds for a
+	// hosted address.
+	authidentity.Register(app)
 	RegisterDisabledUserGuard(app)
 	// The second sign-in step. Binds onto the same users auth tail as the
 	// disabled guard, so a disabled account is refused before it is asked

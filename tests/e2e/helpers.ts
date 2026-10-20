@@ -127,7 +127,7 @@ export async function login(page: Page, options: { startAt?: string } = {}) {
     ])
     if (landed === 'shell') return
 
-    await identifierField.fill(TEST_USER_EMAIL)
+    await identifierField.fill(TEST_USER_USERNAME)
     await page.getByPlaceholder('Password').fill(TEST_USER_PASSWORD)
 
     // "We're in" = the authenticated app shell mounted. Single-org: post-login
@@ -232,7 +232,7 @@ export async function signInAsCollaborator(page: Page): Promise<{
 }> {
     const context = await page.context().browser()!.newContext()
     const collaboratorPage = await context.newPage()
-    await loginAs(collaboratorPage, TEST_COLLABORATOR_EMAIL, TEST_COLLABORATOR_PASSWORD)
+    await loginAs(collaboratorPage, TEST_COLLABORATOR_USERNAME, TEST_COLLABORATOR_PASSWORD)
     return {
         page: collaboratorPage,
         user: {

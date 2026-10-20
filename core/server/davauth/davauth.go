@@ -15,6 +15,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"golang.org/x/crypto/bcrypt"
 	"tinycld.org/core/authfactor"
+	"tinycld.org/core/authidentity"
 )
 
 // ErrUnauthorized is returned when credentials are missing, the identifier
@@ -24,8 +25,8 @@ import (
 var ErrUnauthorized = errors.New("davauth: unauthorized")
 
 // Authenticate validates HTTP Basic credentials against the users auth
-// collection. The identifier may be a bare username or a full email (the
-// discriminator is '@'), mirroring PocketBase's identityFields for `users`.
+// collection. The identifier is a username or a hosted address; see
+// VerifyCredentials.
 func Authenticate(app core.App, r *http.Request) (*core.Record, error) {
 	// One verification per request. See WithRequestCache: without it a single
 	// PROPFIND runs bcrypt once per backend call.
@@ -58,19 +59,20 @@ var verifyCredentials = VerifyCredentials
 // VerifyCredentials is the one credential check every protocol server shares —
 // DAV Basic auth here, and mail's IMAP LOGIN / SMTP AUTH, which authenticate
 // against the record directly (PocketBase's auth hooks never run for them).
-// Single-sourcing it is what keeps the identifier contract ("username or
-// email"), the disabled cutoff and the app-password rule identical across
+// Single-sourcing it is what keeps the identifier contract (username or hosted
+// address), the disabled cutoff and the app-password rule identical across
 // protocols.
 //
-// The identifier may be a bare username or a full email (the discriminator is
-// '@'), mirroring PocketBase's identityFields for `users`. Returns
-// ErrUnauthorized for a missing user, wrong password, or disabled account —
-// deliberately indistinguishable.
+// An identifier with '@' is a hosted address, which a package resolves to its
+// owner (authidentity); anything else is a username. The account email is not
+// a sign-in name, the same as for the web sign-in. Returns ErrUnauthorized for
+// a missing user, wrong password, or disabled account — deliberately
+// indistinguishable.
 func VerifyCredentials(app core.App, identifier, password string) (*core.Record, error) {
 	var record *core.Record
 	var err error
 	if strings.Contains(identifier, "@") {
-		record, err = app.FindAuthRecordByEmail("users", identifier)
+		record, err = authidentity.Resolve(app, identifier)
 	} else {
 		record, err = app.FindFirstRecordByFilter(
 			"users",

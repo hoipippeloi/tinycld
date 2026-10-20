@@ -6,8 +6,8 @@ import {
     clearSession,
     isPackageLinked,
     login,
-    TEST_USER_EMAIL,
     TEST_USER_PASSWORD,
+    TEST_USER_USERNAME,
 } from './helpers'
 
 // SPA-navigate to Settings → Members via the shell chrome (rail → settings
@@ -157,7 +157,7 @@ test.describe('Invite flow', () => {
         // the wrong user.
         await clearSession(invitee)
         await invitee.goto('/')
-        await invitee.getByTestId('identifier').fill(TEST_USER_EMAIL)
+        await invitee.getByTestId('identifier').fill(TEST_USER_USERNAME)
         await invitee.getByPlaceholder('Password').fill(TEST_USER_PASSWORD)
         await invitee.getByText('Sign in', { exact: true }).last().click()
         await appShell(invitee).waitFor({ state: 'visible', timeout: 15_000 })

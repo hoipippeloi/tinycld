@@ -9,7 +9,7 @@ const confirmPasswordReset = vi.fn()
 const captureException = vi.fn()
 
 const authStore = {
-    record: { id: 'user_1' } as { id: string } | null,
+    record: { id: 'user_1', username: 'ada' } as { id: string; username: string } | null,
     clear: vi.fn(),
 }
 
@@ -34,7 +34,6 @@ async function importChangePassword() {
 }
 
 const args = {
-    email: 'a@b.com',
     oldPassword: 'old-secret',
     newPassword: 'new-secret-1',
     passwordConfirm: 'new-secret-1',
@@ -45,7 +44,7 @@ describe('changeMyPassword', () => {
         update.mockReset()
         authWithPassword.mockReset()
         captureException.mockReset()
-        authStore.record = { id: 'user_1' }
+        authStore.record = { id: 'user_1', username: 'ada' }
     })
 
     it('updates the auth record then re-authenticates with the new password', async () => {
@@ -57,7 +56,8 @@ describe('changeMyPassword', () => {
             password: 'new-secret-1',
             passwordConfirm: 'new-secret-1',
         })
-        expect(authWithPassword).toHaveBeenCalledWith('a@b.com', 'new-secret-1')
+        // The username: the account email is not a sign-in name.
+        expect(authWithPassword).toHaveBeenCalledWith('ada', 'new-secret-1')
     })
 
     it('throws when there is no authenticated user', async () => {
@@ -114,7 +114,7 @@ describe('changeMyPassword', () => {
 describe('requestPasswordReset', () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        authStore.record = { id: 'user_1' }
+        authStore.record = { id: 'user_1', username: 'ada' }
     })
 
     it('calls PocketBase requestPasswordReset with the email', async () => {
@@ -138,7 +138,7 @@ describe('requestPasswordReset', () => {
 describe('confirmPasswordReset', () => {
     beforeEach(() => {
         vi.clearAllMocks()
-        authStore.record = { id: 'user_1' }
+        authStore.record = { id: 'user_1', username: 'ada' }
     })
 
     it('forwards token and both passwords to PocketBase', async () => {

@@ -67,8 +67,8 @@ func TestCreateOwnerCommand_PasswordHash(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if !strings.Contains(out.String(), "owner: ada@example.com") {
-		t.Fatalf("missing confirmation line: %s", out.String())
+	if !strings.Contains(out.String(), "owner: ada@example.com\nusername: ada\n") {
+		t.Fatalf("missing confirmation lines: %s", out.String())
 	}
 	if strings.Contains(out.String(), "password:") {
 		t.Fatalf("a hash run must never print a password: %s", out.String())
@@ -122,6 +122,47 @@ func TestCreateOwnerCommand_PasswordWithName(t *testing.T) {
 	}
 	if got := user.GetString("name"); got != "Ada" {
 		t.Fatalf("name = %q, want Ada: --name must be honored on the plaintext path too", got)
+	}
+}
+
+// The owner signs in with the username, so --username sets it and every run
+// prints it, also a re-run that changes nothing.
+func TestCreateOwnerCommand_Username(t *testing.T) {
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
+	ensureUsersCollection(t, app)
+	createSystemSettingsCollection(t, app)
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := NewCreateOwnerCommand(app)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("execute %v: %v", args, err)
+		}
+		return out.String()
+	}
+
+	if out := run("ada@example.com", "--password", "pw-1234567890", "--username", "lovelace"); !strings.Contains(out, "username: lovelace\n") {
+		t.Fatalf("first run does not print the username: %s", out)
+	}
+	if out := run("ada@example.com", "--password", "pw-1234567890"); !strings.Contains(out, "username: lovelace\nunchanged:") {
+		t.Fatalf("re-run does not print the existing username: %s", out)
+	}
+}
+
+func TestCreateOwnerCommand_RejectsBadUsername_NoSuperuserLeftBehind(t *testing.T) {
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
+	ensureUsersCollection(t, app)
+	cmd := NewCreateOwnerCommand(app)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"ada@example.com", "--password", "pw-1234567890", "--username", "Ada Lovelace"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an error for an invalid --username")
+	}
+	if su, _ := app.FindAuthRecordByEmail("_superusers", "ada@example.com"); su != nil {
+		t.Fatal("an invalid --username left a superuser behind")
 	}
 }
 

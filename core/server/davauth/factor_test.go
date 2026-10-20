@@ -74,10 +74,8 @@ func TestVerifyCredentials_AppPasswordWorksWithAndWithoutMFA(t *testing.T) {
 	u := newFactorUser(t, app)
 	appPassword := addAppPassword(t, app, u.Id)
 
-	for _, identifier := range []string{"ada", "ada@example.com"} {
-		if _, err := VerifyCredentials(app, identifier, appPassword); err != nil {
-			t.Fatalf("app password via %q refused: %v", identifier, err)
-		}
+	if _, err := VerifyCredentials(app, "ada", appPassword); err != nil {
+		t.Fatalf("app password refused: %v", err)
 	}
 
 	enableTOTP(t, app, u.Id)

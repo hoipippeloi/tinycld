@@ -7,8 +7,12 @@ order: 25
 
 ## Your profile
 
-Open **Settings → Profile** to update the name and email on your account. Changes
-save automatically when you move out of a field.
+Open **Settings → Profile** to update the name and recovery email on your
+account. Changes save automatically when you move out of a field.
+
+The recovery email is where invitations and password reset links go. You do not
+sign in with it. Sign in with your username, or with an email address this
+server hosts for you.
 
 ## Changing your password
 

@@ -9,6 +9,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/spf13/cobra"
+	"tinycld.org/core/usernames"
 )
 
 // generatedPasswordBytes is the entropy behind an auto-generated owner
@@ -52,7 +53,7 @@ func GenerateOwnerPassword() (string, error) {
 // Idempotent: provisioning may be retried, and a retry must not fail because
 // one or both records already exist.
 func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
-	var password, passwordHash, name, orgName string
+	var password, passwordHash, name, username, orgName string
 
 	cmd := &cobra.Command{
 		Use:   "create-owner <email>",
@@ -65,8 +66,10 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 			"correctly with nobody able to log in. Pair with PB's --dir flag pointing at " +
 			"the data directory. Without --password a random one is generated and " +
 			"printed. Pass --password-hash instead of --password to mint both identities " +
-			"from a bcrypt hash computed elsewhere; nothing is printed but the " +
-			"confirmation line. --name sets the owner's display name. --org-name sets the " +
+			"from a bcrypt hash computed elsewhere; then no password is printed. " +
+			"Every run prints the owner's username, the name the " +
+			"owner signs in with; --username sets it (default: derived from the email). " +
+			"--name sets the owner's display name. --org-name sets the " +
 			"workspace name (shown at sign-in and in invite emails) and marks it as " +
 			"chosen, so the setup wizard shows it instead of asking; it is applied on " +
 			"every run. Re-running for an existing email leaves the accounts unchanged.",
@@ -87,7 +90,11 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 			if passwordHash != "" && !IsBcryptHash(passwordHash) {
 				return fmt.Errorf("create-owner: --password-hash must be a bcrypt hash")
 			}
-			// Same reason: refuse a bad name before any record exists.
+			// Same reason: refuse a bad username or name before any record
+			// exists.
+			if username != "" && !usernames.Valid(username) {
+				return fmt.Errorf("create-owner: --username must be 1 to 32 lowercase letters, digits, dashes or underscores, starting with a letter or digit")
+			}
 			if orgName != "" {
 				if _, err := normalizeOrgName(orgName); err != nil {
 					return fmt.Errorf("create-owner: --org-name: %w", err)
@@ -115,7 +122,7 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 				return fmt.Errorf("create-owner: run migrations: %w", err)
 			}
 
-			created, err := createOperatorIdentities(app, email, name, password, passwordHash)
+			owner, created, err := createOperatorIdentities(app, email, name, username, password, passwordHash)
 			if err != nil {
 				return fmt.Errorf("create-owner: %w", err)
 			}
@@ -131,21 +138,21 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 			}
 
 			if !created {
-				cmd.Printf("owner: %s\nunchanged: account already exists (password not modified)\n", email)
+				cmd.Printf("owner: %s\nusername: %s\nunchanged: account already exists (password not modified)\n", email, owner.GetString("username"))
 				return nil
 			}
 			// A hash run must never print a password: the caller already holds
 			// the plaintext (it produced the hash) and printing it here would
 			// be the exact process-boundary crossing this flag exists to avoid.
 			if passwordHash != "" {
-				cmd.Printf("owner: %s\n", email)
+				cmd.Printf("owner: %s\nusername: %s\n", email, owner.GetString("username"))
 				return nil
 			}
 			// Report the password ONLY when this run actually set it. On a
 			// no-op re-run the records already exist with their original
 			// secret, and printing the freshly generated one would hand the
 			// operator a password that does not work.
-			cmd.Printf("owner: %s\npassword: %s\n", email, password)
+			cmd.Printf("owner: %s\nusername: %s\npassword: %s\n", email, owner.GetString("username"), password)
 			return nil
 		},
 	}
@@ -154,6 +161,8 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 		"password for both identities; omit to generate a random one")
 	cmd.Flags().StringVar(&passwordHash, "password-hash", "",
 		"bcrypt hash to use for both identities instead of a password")
+	cmd.Flags().StringVar(&username, "username", "",
+		"sign-in name for the owner account (default: derived from the email)")
 	cmd.Flags().StringVar(&name, "name", "",
 		"display name for the owner account (default: the email local-part)")
 	cmd.Flags().StringVar(&orgName, "org-name", "",
@@ -175,14 +184,15 @@ func NewCreateOwnerCommand(app *pocketbase.PocketBase) *cobra.Command {
 // create-owner re-run. The no-op when the row exists keeps wizard progress
 // intact across re-runs.
 //
-// Reports whether it created anything, so the caller knows if the
-// password/hash was actually applied — on a full no-op the existing records
-// keep their original secret.
-func createOperatorIdentities(app core.App, email, name, password, passwordHash string) (created bool, err error) {
+// Returns the owner's users record, so the caller can report the username the
+// owner signs in with, and whether it created anything, so the caller knows if
+// the password/hash was actually applied — on a full no-op the existing
+// records keep their original secret.
+func createOperatorIdentities(app core.App, email, name, username, password, passwordHash string) (owner *core.Record, created bool, err error) {
 	if existing, _ := app.FindAuthRecordByEmail(core.CollectionNameSuperusers, email); existing == nil {
 		superusers, ferr := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
 		if ferr != nil {
-			return created, fmt.Errorf("find superusers collection: %w", ferr)
+			return nil, created, fmt.Errorf("find superusers collection: %w", ferr)
 		}
 		su := core.NewRecord(superusers)
 		su.SetEmail(email)
@@ -194,18 +204,21 @@ func createOperatorIdentities(app core.App, email, name, password, passwordHash 
 		}
 		su.SetVerified(true)
 		if serr := app.Save(su); serr != nil {
-			return created, fmt.Errorf("create superuser: %w", serr)
+			return nil, created, fmt.Errorf("create superuser: %w", serr)
 		}
 		created = true
 	}
 
-	if existing, _ := app.FindAuthRecordByEmail("users", email); existing == nil {
+	owner, _ = app.FindAuthRecordByEmail("users", email)
+	if owner == nil {
+		var cerr error
 		if passwordHash != "" {
-			if _, cerr := CreateOwnerAccountWithHash(app, email, name, passwordHash); cerr != nil {
-				return created, fmt.Errorf("create owner account: %w", cerr)
-			}
-		} else if _, cerr := CreateOwnerAccountNamed(app, email, name, password); cerr != nil {
-			return created, fmt.Errorf("create owner account: %w", cerr)
+			owner, cerr = CreateOwnerAccountWithHash(app, email, name, username, passwordHash)
+		} else {
+			owner, cerr = createOwnerOperator(app, email, name, username, password)
+		}
+		if cerr != nil {
+			return nil, created, fmt.Errorf("create owner account: %w", cerr)
 		}
 		created = true
 	}
@@ -216,5 +229,5 @@ func createOperatorIdentities(app core.App, email, name, password, passwordHash 
 	if werr := MarkSetupWizardStarted(app); werr != nil {
 		srvLog.Warn("create-owner: could not start the setup wizard", "err", werr)
 	}
-	return created, nil
+	return owner, created, nil
 }

@@ -56,6 +56,8 @@ const EXPECTED_BUNDLED = [
 // empty value must not override the fallback. Mirrors todo-install.spec.ts.
 const SUPERUSER_EMAIL = process.env.ADMIN_USER_LOGIN || 'smoke@example.com'
 const SUPERUSER_PASSWORD = process.env.ADMIN_USER_PW || 'SmokeTest1234!'
+// The owner app user signs in with a username, which the wizard asks for.
+const OWNER_USERNAME = 'smokeowner'
 
 // Signs in as the owner APP user (same credentials as the superuser — the
 // first-run wizard mints both from one form, see createOwnerOperator). Needed
@@ -78,7 +80,7 @@ async function loginAsOwner(page: Page) {
     ])
     if (landed === 'settings') return
 
-    await identifier.fill(SUPERUSER_EMAIL)
+    await identifier.fill(OWNER_USERNAME)
     await page.getByPlaceholder('Password').fill(SUPERUSER_PASSWORD)
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page.getByText('System', { exact: true })).toBeVisible()
@@ -116,6 +118,7 @@ test.describe('first-run install', () => {
 
         await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Smoke Owner')
         await page.getByRole('textbox', { name: 'Email', exact: true }).fill(SUPERUSER_EMAIL)
+        await page.getByRole('textbox', { name: 'Username', exact: true }).fill(OWNER_USERNAME)
         await page.getByRole('textbox', { name: 'Password', exact: true }).fill(SUPERUSER_PASSWORD)
         await page
             .getByRole('textbox', { name: 'Confirm password', exact: true })
