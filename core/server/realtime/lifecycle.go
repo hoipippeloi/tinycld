@@ -14,6 +14,7 @@ import (
 
 	"tinycld.org/core/drainhooks"
 	"tinycld.org/core/readonly"
+	"tinycld.org/core/shutdown"
 )
 
 // Document edits arrive as websocket frames, not HTTP requests, so the
@@ -35,7 +36,8 @@ import (
 //
 // A drain's Suspend is bounded: drainhooks.RunBegin runs inside the HTTP
 // drain budget, so the flushes get suspendBudget and no more. The stop gets
-// the same budget for its waits and final pass together.
+// the same budget for its waits and final pass together, cut shorter by the
+// terminate's shared deadline (tinycld.org/core/shutdown) when less is left.
 
 const (
 	suspendBudget      = 10 * time.Second
@@ -43,9 +45,11 @@ const (
 	drainCloseReason   = "server restarting; reconnect"
 	// realtimeSuspendPriority runs the terminate hook ahead of the drain's
 	// shutdown (coreserver's drainShutdownPriority, -10000), so a plain stop
-	// stores every document before PocketBase cuts request contexts. Like
-	// every handler it runs before the chain's finalizer, which closes the
-	// database.
+	// stores every document before PocketBase cuts request contexts. It is
+	// second in the chain, after only a package operation's stop, so the
+	// saves in flight get their share of the shared deadline before every
+	// wait that is cheaper to cut. Like every handler it runs before the
+	// chain's finalizer, which closes the database.
 	realtimeSuspendPriority = -10001
 )
 
@@ -69,11 +73,12 @@ func registerLifecycle(app core.App) {
 		})
 	})
 	drainhooks.OnBegin("realtime-rooms", beginDrain)
+	shutdown.Register(app)
 	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 		Id:       "tinycldRealtimeSuspend",
 		Priority: realtimeSuspendPriority,
 		Func: func(e *core.TerminateEvent) error {
-			stopForExit("terminate")
+			stopForExit(shutdown.Context(app), "terminate")
 			return e.Next()
 		},
 	})
@@ -86,12 +91,11 @@ func beginDrain() {
 }
 
 // stopForExit stops the shared broker and lets it go, so an app built later
-// in the same process (a test binary builds many) gets a fresh one.
-func stopForExit(reason string) {
-	ctx, cancel := context.WithTimeout(context.Background(), suspendBudget)
-	defer cancel()
+// in the same process (a test binary builds many) gets a fresh one. end is
+// the terminate's end (see Broker.Stop).
+func stopForExit(end context.Context, reason string) {
 	b := sharedBroker()
-	b.Stop(ctx, reason)
+	b.Stop(end, reason)
 	processBrokerMu.Lock()
 	if processBroker == b {
 		processBroker = nil

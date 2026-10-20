@@ -99,35 +99,43 @@ type options struct {
 	// stopBound is how long a stopped child has after SIGTERM before
 	// SIGKILL.
 	//
-	// A child's terminate chain waits in sequence, each wait bounded on its
-	// own. In chain order:
-	//   - a package operation (coreserver rebuildStopPriority, first in the
-	//     chain): the cancel kills its build commands, then a wait of 2 s
+	// Both bounds reach the child in its env (boundsEnv), and its terminate
+	// fits every wait into one deadline: the bound less
+	// shutdown.FinalizerMargin (2 s), which the finalizer has to close the
+	// database before the kill (tinycld.org/core/shutdown). Each wait takes
+	// the lesser of its own bound and what is left, so the chain's order
+	// decides which waits get the time. In chain order:
+	//   - a package operation (coreserver rebuildStopPriority, -20000): the
+	//     cancel kills its build commands, then a wait of 2 s
 	//     (rebuildCancelGrace) for a job still building, or 6 s
-	//     (rebuildTailStopBound) for one in its database tail. It claims the
-	//     same interlock as a backup run, so it never waits beside one.
-	//   - the realtime stop (realtime suspendBudget, 10 s). In read-only
-	//     mode, which covers a supervised rebuild's whole tail, it has no
-	//     final pass to make and returns at once.
-	//   - PocketBase's HTTP shutdown (1 s), the mail protocol servers' drain
-	//     (mailproto drainBound, 5 s, all servers at once, plus any write in
-	//     progress), a backup run (coreserver backupStopBound, 8 s), tail
-	//     writes (readonly tailStopBound, 5 s) and the automation worker
-	//     (automation shutdownDrainWait, 5 s).
-	// Their worst cases add up to more than 30 s, far more than this bound, and
-	// the realtime stop's 10 s alone uses all of it. Each worst case is stuck
-	// work, and they seldom coincide; when they do, SIGKILL ends the child
-	// with the database open, which SQLite's journal survives, and only the
-	// cut-off wait's warning and its unfinished write are lost. A rebuild
-	// SIGKILLed after its migration sync but before it armed its backup is
-	// the one loss this bound can cause that a later boot does not repair.
-	// The fix that makes the chain fit is one deadline per terminate, shared
-	// by every wait (each takes the lesser of its own bound and what is
-	// left), not a longer bound per wait. Until then a new wait must fit in
-	// what is left, not add to the sum. The background job runners
-	// (tinycld.org/core/background) also wait, with no bound of their own:
-	// each cancels its jobs' ctx first, so the wait is the database writes
-	// those jobs have in progress.
+	//     (rebuildTailStopBound) for one in its database tail, which a later
+	//     boot does not repair. It claims the same interlock as a backup
+	//     run, so it never waits beside one.
+	//   - the realtime stop (realtime suspendBudget, 10 s, -10001): the
+	//     document saves in flight and the final store. Its first 1 s
+	//     (exitCloseBound) lets clients answer the close frame, and the
+	//     saves the closes start run during it. In read-only mode, which
+	//     covers a supervised rebuild's whole tail, it has no final pass to
+	//     make and returns at once.
+	//   - a drain's HTTP drain (supervise ChildDrainTimeout, 30 s, -10000),
+	//     only after a drain message; a plain stop skips it.
+	//   - PocketBase's HTTP shutdown (1 s, -9999; the fork's own bound).
+	//   - the mail protocol servers' drain (mailproto drainBound, 5 s, -1, all
+	//     servers at once), then the writes in progress, until the deadline.
+	//   - at the default priority, in bind order: tail writes (readonly
+	//     tailStopBound, 5 s), the automation worker (automation
+	//     shutdownDrainWait, 5 s), and the background job runners
+	//     (tinycld.org/core/background), which have no bound of their own
+	//     and wait until the deadline for the database writes their
+	//     cancelled jobs have in progress.
+	//   - a backup run (coreserver backupStopBound, 8 s, backupStopPriority),
+	//     last: a backup cut short leaves no state that the next boot does
+	//     not close (an interrupted row, a restore without its sentinel).
+	// Their bounds add up to more than 30 s, but each worst case is stuck
+	// work, and they seldom coincide. When they do, the waits late in the
+	// chain get less time, and the database still closes before the kill.
+	// A new wait takes its time from the same deadline, through
+	// shutdown.Within.
 	stopBound time.Duration
 	// childUser is who children run as when the supervisor runs as root:
 	// the user the entrypoint's gosu dropped to.
@@ -137,8 +145,8 @@ type options struct {
 func defaultOptions() options {
 	return options{
 		readyTimeout: 60 * time.Second,
-		drainBound:   ChildDrainTimeout + 10*time.Second,
-		stopBound:    10 * time.Second,
+		drainBound:   DefaultDrainBound,
+		stopBound:    DefaultStopBound,
 		childUser:    "tinycld",
 	}
 }

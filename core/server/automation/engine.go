@@ -15,6 +15,7 @@ import (
 
 	"tinycld.org/core/background"
 	"tinycld.org/core/readonly"
+	"tinycld.org/core/shutdown"
 )
 
 const (
@@ -25,6 +26,8 @@ const (
 	// dispatch, and the actions it started, to finish. The terminate cancels
 	// every action's context first, so an action that honours it returns at
 	// once; an action that ignores it must not hold up process shutdown.
+	// The terminate's shared deadline (tinycld.org/core/shutdown) can cut it
+	// shorter.
 	shutdownDrainWait = 5 * time.Second
 )
 
@@ -79,9 +82,12 @@ func (e *Engine) Start() {
 	}
 	e.started = true
 
+	shutdown.Register(e.app)
 	e.app.OnTerminate().BindFunc(func(te *core.TerminateEvent) error {
 		e.cancel()
-		e.drain(shutdownDrainWait)
+		ctx, cancel := shutdown.Within(e.app, shutdownDrainWait)
+		defer cancel()
+		e.drain(ctx)
 		return te.Next()
 	})
 	// Bound after the drain above, so the runner stops after the worker: a
@@ -216,13 +222,14 @@ func (e *Engine) recordHookHandler(col, op string) func(*core.RecordEvent) error
 // an action is abandoned; its next query fails against the closed database
 // (the panic is recovered) and that write is lost — the risk ActionHandler's
 // contract documents.
-func (e *Engine) drain(wait time.Duration) {
-	deadline := time.NewTimer(wait)
-	defer deadline.Stop()
+// drain waits, until ctx ends, for the worker to exit and then for the
+// actions it started.
+func (e *Engine) drain(ctx context.Context) {
 	select {
 	case <-e.done:
-	case <-deadline.C:
-		log.Warn("worker did not drain before terminate; abandoning in-flight dispatch")
+	case <-ctx.Done():
+		log.Warn("worker did not drain before terminate; abandoning in-flight dispatch",
+			"cause", context.Cause(ctx))
 		return
 	}
 	// Only after the worker has exited: it is the one goroutine that adds to
@@ -234,8 +241,9 @@ func (e *Engine) drain(wait time.Duration) {
 	}()
 	select {
 	case <-actionsDone:
-	case <-deadline.C:
-		log.Warn("actions did not return after cancel before terminate; abandoning them")
+	case <-ctx.Done():
+		log.Warn("actions did not return after cancel before terminate; abandoning them",
+			"cause", context.Cause(ctx))
 	}
 }
 

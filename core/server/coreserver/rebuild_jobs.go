@@ -12,6 +12,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/hook"
 
 	"tinycld.org/core/installjob"
+	"tinycld.org/core/shutdown"
 )
 
 // A package install, uninstall, revert or version change runs for minutes on
@@ -30,21 +31,24 @@ import (
 //   - A panic in the job is recovered, logged and recorded on the row.
 //
 // The terminate never waits without a bound. A job that is still running
-// when its bound ends is left to the supervisor's stop bound.
+// when its bound or the terminate's shared deadline ends is left to the
+// finalizer, which closes the database under it.
 
-// rebuildStopPriority runs the terminate handler first, before every other
-// one. The cancel then reaches the build commands at once, not after other
-// handlers' waits; those can sum to more than the supervisor's stop bound,
-// and a command in its own process group outlives this process if it is
-// never cancelled. The watcher-restart veto is in the same handler, so a
-// vetoed restart runs no other terminate handler either.
+// rebuildStopPriority runs the terminate handler first, after only the start
+// of the shared deadline (tinycld.org/core/shutdown). The cancel then
+// reaches the build commands at once, not after other handlers' waits, and
+// a job in its database tail gets the first share of the deadline: a tail
+// cut in the middle is the one state a later boot does not repair. The
+// watcher-restart veto is in the same handler, so a vetoed restart runs no
+// other terminate handler either.
 const rebuildStopPriority = -20000
 
-// The terminate's wait for a cancelled job. The supervisor kills the process
-// supervise's stopBound (10 s) after its SIGTERM; both bounds stay well
-// inside it. A backup run, the other long wait in the terminate chain,
-// claims the same single-flight slot as a rebuild, so the two waits never
-// add up.
+// The terminate's wait for a cancelled job. Both bounds fit inside the
+// shared deadline of a supervised stop (supervise's stopBound, 10 s, less
+// shutdown.FinalizerMargin), and as the first wait in the chain the job gets
+// all of its bound. A backup run, the other long wait in the terminate
+// chain, claims the same single-flight slot as a rebuild, so the two waits
+// never add up.
 var (
 	// rebuildCancelGrace is how long a job that is still building has to
 	// record its failure after the cancel. Its commands are killed by the
@@ -69,6 +73,9 @@ const rebuildJobsStoreKey = "tinycld.coreserver.rebuildJobs"
 // rebuildJobs runs the package operations of one app. The installjob
 // interlock allows one at a time, so it tracks at most one run.
 type rebuildJobs struct {
+	// app is the app whose terminate stops the runner; its shared deadline
+	// bounds the stop's wait.
+	app    core.App
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -80,9 +87,12 @@ type rebuildJobs struct {
 // rebuildJobsFor returns app's runner. The first call binds its stop to the
 // app's terminate, together with the watcher-restart veto.
 func rebuildJobsFor(app core.App) *rebuildJobs {
+	// Outside the GetOrSet below: Register makes its own store value, and a
+	// nested GetOrSet on the same store deadlocks.
+	shutdown.Register(app)
 	return app.Store().GetOrSet(rebuildJobsStoreKey, func() any {
 		ctx, cancel := context.WithCancel(context.Background())
-		jobs := &rebuildJobs{ctx: ctx, cancel: cancel}
+		jobs := &rebuildJobs{app: app, ctx: ctx, cancel: cancel}
 		app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 			Priority: rebuildStopPriority,
 			Func: func(e *core.TerminateEvent) error {
@@ -126,9 +136,9 @@ func (r *rebuildJobs) start(app core.App, job *installjob.Job, fn func(run *jobR
 }
 
 // stop cancels the running job and waits for it: up to rebuildTailStopBound
-// when it is in the database tail, up to rebuildCancelGrace otherwise. Then
-// it stops the job's progress saver, so no throttled save reaches the
-// database after it closes.
+// when it is in the database tail, up to rebuildCancelGrace otherwise, and
+// never past the terminate's shared deadline. Then it stops the job's
+// progress saver, so no throttled save reaches the database after it closes.
 func (r *rebuildJobs) stop() {
 	r.mu.Lock()
 	if r.stopped {
@@ -155,13 +165,14 @@ func (r *rebuildJobs) stop() {
 	if inTail {
 		bound = rebuildTailStopBound
 	}
-	t := time.NewTimer(bound)
-	defer t.Stop()
+	ctx, cancel := shutdown.Within(r.app, bound)
+	defer cancel()
 	select {
 	case <-run.done:
-	case <-t.C:
+	case <-ctx.Done():
 		srvLog.Warn("closing the app under a package operation that did not stop in time",
-			"jobID", run.job.ID, "action", run.job.Action, "inTail", inTail, "bound", bound)
+			"jobID", run.job.ID, "action", run.job.Action, "inTail", inTail, "bound", bound,
+			"cause", context.Cause(ctx))
 	}
 	progressSaverFor(run.job.ID).stop()
 }

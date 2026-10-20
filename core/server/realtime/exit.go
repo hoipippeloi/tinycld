@@ -224,17 +224,23 @@ func (b *Broker) adopted() []*SaveCoordinator {
 //     unless the server is read-only, whose own Suspend already did.
 //  6. Seal: refuse everything, and wait for any work that entered before.
 //
-// ctx bounds steps 3 to 5 together. A second Stop is a no-op.
+// suspendBudget, or ctx when it ends first, bounds steps 3 to 5 together. ctx
+// is the end of the terminate (tinycld.org/core/shutdown's Context): past it
+// the process is killed, so a stop still waiting for cancelled work then
+// returns and logs the work at Error, and the finalizer closes the database
+// under it before the kill can. A second Stop is a no-op.
 func (b *Broker) Stop(ctx context.Context, reason string) {
-	if !b.fence(ctx, reason) {
+	budget, cancel := context.WithTimeout(ctx, suspendBudget)
+	defer cancel()
+	if !b.fence(budget, ctx, reason) {
 		return
 	}
 	if readonly.Active() {
 		log.Info("documents were stored when read-only began; nothing to write now", "reason", reason)
 	} else {
-		b.Suspend(ctx, reason)
+		b.Suspend(budget, reason)
 	}
-	b.seal()
+	b.seal(ctx, reason)
 	log.Info("realtime stopped", "reason", reason)
 }
 
@@ -242,16 +248,17 @@ func (b *Broker) Stop(ctx context.Context, reason string) {
 // stored. It is for a broker whose documents need not outlive it, such as a
 // test's. A serving process stops through Stop.
 func (b *Broker) Close() {
-	ctx, cancel := context.WithTimeout(context.Background(), suspendBudget)
+	budget, cancel := context.WithTimeout(context.Background(), suspendBudget)
 	defer cancel()
-	if b.fence(ctx, "close") {
-		b.seal()
+	if b.fence(budget, context.Background(), "close") {
+		b.seal(context.Background(), "close")
 	}
 }
 
-// fence runs steps 1 to 4 of Stop. It reports false when the stop had
-// already begun.
-func (b *Broker) fence(ctx context.Context, reason string) bool {
+// fence runs steps 1 to 4 of Stop: the waits of steps 3 and 4 end with
+// budget, and the wait for the work it then cancels ends with end. It
+// reports false when the stop had already begun.
+func (b *Broker) fence(budget, end context.Context, reason string) bool {
 	if !b.gate.advance(phaseFenced) {
 		return false
 	}
@@ -260,21 +267,28 @@ func (b *Broker) fence(ctx context.Context, reason string) bool {
 		c.stopTimers(b)
 	}
 	conns := b.liveConns()
-	closeForExit(conns)
-	if b.waitQuiet(ctx, conns) {
+	closeForExit(budget, conns)
+	if b.waitQuiet(budget, conns) {
 		return true
 	}
 	log.Warn("realtime work still running when the stop budget ran out; cancelling it and waiting for it to return",
-		"reason", reason)
+		"reason", reason, "cause", context.Cause(budget))
 	b.gate.cancel()
-	b.waitQuiet(context.Background(), conns)
+	if !b.waitQuiet(end, conns) {
+		log.Error("closing the app under realtime work that did not return by the terminate's deadline",
+			"reason", reason)
+	}
 	return true
 }
 
-// seal refuses all further work and waits for the work that entered before.
-func (b *Broker) seal() {
+// seal refuses all further work and waits, until end, for the work that
+// entered before.
+func (b *Broker) seal(end context.Context, reason string) {
 	b.gate.advance(phaseSealed)
-	b.gate.waitIdle(context.Background())
+	if !b.gate.waitIdle(end) {
+		log.Error("closing the app under realtime work that did not return by the terminate's deadline",
+			"reason", reason)
+	}
 	b.gate.cancel()
 }
 
@@ -292,8 +306,9 @@ func (b *Broker) waitQuiet(ctx context.Context, conns []*liveConn) bool {
 }
 
 // closeForExit sends every connection a going-away close frame and cuts the
-// ones that have not left their room after exitCloseBound.
-func closeForExit(conns []*liveConn) {
+// ones that have not left their room after exitCloseBound, or when ctx ends
+// first.
+func closeForExit(ctx context.Context, conns []*liveConn) {
 	if len(conns) == 0 {
 		return
 	}
@@ -301,13 +316,13 @@ func closeForExit(conns []*liveConn) {
 	for _, lc := range conns {
 		go closeGoingAway(lc.conn)
 	}
-	cutAt := time.NewTimer(exitCloseBound)
-	defer cutAt.Stop()
+	cutCtx, cancel := context.WithTimeout(ctx, exitCloseBound)
+	defer cancel()
 	for i, lc := range conns {
 		select {
 		case <-lc.left:
 			continue
-		case <-cutAt.C:
+		case <-cutCtx.Done():
 		}
 		cut := 0
 		for _, rest := range conns[i:] {

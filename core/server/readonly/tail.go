@@ -6,11 +6,14 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/shutdown"
 )
 
 // tailStopBound bounds how long the app's terminate waits for tail writes in
 // flight: long enough for one to finish its save, short enough that a stuck
-// push does not hold up shutdown.
+// push does not hold up shutdown. The terminate's shared deadline
+// (tinycld.org/core/shutdown) can cut it shorter.
 const tailStopBound = 5 * time.Second
 
 // tailSet tracks the tail writes of one registered app, so its terminate can
@@ -43,13 +46,18 @@ func bindTails(app core.App) {
 	tailSetsMu.Unlock()
 	// The handler runs before the chain's finalizer, which closes the
 	// database, so every parked tail is ended before the close.
+	shutdown.Register(app)
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		ts.stop()
+		ctx, cancel := shutdown.Within(app, tailStopBound)
+		defer cancel()
+		ts.stop(ctx)
 		return e.Next()
 	})
 }
 
-func (ts *tailSet) stop() {
+// stop ends every parked tail and waits for the ones already writing until
+// ctx ends.
+func (ts *tailSet) stop(ctx context.Context) {
 	ts.mu.Lock()
 	ts.terminated = true
 	ts.cancel()
@@ -62,8 +70,9 @@ func (ts *tailSet) stop() {
 	}()
 	select {
 	case <-done:
-	case <-time.After(tailStopBound):
-		log.Warn("closing the app under tail writes that did not finish in time", "bound", tailStopBound)
+	case <-ctx.Done():
+		log.Warn("closing the app under tail writes that did not finish in time",
+			"bound", tailStopBound, "cause", context.Cause(ctx))
 	}
 }
 

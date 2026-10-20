@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/pocketbase/pocketbase/tests"
 
 	"tinycld.org/core/drainhooks"
+	"tinycld.org/core/readonly/readonlytest"
+	"tinycld.org/core/shutdown"
 )
 
 // exitFixture serves a kind whose rooms a SaveCoordinator saves, on a broker
@@ -420,4 +423,40 @@ func TestExitRefusesFlushNow(t *testing.T) {
 		t.Fatal("FlushNow ran after terminate")
 	}
 	f.assertNoFlushAfterTerminate(t)
+}
+
+// A save that does not return, even once the stop has cancelled it, cannot
+// hold the terminate past its shared deadline: the process is killed then,
+// and returning first lets the finalizer close the database. The stop
+// returns at the deadline and logs the save at Error.
+func TestExitReturnsAtTheTerminateDeadline(t *testing.T) {
+	const budget = 300 * time.Millisecond
+	logs := readonlytest.CaptureLogs(t)
+	f := newExitFixture(t, exitFixtureOpts{})
+	shutdown.SetKillAfter(f.app, func() time.Duration { return shutdown.FinalizerMargin + budget })
+	c1 := NewClientForTest("alice")
+	f.broker.RouteFrameForTest("test", "r1", c1, docFrame([]byte("stuck")))
+
+	started, release := f.holdNextFlush()
+	t.Cleanup(release)
+	go f.coord.triggerSave("r1", "debounce")
+	<-started
+
+	begun := time.Now()
+	done := f.terminateAsync(t)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stop waited past the terminate's deadline for a save that does not return")
+	}
+	if took := time.Since(begun); took < budget {
+		t.Fatalf("the stop returned after %v, before its %v deadline, with a save in flight", took, budget)
+	}
+	r, ok := readonlytest.Find(logs(), "closing the app under realtime work that did not return by the terminate's deadline")
+	if !ok {
+		t.Fatal("the save still running at the deadline was not logged")
+	}
+	if r.Level != slog.LevelError {
+		t.Fatalf("want Error, got %v", r.Level)
+	}
 }
