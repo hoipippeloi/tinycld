@@ -174,12 +174,9 @@ func (r *Repository) Put(ctx context.Context, s *snapshot.Snapshot, progress fun
 		defer close(tarDone)
 		_ = pw.CloseWithError(writeTar(tarCtx, pw, s.Files))
 	}()
-	// The upload waits for its chunker, which reads the pipe and does not watch
-	// ctx. Closing the pipe when ctx ends is what lets a cancelled Put return
-	// while the tar writer is stuck.
-	stopClose := context.AfterFunc(ctx, func() { _ = pr.CloseWithError(ctx.Err()) })
+	// UploadStream returns on a failure or a ctx cancel even while its chunker
+	// is blocked reading the pipe; closing the pipe ends that read.
 	stStats, err := sess.UploadStream(ctx, fileStorage, pr)
-	stopClose()
 	_ = pr.Close()
 	// Cancel before joining on every path: UploadStream can fail on its own
 	// (a server error, not just ctx ending), and the tar goroutine's stored-file
