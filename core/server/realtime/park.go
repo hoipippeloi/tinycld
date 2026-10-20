@@ -82,11 +82,16 @@ func (b *Broker) startJanitor() {
 // evictIdle checkpoints and closes every parked document idle for ParkIdle
 // or longer. While the server is read-only nothing is written, so the
 // documents stay parked until a later tick; Suspend has already stored
-// their state at Enter.
+// their state at Enter. Once the stop has begun it does nothing: the stop's
+// Suspend stores every parked document.
 func (b *Broker) evictIdle(now time.Time) {
 	if readonly.Active() {
 		return
 	}
+	if _, ok := b.gate.enter(false); !ok {
+		return
+	}
+	defer b.gate.leave()
 	cutoff := now.Add(-ParkIdle)
 	b.mu.Lock()
 	var due []roomKey
@@ -184,11 +189,20 @@ func Suspend(ctx context.Context, reason string) {
 // opens every room from these rows under the same epoch.
 //
 // It writes regardless of read-only mode because it IS the pause's own
-// write, run from readonly.OnEnter before anything else proceeds.
+// write, run from readonly.OnEnter before anything else proceeds. Once the
+// broker is sealed (Stop has returned) it writes nothing.
+//
+// A kind with FlushDirty but no Checkpoints is flushed too: its dirty rooms
+// have nowhere else to go before an exit.
 func (b *Broker) Suspend(ctx context.Context, reason string) {
+	if _, ok := b.gate.enter(true); !ok {
+		log.Warn("suspend refused: the broker has stopped and its documents were stored", "reason", reason)
+		return
+	}
+	defer b.gate.leave()
 	for _, kind := range registeredKinds() {
 		opts, err := optionsFor(kind)
-		if err != nil || opts.Checkpoints == nil || opts.FlushDirty == nil {
+		if err != nil || opts.FlushDirty == nil {
 			continue
 		}
 		if err := opts.FlushDirty(ctx); err != nil {

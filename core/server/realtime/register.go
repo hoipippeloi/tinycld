@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -93,8 +94,9 @@ func sharedBroker() *Broker {
 // delegated to the per-room-kind handler registered via RegisterRoomKind.
 //
 // Register also binds the broker to the server's lifecycle: documents are
-// stored when read-only begins, at drain and at terminate, and open
-// connections are closed at drain (see lifecycle.go).
+// stored when read-only begins, at drain and at terminate, open connections
+// are closed at drain, and terminate stops the broker (see lifecycle.go and
+// Broker.Stop).
 func Register(app core.App, opts Options) {
 	if opts.IdleTimeout == 0 {
 		opts.IdleTimeout = defaultIdleTimeout
@@ -150,6 +152,9 @@ func handleForceFlush(re *core.RequestEvent) error {
 		return re.ForbiddenError("Not authorized for this room", err)
 	}
 	if err := opts.ForceFlush(roomID); err != nil {
+		if errors.Is(err, ErrStopping) {
+			return refuseWhileDraining(re)
+		}
 		return re.InternalServerError("flush failed", err)
 	}
 	return re.JSON(200, map[string]bool{"flushed": true})
@@ -162,8 +167,8 @@ func handleConnect(broker *Broker, opts Options, re *core.RequestEvent) error {
 
 	// Accepting stopped when the drain began; a request that still arrives
 	// came in on a connection accepted before that, and belongs to the
-	// next server.
-	if draining.Load() {
+	// next server. A stopping broker admits nobody either.
+	if draining.Load() || broker.stopping() {
 		return refuseWhileDraining(re)
 	}
 
@@ -324,15 +329,15 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 		return
 	}
 
-	// Tracked before the drain check so a drain that begins between the
-	// upgrade handler's check and here cannot miss this connection: either
-	// the check below sees the flag, or closeAllConns sees the conn.
-	untrack := trackConn(client, conn)
-	defer untrack()
-	if draining.Load() {
+	// A drain or stop that begins between the upgrade handler's check and
+	// here cannot miss this connection: trackConn either refuses it or adds
+	// it where closeAllConns and Stop find it.
+	lc, tracked := broker.trackConn(client, conn, cancel)
+	if !tracked {
 		_ = conn.Close(websocket.StatusGoingAway, drainCloseReason)
 		return
 	}
+	defer broker.untrackConn(client)
 
 	broker.join(kind, roomID, client)
 	defer func() {
@@ -341,6 +346,9 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 			room.broadcastLeave(client)
 			room.remove(client)
 		}
+		// Before the close below, which can wait seconds on the peer: the
+		// stop waits for this, not for the socket.
+		close(lc.left)
 		_ = conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
@@ -408,6 +416,11 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 		}
 		if typ != websocket.MessageBinary {
 			// Ignore stray text frames; protocol is binary only.
+			continue
+		}
+		if broker.stopping() {
+			// The stop has begun and its close frame is on the way. The
+			// client keeps what it sent and resends it to the next server.
 			continue
 		}
 		if len(data) < frameOverhead {

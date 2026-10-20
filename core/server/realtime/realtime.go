@@ -109,6 +109,19 @@ type Broker struct {
 
 	janitorOnce sync.Once
 	stop        chan struct{}
+
+	// gate fences the broker's database work at the exit (see Stop).
+	gate *exitGate
+
+	// conns maps each live connection's Client to its websocket, so a drain
+	// or the stop can close them all.
+	connsMu sync.Mutex
+	conns   map[*Client]*liveConn
+
+	// coords are the SaveCoordinators that keep rooms of this broker; the
+	// stop stops their timers.
+	coordsMu sync.Mutex
+	coords   map[*SaveCoordinator]struct{}
 }
 
 type roomKey struct {
@@ -122,16 +135,9 @@ func NewBroker() *Broker {
 		rooms:  map[roomKey]*Room{},
 		parked: map[roomKey]*parkedDoc{},
 		stop:   make(chan struct{}),
-	}
-}
-
-// Close stops the janitor. Tests call it; a production broker lives as
-// long as the process.
-func (b *Broker) Close() {
-	select {
-	case <-b.stop:
-	default:
-		close(b.stop)
+		gate:   newExitGate(),
+		conns:  map[*Client]*liveConn{},
+		coords: map[*SaveCoordinator]struct{}{},
 	}
 }
 
