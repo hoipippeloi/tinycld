@@ -367,8 +367,11 @@ func (e *Engine) dispatch(ev event) {
 			}
 			results = append(results, res)
 		}
-		WriteRun(e.app, rule, ev.Record, ev.Trigger, RunOutcome{Matched: true, Results: results, Duration: time.Since(start)})
+		// The run row is written last: a reader that sees it (the rules UI,
+		// a test waiting on rule_runs) must also see the failure streak and
+		// any auto-disable this run caused.
 		recordRunResult(e.app, rule, len(actions) > 0 && failed == len(actions))
+		WriteRun(e.app, rule, ev.Record, ev.Trigger, RunOutcome{Matched: true, Results: results, Duration: time.Since(start)})
 
 		if rule.GetBool("stop_processing") {
 			if rule.GetString("scope") == "org" {

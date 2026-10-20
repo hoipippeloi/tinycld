@@ -231,6 +231,16 @@ func TestSkip_FromAnyActionIsRecordedAsSkipped(t *testing.T) {
 	// One more fully failed run would disable the rule. A skip is not a
 	// failure, so the rule stays enabled and the streak ends.
 	failureStreaks.Store(rule.Id, autoDisableAfter-1)
+	// Checked as the run row is written, not after: a reader that finds the
+	// row must already see the streak's end, with no window between them.
+	streakAtWrite := make(chan bool, 1)
+	z.app.OnRecordAfterCreateSuccess("rule_runs").BindFunc(func(e *core.RecordEvent) error {
+		if e.Record.GetString("rule") == rule.Id {
+			_, kept := failureStreaks.Load(rule.Id)
+			streakAtWrite <- kept
+		}
+		return e.Next()
+	})
 
 	z.arrive(t, "Hello", false)
 
@@ -242,7 +252,7 @@ func TestSkip_FromAnyActionIsRecordedAsSkipped(t *testing.T) {
 	if runs[0].GetString("error") != "" {
 		t.Fatalf("run error = %q, want none", runs[0].GetString("error"))
 	}
-	if _, ok := failureStreaks.Load(rule.Id); ok {
+	if <-streakAtWrite {
 		t.Fatal("a skipped run kept the failure streak")
 	}
 	fresh, _ := z.app.FindRecordById("rules", rule.Id)
