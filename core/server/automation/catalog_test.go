@@ -3,12 +3,10 @@ package automation
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketbase/pocketbase/tools/types"
 
 	"tinycld.org/core/rlstest"
 )
@@ -231,30 +229,11 @@ func actionIndex(actions []catalogAction, ref string) int {
 // catalogSyncApp mirrors runsApp's rlstest idiom (runs_test.go): apply the
 // real shipped migrations rather than hand-building bare collections, so the
 // reconcile test proves syncCatalog against the actual automation_catalog
-// schema — including the username-index fixture reconciliation actions_test.go
-// / runs_test.go both need before 1820000000 (users_username_required) applies.
+// schema.
 func catalogSyncApp(t *testing.T) (*tests.TestApp, *Defs) {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
-	app := rlstest.NewApp(t)
-
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	defs := &Defs{Packages: []PackageDefs{
 		{Slug: "core", Triggers: []TriggerDef{{ID: "manual", Label: "Run manually", Synthetic: "manual"}},

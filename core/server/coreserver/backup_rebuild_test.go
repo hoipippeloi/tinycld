@@ -83,6 +83,7 @@ func TestSupervisedRestoreRebuildRestartsColdAndIsUnderway(t *testing.T) {
 // its maintenance 503 for a restart that never comes.
 func TestRestoreRebuildWithoutARestartIsNotUnderway(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	inDevelopment(t)
 	t.Cleanup(resetReplacementForTest)
 	exits := recordExit(t)
 	app := bootstrappedApp(t)
@@ -102,6 +103,7 @@ func TestRestoreRebuildWithoutARestartIsNotUnderway(t *testing.T) {
 // "success" before its restart.
 func TestRestoreRebuildTagsItsInstallLogRow(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	inDevelopment(t)
 	t.Cleanup(resetReplacementForTest)
 	recordExit(t)
 	app := bootstrappedApp(t)

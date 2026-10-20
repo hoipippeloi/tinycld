@@ -5,34 +5,15 @@ import (
 	"testing"
 
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketbase/pocketbase/tools/types"
 
 	"tinycld.org/core/rlstest"
 )
 
 // newMigratedApp applies every shipped core migration so the rules under test
-// are the rules the product ships. The username-index dance mirrors
-// coreserver/guest_rls_test.go: the bundled fixture already carries the index
-// that 1820000000 adds.
+// are the rules the product ships.
 func newMigratedApp(t *testing.T) *tests.TestApp {
 	t.Helper()
-	app := rlstest.NewApp(t)
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	return app
 }
 

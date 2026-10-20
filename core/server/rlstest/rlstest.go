@@ -15,6 +15,7 @@
 package rlstest
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,27 +46,34 @@ func Apply(t testing.TB, app core.App, migrationsDirs ...string) {
 	// AppMigrations is a package-level list the jsvm loader appends to, so it
 	// carries over between tests in one binary. Snapshot and restore it, or the
 	// second suite to run re-applies the first's migrations.
+	globalMigrations.Lock()
 	saved := core.AppMigrations
-	t.Cleanup(func() { core.AppMigrations = saved })
+	t.Cleanup(func() {
+		globalMigrations.Lock()
+		core.AppMigrations = saved
+		globalMigrations.Unlock()
+	})
+	err := applyDirs(app, t.TempDir(), migrationsDirs)
+	globalMigrations.Unlock()
+	if err != nil {
+		t.Fatalf("rlstest: %v", err)
+	}
+}
 
+// applyDirs runs the .js migrations of each directory against app, one
+// directory at a time. It leaves core.AppMigrations holding the last
+// directory's list; the caller saves and restores it.
+//
+// hooksDir must be empty: jsvm requires one, but rules come from migrations,
+// so no hook file may run and the result is the migrations alone.
+func applyDirs(app core.App, hooksDir string, migrationsDirs []string) error {
 	for _, dir := range migrationsDirs {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			t.Fatalf("rlstest: resolve %s: %v", dir, err)
+			return fmt.Errorf("resolve %s: %w", dir, err)
 		}
-		entries, err := os.ReadDir(abs)
-		if err != nil {
-			t.Fatalf("rlstest: read %s: %v", abs, err)
-		}
-		found := false
-		for _, e := range entries {
-			if filepath.Ext(e.Name()) == ".js" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("rlstest: no .js migrations in %s — wrong path?", abs)
+		if _, err := migrationFiles(abs); err != nil {
+			return fmt.Errorf("read %s: %w", abs, err)
 		}
 
 		// One directory at a time: each package's migrations are ordered among
@@ -73,20 +81,14 @@ func Apply(t testing.TB, app core.App, migrationsDirs ...string) {
 		// would run them in an order no real boot produces.
 		core.AppMigrations = core.MigrationsList{}
 
-		if err := jsvm.Register(app, jsvm.Config{
-			MigrationsDir: abs,
-			// A hooks dir is required by the plugin but irrelevant here: rules
-			// come from migrations. Point it somewhere empty so no hook file
-			// runs and the test measures the rules alone.
-			HooksDir: t.TempDir(),
-		}); err != nil {
-			t.Fatalf("rlstest: register jsvm for %s: %v", abs, err)
+		if err := jsvm.Register(app, jsvm.Config{MigrationsDir: abs, HooksDir: hooksDir}); err != nil {
+			return fmt.Errorf("register jsvm for %s: %w", abs, err)
 		}
-
 		if err := app.RunAppMigrations(); err != nil {
-			t.Fatalf("rlstest: apply migrations from %s: %v", abs, err)
+			return fmt.Errorf("apply migrations from %s: %w", abs, err)
 		}
 	}
+	return nil
 }
 
 // ApplyWithHooks is Apply plus the package's real pb-hooks directory, so a
@@ -108,21 +110,17 @@ func ApplyWithHooks(t testing.TB, app core.App, hooksDir string, migrationsDirs 
 		t.Fatalf("rlstest: hooks dir %s: %v", abs, err)
 	}
 
+	globalMigrations.Lock()
+	defer globalMigrations.Unlock()
 	saved := core.AppMigrations
-	t.Cleanup(func() { core.AppMigrations = saved })
+	t.Cleanup(func() {
+		globalMigrations.Lock()
+		core.AppMigrations = saved
+		globalMigrations.Unlock()
+	})
 
-	for _, dir := range migrationsDirs {
-		mabs, err := filepath.Abs(dir)
-		if err != nil {
-			t.Fatalf("rlstest: resolve %s: %v", dir, err)
-		}
-		core.AppMigrations = core.MigrationsList{}
-		if err := jsvm.Register(app, jsvm.Config{MigrationsDir: mabs, HooksDir: t.TempDir()}); err != nil {
-			t.Fatalf("rlstest: register jsvm for %s: %v", mabs, err)
-		}
-		if err := app.RunAppMigrations(); err != nil {
-			t.Fatalf("rlstest: apply migrations from %s: %v", mabs, err)
-		}
+	if err := applyDirs(app, t.TempDir(), migrationsDirs); err != nil {
+		t.Fatalf("rlstest: %v", err)
 	}
 
 	// The hooks pass registers the real hook files. It comes last so the

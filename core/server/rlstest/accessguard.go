@@ -3,7 +3,6 @@ package rlstest
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -83,37 +82,23 @@ func RequireAuthGuardOnAccessRules(t testing.TB, app core.App, allow ...PublicPa
 // PocketBase's sample rules, which are no part of any install.
 func NewAssembledApp(t testing.TB, dirs ...string) *tests.TestApp {
 	t.Helper()
-	app, err := tests.NewTestApp(t.TempDir())
-	if err != nil {
-		t.Fatalf("rlstest: NewTestApp: %v", err)
-	}
-	t.Cleanup(func() { app.Cleanup() })
+	return assembledFixture(t, dirs).NewApp(t)
+}
 
+// AssembledDataDir is NewAssembledApp's database as a private data dir, for a
+// test that boots a real *pocketbase.PocketBase on it instead of a TestApp.
+func AssembledDataDir(t testing.TB, dirs ...string) string {
+	t.Helper()
+	return assembledFixture(t, dirs).DataDir(t)
+}
+
+func assembledFixture(t testing.TB, dirs []string) Fixture {
+	t.Helper()
 	merged := t.TempDir()
-	for _, dir := range append([]string{CoreMigrationsDir(t)}, dirs...) {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatalf("rlstest: read %s: %v", dir, err)
-		}
-		for _, e := range entries {
-			if filepath.Ext(e.Name()) != ".js" {
-				continue
-			}
-			dst := filepath.Join(merged, e.Name())
-			if _, err := os.Stat(dst); err == nil {
-				t.Fatalf("rlstest: two migrations named %s — a real install would load only one", e.Name())
-			}
-			body, err := os.ReadFile(filepath.Join(dir, e.Name()))
-			if err != nil {
-				t.Fatalf("rlstest: read %s: %v", e.Name(), err)
-			}
-			if err := os.WriteFile(dst, body, 0o644); err != nil {
-				t.Fatalf("rlstest: stage %s: %v", e.Name(), err)
-			}
-		}
+	if err := stageMerged(merged, append([]string{CoreMigrationsDir(t)}, dirs...)); err != nil {
+		t.Fatalf("rlstest: %v", err)
 	}
-	Apply(t, app, merged)
-	return app
+	return Fixture{Base: EmptyData, MigrationsDirs: []string{merged}}
 }
 
 // CoreMigrationsDir is core's pb_migrations directory, found from this source

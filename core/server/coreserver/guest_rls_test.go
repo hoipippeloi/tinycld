@@ -7,7 +7,6 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketbase/pocketbase/tools/types"
 	"tinycld.org/core/rlstest"
 )
 
@@ -50,37 +49,7 @@ type guestRLSEnv struct {
 // and returns auth tokens for each.
 func setupGuestRLSApp(t *testing.T) *guestRLSEnv {
 	t.Helper()
-	app, err := tests.NewTestApp()
-	if err != nil {
-		t.Fatalf("NewTestApp: %v", err)
-	}
-	t.Cleanup(func() { app.Cleanup() })
-
-	// The bundled PB test fixture's users collection already carries a
-	// username unique index; 1820000000 adds the same definition and the
-	// duplicate is rejected. Drop the fixture's copy so the migration chain
-	// applies the way it does on a real DB, where the index does not
-	// pre-exist.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	// The fixture also lists username in passwordAuth.identityFields, which
-	// demands that unique index; reset to email-only the way a pre-1820000000
-	// DB looks. The migration re-enables username identity itself.
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	member := guestRLSUser(t, app, "member@test.local", "member")
 	guest := guestRLSUser(t, app, "guest@test.local", "guest")

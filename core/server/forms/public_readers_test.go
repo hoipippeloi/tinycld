@@ -184,12 +184,11 @@ func TestPublicReaders_RegisteringANewClauseAfterServePanics(t *testing.T) {
 func TestPublicReaders_RegisterComposesOnServeWithNoHosts(t *testing.T) {
 	resetPublicReaders(t)
 	RegisterPublicReader(gizmoReader)
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: rlstest.AssembledDataDir(t)})
 	if err := app.Bootstrap(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	rlstest.Apply(t, app, rlstest.CoreMigrationsDir(t))
 	Register(app, Options{})
 	if err := app.OnServe().Trigger(&core.ServeEvent{App: app}); err != nil {
 		t.Fatal(err)

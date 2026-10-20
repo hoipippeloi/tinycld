@@ -167,6 +167,16 @@ func notDevelopment(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
 }
 
+// inDevelopment makes the restart paths take dev mode (nothing relaunches the
+// process) whatever directory the test binary runs from: isDevelopment reads
+// the binary's location, which go test only usually puts under os.TempDir.
+func inDevelopment(t *testing.T) {
+	t.Helper()
+	prev := isDevelopment
+	isDevelopment = func() bool { return true }
+	t.Cleanup(func() { isDevelopment = prev })
+}
+
 func recordExit(t *testing.T) *[]int {
 	t.Helper()
 	var codes []int

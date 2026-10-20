@@ -3,12 +3,10 @@ package automation
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/tools/types"
 
 	"tinycld.org/core/mailer"
 	"tinycld.org/core/rlstest"
@@ -27,24 +25,11 @@ func zooEngineApp(t *testing.T) *zooEnv {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
 	t.Cleanup(ResetRunStateForTest)
-	app := rlstest.NewApp(t)
-
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	col := core.NewBaseCollection("zoo_messages")
 	col.Fields.Add(&core.TextField{Name: "subject"})
