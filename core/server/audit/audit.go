@@ -16,13 +16,20 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/logging"
 	"tinycld.org/core/readonly"
 )
 
 var log = logging.ForPackage("audit")
 
-const auditDroppedMsg = "audit row dropped: the server stayed read-only past the wait"
+const (
+	auditDroppedMsg            = "audit row dropped: the server stayed read-only past the wait"
+	auditDroppedTerminatingMsg = "audit row dropped: the app is terminating"
+)
+
+// jobsPkg names the audit writes' job runner and its logger.
+const jobsPkg = "audit"
 
 // LabelExtractor returns a human-readable label for a record.
 type LabelExtractor func(record *core.Record) string
@@ -70,6 +77,11 @@ func RegisterCollection(app *pocketbase.PocketBase, collectionName string, confi
 		extractLabel = DefaultLabelExtractor
 	}
 
+	// Bind the runner to the app's terminate now, while the app is still
+	// starting: a runner first made after the terminate would never be
+	// stopped, and its jobs would outlive the database.
+	background.For(app, jobsPkg)
+
 	app.OnRecordCreateRequest(collectionName).BindFunc(func(e *core.RecordRequestEvent) error {
 		if err := e.Next(); err != nil {
 			return err
@@ -109,15 +121,21 @@ func RegisterCollection(app *pocketbase.PocketBase, collectionName string, confi
 }
 
 // logWhenWritable writes the audit row of a request already accepted, off
-// the request goroutine. The request may have been accepted just before the
+// the request goroutine, on the job runner, which holds the app's terminate
+// until the write ends. The request may have been accepted just before the
 // server went read-only; the row then waits for the mode to end, bounded by
-// readonly.TailContext (TailWait, or the app's terminate).
+// TailWait or the app's terminate.
 func logWhenWritable(app core.App, collectionName, recordID string, write func()) {
-	ctx, release := readonly.TailContext(app)
-	go func() {
-		defer release()
+	started := background.For(app, jobsPkg).Run("audit row", func(jobCtx context.Context) {
+		ctx, cancel := context.WithTimeout(jobCtx, readonly.TailWait)
+		defer cancel()
 		writeWhenWritable(ctx, collectionName, recordID, write)
-	}()
+	})
+	if !started {
+		// Error, as in writeWhenWritable: a missing audit row is a
+		// compliance gap.
+		log.Error(auditDroppedTerminatingMsg, "collection", collectionName, "recordID", recordID)
+	}
 }
 
 // writeWhenWritable logs a dropped row at Error, not Warn: a missing audit

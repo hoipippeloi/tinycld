@@ -2,13 +2,12 @@
 package automation
 
 import (
+	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
-	"github.com/pocketbase/pocketbase/tools/types"
 
 	"tinycld.org/core/notify"
 	"tinycld.org/core/rlstest"
@@ -17,28 +16,7 @@ import (
 func runsApp(t *testing.T) (core.App, *core.Record) {
 	t.Helper()
 	t.Cleanup(ResetRunStateForTest)
-	app := rlstest.NewApp(t)
-
-	// Same fixture reconciliation as actions_test.go's pkgaccessApp: drop the
-	// bundled username index so 1820000000 (users_username_required) applies
-	// the way it does against a real DB.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	u, err := app.FindFirstRecordByFilter("users", "id != ''")
 	if err != nil {
@@ -101,7 +79,7 @@ func TestAutoDisableAfterConsecutiveFailures(t *testing.T) {
 
 	notified := make(chan notify.NotifyParams, 1)
 	orig := notifyUser
-	notifyUser = func(app core.App, p notify.NotifyParams) {
+	notifyUser = func(_ context.Context, _ core.App, p notify.NotifyParams) {
 		select {
 		case notified <- p:
 		default:

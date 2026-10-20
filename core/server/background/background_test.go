@@ -10,6 +10,7 @@ import (
 	"github.com/pocketbase/pocketbase/tests"
 
 	"tinycld.org/core/readonly/readonlytest"
+	"tinycld.org/core/shutdown"
 )
 
 // "widgets" and "gadgets" are fictional packages: core names none of its own.
@@ -27,6 +28,9 @@ func newTestApp(t *testing.T) *tests.TestApp {
 func TestFor_OneRunnerPerAppAndPackage(t *testing.T) {
 	app := newTestApp(t)
 	other := newTestApp(t)
+	// The shared deadline's own handler is bound once per app, not per
+	// package; bind it first so the count below is the package's alone.
+	shutdown.Register(app)
 
 	before := app.OnTerminate().Length()
 	widgets := For(app, "widgets")
@@ -205,4 +209,60 @@ func TestTerminate_LogsStalledJobs(t *testing.T) {
 
 	close(release)
 	<-cleaned
+}
+
+// A job that ignores its ctx cannot hold the terminate past the shared
+// deadline: the process is killed then, and returning first lets the
+// finalizer close the database. The terminate returns at the deadline with
+// the job still running, and the log names the job at Error.
+func TestTerminate_ReturnsAtTheDeadlineWithAJobStillRunning(t *testing.T) {
+	const budget = 300 * time.Millisecond
+	logs := readonlytest.CaptureLogs(t)
+	app := newTestApp(t)
+	shutdown.SetKillAfter(app, func() time.Duration { return shutdown.FinalizerMargin + budget })
+
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	t.Cleanup(func() {
+		close(release)
+		<-finished
+	})
+	started := make(chan struct{})
+	For(app, "widgets").Run("stuck widget export", func(context.Context) {
+		defer close(finished)
+		close(started)
+		<-release
+	})
+	<-started
+
+	cleaned := make(chan struct{})
+	begun := time.Now()
+	go func() {
+		app.Cleanup()
+		close(cleaned)
+	}()
+	select {
+	case <-cleaned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the terminate waited past its deadline for a job that ignores its ctx")
+	}
+	if took := time.Since(begun); took < budget {
+		t.Fatalf("the terminate returned after %v, before its %v deadline", took, budget)
+	}
+	select {
+	case <-finished:
+		t.Fatal("the job finished; the test needs it still running at the deadline")
+	default:
+	}
+
+	r, ok := readonlytest.Find(logs(), "closing the app under background jobs that did not stop by the terminate's deadline")
+	if !ok {
+		t.Fatal("the job still running at the deadline was not logged")
+	}
+	if r.Level != slog.LevelError {
+		t.Fatalf("want Error for a job cut at the deadline, got %v", r.Level)
+	}
+	if !strings.Contains(r.Attrs["jobs"], "stuck widget export") || r.Attrs["pkg"] != "widgets" {
+		t.Fatalf("the log must name the package and the job, got %v", r.Attrs)
+	}
 }

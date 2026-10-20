@@ -88,7 +88,7 @@ func actionPostWebhook(_ core.App, req ActionRequest) error {
 		headers["X-TinyCld-Signature-256"] = "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), webhookPostTimeout)
+	ctx, cancel := context.WithTimeout(req.Context(), webhookPostTimeout)
 	defer cancel()
 
 	status, err := postWebhookNow(ctx, target, body, headers)

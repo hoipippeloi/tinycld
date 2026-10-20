@@ -1,6 +1,7 @@
 package mailproto
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"net"
@@ -9,12 +10,15 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/hook"
+
+	"tinycld.org/core/shutdown"
 )
 
 // drainBound bounds how long a stop lets open sessions finish before it cuts
 // them. A hung client must not hold up the app's terminate, and the terminate
-// chain has about 10 s in all before the supervisor kills the process (see
-// supervise's stopBound); 5 s is also readonly's tailStopBound. All the
+// chain has one deadline in all, about 8 s after a SIGTERM (see
+// tinycld.org/core/shutdown), which can cut this shorter; 5 s is also
+// readonly's tailStopBound. All the
 // servers a process runs drain at the same time (see bindStop), so the bound
 // is spent once, not once per server. Under a supervisor the listeners closed
 // when the drain began, so the sessions have had the whole HTTP drain to end
@@ -82,8 +86,11 @@ const (
 //  3. Let the work in progress finish, up to the bound.
 //  4. Cut every connection whose session is not writing, refuse every later
 //     call, and wait for the writes to finish and every session to close.
-//     A write has no bound: the database is still open, and a write cut in
-//     the middle could be half done.
+//     A write has no bound of its own: the database is still open, and a
+//     write cut in the middle could be half done. It cannot outlast the
+//     terminate's deadline, though: past it the process is killed, and
+//     returning first lets the finalizer close the database before the
+//     kill.
 //
 // The drain counts the open connections, sessions and calls in active. It
 // closes connections at the network connection, under the TLS layer, and
@@ -147,9 +154,12 @@ func (d *drain) serve(ln net.Listener, label, addr string, serve func(net.Listen
 }
 
 // bind binds the stop to app's terminate and returns it. The stop runs once:
-// a later call waits for the first to finish.
+// a later call waits for the first to finish. Its waits end at app's
+// terminate deadline.
 func (d *drain) bind(app core.App) func() {
-	stop := func() { d.stopOnce.Do(d.shutdown) }
+	stop := func() {
+		d.stopOnce.Do(func() { d.shutdown(shutdown.Context(app)) })
+	}
 	bindStop(app, stop)
 	return stop
 }
@@ -291,7 +301,9 @@ func (d *drain) readEnd(tc *trackedConn) (end bool, deadline time.Time) {
 	return false, tc.graceUntil
 }
 
-func (d *drain) shutdown() {
+// shutdown runs the stop. Every wait in it ends when end does: the session
+// wait after d.bound or end, and the wait for the writes at end.
+func (d *drain) shutdown(end context.Context) {
 	d.mu.Lock()
 	d.draining = true
 	d.quiet = make(chan struct{})
@@ -326,12 +338,13 @@ func (d *drain) shutdown() {
 		}()
 	}
 
-	timer := time.NewTimer(d.bound)
-	defer timer.Stop()
+	sessions, cancel := context.WithTimeout(end, d.bound)
+	defer cancel()
 	select {
 	case <-d.quiet:
-	case <-timer.C:
-		mailLog.Warn("cutting the sessions still open after the drain", "server", d.label, "bound", d.bound)
+	case <-sessions.Done():
+		mailLog.Warn("cutting the sessions still open after the drain", "server", d.label,
+			"bound", d.bound, "cause", context.Cause(sessions))
 	}
 
 	d.mu.Lock()
@@ -354,7 +367,21 @@ func (d *drain) shutdown() {
 			"server", d.label, "writes", writes)
 	}
 
-	<-d.quiet
+	select {
+	case <-d.quiet:
+	case <-end.Done():
+		// The writes still run, so the server is not closed under them: the
+		// process ends next, which closes their connections.
+		d.mu.Lock()
+		writes = 0
+		for tc := range d.conns {
+			writes += tc.writes
+		}
+		d.mu.Unlock()
+		mailLog.Error("closing the app under mail writes that did not finish by the terminate's deadline",
+			"server", d.label, "writes", writes, "cause", context.Cause(end))
+		return
+	}
 	if d.closeServer != nil {
 		d.closeServer()
 	}
@@ -451,6 +478,8 @@ type stopGroup struct {
 // the same one, and one terminate handler runs all of an app's stops at the
 // same time.
 func bindStop(app core.App, stop func()) {
+	// Outside the GetOrSet below: Register makes its own store value.
+	shutdown.Register(app)
 	v := app.Store().GetOrSet(stopsStoreKey, func() any {
 		g := &stopGroup{}
 		app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{

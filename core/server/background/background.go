@@ -13,8 +13,9 @@
 //		notifyWidgetShared(ctx, app, record)
 //	})
 //
-// A job must return soon after ctx ends: the terminate waits for it with no
-// bound. A long-running loop selects on ctx.Done().
+// A job must return soon after ctx ends: the terminate waits for it until
+// the terminate's shared deadline (tinycld.org/core/shutdown), which has no
+// bound of its own. A long-running loop selects on ctx.Done().
 package background
 
 import (
@@ -29,6 +30,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/logging"
+	"tinycld.org/core/shutdown"
 )
 
 // storeKeyPrefix namespaces the runners in the app's store. The store, not a
@@ -38,8 +40,8 @@ import (
 const storeKeyPrefix = "tinycld.background."
 
 // stallWarnInterval is how often a terminate that is still waiting logs the
-// jobs it waits for. The wait itself has no bound; the log tells an operator
-// which job holds up a shutdown.
+// jobs it waits for. Only a drain's deadline is longer than this; the log
+// tells an operator which job holds up the drain.
 var stallWarnInterval = 10 * time.Second
 
 // Jobs runs one package's background work for one app.
@@ -72,6 +74,8 @@ type Jobs struct {
 // store's GetOrSet: the store holds its lock while it makes a value, so the
 // nested read deadlocks. Call For first and capture the runner.
 func For(app core.App, pkg string) *Jobs {
+	// Outside the GetOrSet below: Register makes its own store value.
+	shutdown.Register(app)
 	v := app.Store().GetOrSet(storeKeyPrefix+pkg, func() any {
 		return bind(app, pkg)
 	})
@@ -90,7 +94,7 @@ func bind(app core.App, pkg string) *Jobs {
 		running: map[uint64]string{},
 	}
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		jobs.stop()
+		jobs.stop(shutdown.Context(app))
 		return e.Next()
 	})
 	return jobs
@@ -136,12 +140,17 @@ func (j *Jobs) finished(id uint64) {
 	j.mu.Unlock()
 }
 
-// stop refuses new jobs, ends ctx, and waits for the running ones. The wait
-// has no bound, as the fork's own background file deletes have none: a job
-// still running when the database closes is the crash this type prevents.
-// The cancelled ctx makes the wait short, because each job stops at its next
-// check. A second stop (a test that calls app.Cleanup twice) returns at once.
-func (j *Jobs) stop() {
+// stop refuses new jobs, ends the jobs' ctx, and waits for the running ones
+// until deadline ends: a job in progress must finish, because a job still
+// running when the database closes is the crash this type prevents. The
+// cancelled ctx makes the wait short, as each job stops at its next check.
+//
+// The wait has no bound of its own, but it cannot outlast the terminate's
+// shared deadline: past it the process is killed, and returning lets the
+// finalizer close the database cleanly first. A job still running then is
+// logged at Error, as its next query panics on the closed database. A second
+// stop (a test that calls app.Cleanup twice) returns at once.
+func (j *Jobs) stop(deadline context.Context) {
 	j.mu.Lock()
 	j.stopped = true
 	j.cancel()
@@ -158,10 +167,28 @@ func (j *Jobs) stop() {
 		select {
 		case <-done:
 			return
+		case <-deadline.Done():
+			if closed(done) {
+				return
+			}
+			j.log.Error("closing the app under background jobs that did not stop by the terminate's deadline",
+				"jobs", j.runningNames(), "cause", context.Cause(deadline))
+			return
 		case <-ticker.C:
 			j.log.Warn("terminate is waiting for background jobs that have not stopped",
 				"jobs", j.runningNames())
 		}
+	}
+}
+
+// closed reports whether done is closed. A select picks at random among ready
+// cases, so the deadline's case checks it before it reports a job as cut.
+func closed(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	default:
+		return false
 	}
 }
 

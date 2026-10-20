@@ -1,6 +1,7 @@
 package fts
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,10 @@ type SearchOpts struct {
 	IncludeDeleted bool
 	// Exclude holds space-separated terms that must NOT match.
 	Exclude string
+	// Ctx bounds the queries: when it ends, Search returns its error rather
+	// than run, or finish, a query. Nil means context.Background(). A
+	// federated search source passes its search.Query's Context() here.
+	Ctx context.Context
 }
 
 // Search runs a scoped FTS5 MATCH for one config, returning hits (ordered by
@@ -45,6 +50,14 @@ type SearchOpts struct {
 // against tests.TestApp — that is what makes the disabled-user and nil-Scope
 // checks below unit-testable at all, matching drive's equivalent function.
 func Search(app core.App, cfg Config, userID string, opts SearchOpts) ([]SearchResult, int, error) {
+	ctx := opts.Ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	match := SanitizeQueryWithExclusions(opts.Query, opts.Exclude)
 	if match == "" {
 		return nil, 0, nil
@@ -112,7 +125,7 @@ func Search(app core.App, cfg Config, userID string, opts SearchOpts) ([]SearchR
 	}
 
 	var rows []dbx.NullStringMap
-	if err := app.DB().NewQuery(searchSQL).Bind(dbx.Params(rowParams)).All(&rows); err != nil {
+	if err := app.DB().NewQuery(searchSQL).WithContext(ctx).Bind(dbx.Params(rowParams)).All(&rows); err != nil {
 		return nil, 0, err
 	}
 
@@ -136,7 +149,10 @@ func Search(app core.App, cfg Config, userID string, opts SearchOpts) ([]SearchR
 	var count struct {
 		Total int `db:"total"`
 	}
-	if err := app.DB().NewQuery(countSQL).Bind(dbx.Params(params)).One(&count); err != nil {
+	if err := app.DB().NewQuery(countSQL).WithContext(ctx).Bind(dbx.Params(params)).One(&count); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, 0, ctxErr
+		}
 		// A count failure shouldn't drop the results already fetched.
 		count.Total = len(results)
 	}

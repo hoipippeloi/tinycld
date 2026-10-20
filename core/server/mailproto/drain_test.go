@@ -2,6 +2,7 @@ package mailproto
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"net"
 	"strings"
@@ -493,7 +494,7 @@ func TestIMAPRefusesNewWorkDuringTheDrain(t *testing.T) {
 // A session refused as the drain begins never reaches the feature's backend.
 func TestNewSessionRefusedDuringTheDrain(t *testing.T) {
 	d := newDrain("widget", true)
-	d.shutdown()
+	d.shutdown(context.Background())
 	if d.beginSession(nil, nil) {
 		t.Fatal("a session began after the drain")
 	}

@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -114,7 +115,13 @@ func SolveCompat(
 // version peer ranges on @tinycld/core compare against is CORE's — the nested
 // tinycld/core/package.json — mirroring the host's changedMemberVersion.
 func VerifyTargetPeerVersions(m RebuildManifest, buildDir string) error {
-	members, err := readBuildMembers(m, buildDir)
+	return VerifyTargetPeerVersionsContext(context.Background(), m, buildDir)
+}
+
+// VerifyTargetPeerVersionsContext is VerifyTargetPeerVersions with the
+// manifest reads bound to ctx.
+func VerifyTargetPeerVersionsContext(ctx context.Context, m RebuildManifest, buildDir string) error {
+	members, err := readBuildMembers(ctx, m, buildDir)
 	if err != nil {
 		return fmt.Errorf("verify peer versions: %w", err)
 	}

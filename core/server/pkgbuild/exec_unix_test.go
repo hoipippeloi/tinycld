@@ -3,10 +3,12 @@
 package pkgbuild
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // The regression this function exists for: CopyDir must not try to reproduce
@@ -39,4 +41,49 @@ func TestCopyDir_DoesNotPreserveOwnership(t *testing.T) {
 	if int(st.Uid) != os.Geteuid() {
 		t.Errorf("copied file uid = %d, want the copying process's %d", st.Uid, os.Geteuid())
 	}
+}
+
+// A cancelled command dies with every process it started: a build tool's
+// children (pnpm's node, go's compiler) would otherwise keep running and
+// keep the output pipes open.
+func TestRunCmdContext_CancelKillsTheProcessGroup(t *testing.T) {
+	heartbeat := filepath.Join(t.TempDir(), "heartbeat")
+	script := `(while true; do echo beat >> "$1"; sleep 0.05; done) & wait`
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := RunCmdContext(ctx, t.TempDir(), "sh", "-c", script, "sh", heartbeat)
+		done <- err
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for size(heartbeat) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the command never started its child")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a cancelled command reported success")
+		}
+	case <-time.After(cmdWaitDelay):
+		t.Fatal("the cancelled command did not return before its pipes' wait delay")
+	}
+	time.Sleep(200 * time.Millisecond)
+	before := size(heartbeat)
+	time.Sleep(300 * time.Millisecond)
+	if after := size(heartbeat); after != before {
+		t.Fatalf("the command's child still runs after the cancel (heartbeat %d -> %d bytes)", before, after)
+	}
+}
+
+func size(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
 }

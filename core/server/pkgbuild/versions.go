@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -166,14 +167,14 @@ func StripNpmVersion(spec string) string {
 // ListNpmVersions returns all published versions of an npm package, newest
 // first. Shells out to `npm view <name> versions --json`.
 func ListNpmVersions(name string) ([]string, error) {
-	return listNpmVersions(name, "")
+	return listNpmVersions(context.Background(), name, "")
 }
 
 // listNpmVersions is ListNpmVersions with an optional registry override
 // (empty = npm's default resolution) — the same seam npmPackWith gives member
 // fetches, so a router fronting a local registry discovers versions from it
 // too.
-func listNpmVersions(name, registry string) ([]string, error) {
+func listNpmVersions(ctx context.Context, name, registry string) ([]string, error) {
 	args := []string{"view", name, "versions", "--json"}
 	if registry != "" {
 		args = append(args, "--registry", registry)
@@ -182,7 +183,7 @@ func listNpmVersions(name, registry string) ([]string, error) {
 	// would put them in front of the JSON — every listing then failed to
 	// parse whenever npm warned about anything (e.g. a workspace .npmrc near
 	// the server's cwd).
-	out, err := RunCmdStdout(".", "npm", args...)
+	out, err := RunCmdStdoutContext(ctx, ".", "npm", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,13 +209,17 @@ func listNpmVersions(name, registry string) ([]string, error) {
 // Shells out to `git ls-remote --tags <remote>` and keeps tags that parse as
 // semver (with or without a leading v), normalized to the bare version.
 func ListGitTagVersions(remote string) ([]string, error) {
+	return listGitTagVersions(context.Background(), remote)
+}
+
+func listGitTagVersions(ctx context.Context, remote string) ([]string, error) {
 	// A local file:// remote (self-hosted/air-gapped base, or the integration
 	// test's provisioned bare repo) may be owned by a different user than the
 	// runtime user, so git would refuse with "detected dubious ownership". The
 	// entrypoint writes `safe.directory=*` to the runtime user's GLOBAL git
 	// config to allow it — git honors the wildcard ONLY from a config file, not
 	// from `-c`/GIT_CONFIG_* env, so it can't be set here on the command line.
-	out, err := RunCmd(".", "git", "ls-remote", "--tags", "--refs", GitRemoteURL(remote))
+	out, err := RunCmdContext(ctx, ".", "git", "ls-remote", "--tags", "--refs", GitRemoteURL(remote))
 	if err != nil {
 		return nil, ErrFromCmd("git ls-remote", out, err)
 	}
@@ -265,7 +270,14 @@ func GitRemoteURL(spec string) string {
 
 // VersionsForSpec resolves a spec's available versions through the cache.
 func VersionsForSpec(spec string) (source PkgSource, versions []string, fetchErr string) {
-	return VersionsForSpecVia(spec, "")
+	return VersionsForSpecContext(context.Background(), spec)
+}
+
+// VersionsForSpecContext is VersionsForSpec with the lookup's npm or git
+// command bound to ctx. A lookup that ctx ended is not cached: it says
+// nothing about the source.
+func VersionsForSpecContext(ctx context.Context, spec string) (source PkgSource, versions []string, fetchErr string) {
+	return versionsForSpecVia(ctx, spec, "")
 }
 
 // VersionsForSpecVia is VersionsForSpec against an overridden npm registry
@@ -273,6 +285,10 @@ func VersionsForSpec(spec string) (source PkgSource, versions []string, fetchErr
 // entry can never satisfy an overridden lookup or vice versa; git specs
 // ignore it.
 func VersionsForSpecVia(spec, registry string) (source PkgSource, versions []string, fetchErr string) {
+	return versionsForSpecVia(context.Background(), spec, registry)
+}
+
+func versionsForSpecVia(ctx context.Context, spec, registry string) (source PkgSource, versions []string, fetchErr string) {
 	cacheKey := spec
 	if registry != "" {
 		cacheKey = registry + "\x00" + spec
@@ -284,14 +300,14 @@ func VersionsForSpecVia(spec, registry string) (source PkgSource, versions []str
 	entry := versionCacheEntry{source: src}
 	switch src {
 	case SourceNpm:
-		v, err := listNpmVersions(key, registry)
+		v, err := listNpmVersions(ctx, key, registry)
 		if err != nil {
 			entry.err = err.Error()
 		} else {
 			entry.versions = v
 		}
 	case SourceGit:
-		v, err := ListGitTagVersions(key)
+		v, err := listGitTagVersions(ctx, key)
 		if err != nil {
 			entry.err = err.Error()
 		} else {
@@ -300,7 +316,9 @@ func VersionsForSpecVia(spec, registry string) (source PkgSource, versions []str
 	default:
 		entry.err = "unrecognized package spec; cannot determine version source"
 	}
-	storeVersions(cacheKey, entry)
+	if ctx.Err() == nil {
+		storeVersions(cacheKey, entry)
+	}
 	return entry.source, entry.versions, entry.err
 }
 

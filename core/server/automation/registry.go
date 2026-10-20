@@ -7,6 +7,7 @@
 package automation
 
 import (
+	"context"
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -34,6 +35,19 @@ type ActionRequest struct {
 	// MarkEngineWrite so its output carries this provenance forward and the
 	// chain terminates at maxChainDepth.
 	Depth int
+	// Ctx ends when the action's timeout fires or the app terminates. Read
+	// it through Context(), which never returns nil. See ActionHandler for
+	// what a handler must do with it.
+	Ctx context.Context
+}
+
+// Context returns the action's context, or context.Background() for a
+// request built without one (a package test that calls its handler directly).
+func (r ActionRequest) Context() context.Context {
+	if r.Ctx == nil {
+		return context.Background()
+	}
+	return r.Ctx
 }
 
 // ActionHandler is the function shape RegisterAction installs. See
@@ -45,6 +59,16 @@ type ActionRequest struct {
 // provenance for you here — it hands the handler an app and never sees the
 // Save — so an unstamped write reads as a user edit and re-fires the trigger
 // that invoked the handler, with no depth to terminate on.
+//
+// A handler must honour req.Context(): pass it to every outbound request
+// (HTTP, mail, push) and return when it ends, and do no DB write after it
+// ends. The engine cancels it when the action's timeout fires and when the
+// app terminates. At terminate the engine waits a bounded time for cancelled
+// actions to return, then the database closes. A handler that ignores the
+// context can still be running then; its next query fails (the panic is
+// recovered) and that write is lost. MarkEngineWrite and the record-op path
+// refuse a write after the context ends, so a handler that writes through
+// MarkEngineWrite gets that check for free.
 type ActionHandler func(app core.App, req ActionRequest) error
 
 // OwnerResolver maps a trigger record to the user ids the event belongs to,

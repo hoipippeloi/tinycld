@@ -4,14 +4,18 @@ package automation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime/debug"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/readonly"
+	"tinycld.org/core/shutdown"
 )
 
 const (
@@ -19,10 +23,11 @@ const (
 	actionTimeout    = 30 * time.Second
 	dispatchQueueLen = 1024
 	// shutdownDrainWait bounds how long OnTerminate waits for an in-flight
-	// dispatch to finish. Long enough for the common case — a dispatch mid-
-	// flight finishes its current DB call — but a hung action must not hold
-	// up process shutdown, mirroring the abandon-don't-kill design of the
-	// per-action timeout below.
+	// dispatch, and the actions it started, to finish. The terminate cancels
+	// every action's context first, so an action that honours it returns at
+	// once; an action that ignores it must not hold up process shutdown.
+	// The terminate's shared deadline (tinycld.org/core/shutdown) can cut it
+	// shorter.
 	shutdownDrainWait = 5 * time.Second
 )
 
@@ -39,21 +44,29 @@ type event struct {
 }
 
 type Engine struct {
-	app     core.App
-	defs    *Defs
-	queue   chan event
+	app   core.App
+	defs  *Defs
+	queue chan event
+	// ctx ends at OnTerminate. Every action's context derives from it, so
+	// the terminate cancels the actions in flight.
+	ctx     context.Context
 	cancel  context.CancelFunc
 	done    chan struct{}
 	started bool
+	// actions counts action goroutines still running, including those the
+	// per-action timeout gave up on. The terminate waits for them.
+	actions sync.WaitGroup
 	// waitWritable is readonly.WaitInactive; a test swaps it before starting
 	// a worker to learn that the worker has reached the wait.
 	waitWritable func(context.Context) error
 }
 
 func NewEngine(app core.App, defs *Defs) *Engine {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Engine{
 		app: app, defs: defs,
 		queue: make(chan event, dispatchQueueLen), done: make(chan struct{}),
+		ctx: ctx, cancel: cancel,
 		waitWritable: readonly.WaitInactive,
 	}
 }
@@ -69,26 +82,18 @@ func (e *Engine) Start() {
 	}
 	e.started = true
 
-	ctx, cancel := context.WithCancel(context.Background())
-	e.cancel = cancel
+	shutdown.Register(e.app)
 	e.app.OnTerminate().BindFunc(func(te *core.TerminateEvent) error {
-		cancel()
-		// Wait for the worker to actually exit before letting teardown
-		// proceed: cancelling only stops it from picking up the NEXT event —
-		// a dispatch already in flight is still touching the DB, and a test
-		// app's Cleanup() tears the DB down right after this hook returns.
-		// Bounded rather than unconditional: a dispatch can run N rules × M
-		// actions × a 30s per-action timeout plus prune I/O, and a hung
-		// action must not hold up process shutdown — same abandon-don't-kill
-		// tradeoff as the per-action timeout itself.
-		select {
-		case <-e.done:
-		case <-time.After(shutdownDrainWait):
-			log.Warn("worker did not drain before terminate; abandoning in-flight dispatch")
-		}
+		e.cancel()
+		ctx, cancel := shutdown.Within(e.app, shutdownDrainWait)
+		defer cancel()
+		e.drain(ctx)
 		return te.Next()
 	})
-	go e.worker(ctx)
+	// Bound after the drain above, so the runner stops after the worker: a
+	// notice the last dispatch starts is then waited for, not dropped.
+	background.For(e.app, jobsPkg)
+	go e.worker(e.ctx)
 
 	type colOp struct{ col, op string }
 	seen := map[colOp]bool{}
@@ -206,6 +211,42 @@ func (e *Engine) recordHookHandler(col, op string) func(*core.RecordEvent) error
 	}
 }
 
+// drain waits, at most wait in all, for the worker to exit and then for every
+// action goroutine to return. The caller has cancelled e.ctx, so the worker
+// starts no new action and each action's context has ended. The wait is
+// needed because a dispatch in flight still touches the DB, and a test app's
+// Cleanup() tears the DB down right after the terminate hook returns.
+//
+// Bounded rather than unconditional: an action that ignores its context, or
+// a DB call that cannot be cancelled, must not hold up process shutdown. Such
+// an action is abandoned; its next query fails against the closed database
+// (the panic is recovered) and that write is lost — the risk ActionHandler's
+// contract documents.
+// drain waits, until ctx ends, for the worker to exit and then for the
+// actions it started.
+func (e *Engine) drain(ctx context.Context) {
+	select {
+	case <-e.done:
+	case <-ctx.Done():
+		log.Warn("worker did not drain before terminate; abandoning in-flight dispatch",
+			"cause", context.Cause(ctx))
+		return
+	}
+	// Only after the worker has exited: it is the one goroutine that adds to
+	// e.actions, and a WaitGroup must not see an Add race its Wait.
+	actionsDone := make(chan struct{})
+	go func() {
+		e.actions.Wait()
+		close(actionsDone)
+	}()
+	select {
+	case <-actionsDone:
+	case <-ctx.Done():
+		log.Warn("actions did not return after cancel before terminate; abandoning them",
+			"cause", context.Cause(ctx))
+	}
+}
+
 func (e *Engine) enqueue(ev event) {
 	select {
 	case e.queue <- ev:
@@ -235,7 +276,7 @@ func (e *Engine) worker(ctx context.Context) {
 					"dropped", 1+len(e.queue))
 				return
 			}
-			e.dispatchSafely(ev)
+			e.dispatchSafely(ctx, ev)
 		}
 	}
 }
@@ -244,7 +285,7 @@ func (e *Engine) worker(ctx context.Context) {
 // is the only consumer of the queue, so an unwinding panic here would take the
 // process down and leave every later trigger unserved — a single malformed rule
 // must not become a crash loop.
-func (e *Engine) dispatchSafely(ev event) {
+func (e *Engine) dispatchSafely(ctx context.Context, ev event) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Error("dispatch panicked, dropping event",
@@ -252,11 +293,11 @@ func (e *Engine) dispatchSafely(ev event) {
 				"stack", string(debug.Stack()))
 		}
 	}()
-	e.dispatch(ev)
+	e.dispatch(ctx, ev)
 }
 
 // DispatchForTest runs one event synchronously.
-func (e *Engine) DispatchForTest(ev event) { e.dispatch(ev) }
+func (e *Engine) DispatchForTest(ev event) { e.dispatch(e.ctx, ev) }
 
 type storedAction struct {
 	Ref    string         `json:"ref"`
@@ -278,7 +319,7 @@ func decodeActions(raw any) ([]storedAction, error) {
 	return out, json.Unmarshal(b, &out)
 }
 
-func (e *Engine) dispatch(ev event) {
+func (e *Engine) dispatch(ctx context.Context, ev event) {
 	var rules []*core.Record
 	if ev.RuleID != "" {
 		// Manual-run/scheduled-run targets one specific rule directly, bypassing
@@ -329,6 +370,11 @@ func (e *Engine) dispatch(ev event) {
 		if stopped {
 			break
 		}
+		// The app is terminating: the rules not yet run wait for the next
+		// trigger, as they would had the event arrived a moment later.
+		if ctx.Err() != nil {
+			return
+		}
 		if rule.Id == ev.SourceRule {
 			continue // a rule never re-fires on its own write
 		}
@@ -361,7 +407,7 @@ func (e *Engine) dispatch(ev event) {
 		results := make([]ActionResult, 0, len(actions))
 		failed := 0
 		for _, a := range actions {
-			res := actionResult(a.Ref, e.runActionWithTimeout(a, rule, ev))
+			res := actionResult(a.Ref, e.runActionWithTimeout(ctx, a, rule, ev))
 			if res.Status == "error" {
 				failed++
 			}
@@ -369,8 +415,11 @@ func (e *Engine) dispatch(ev event) {
 		}
 		// The run row is written last: a reader that sees it (the rules UI,
 		// a test waiting on rule_runs) must also see the failure streak and
-		// any auto-disable this run caused.
-		recordRunResult(e.app, rule, len(actions) > 0 && failed == len(actions))
+		// any auto-disable this run caused. A run the terminate cut short is
+		// not the rule failing, so it does not count toward auto-disable.
+		if ctx.Err() == nil {
+			recordRunResult(e.app, rule, len(actions) > 0 && failed == len(actions))
+		}
 		WriteRun(e.app, rule, ev.Record, ev.Trigger, RunOutcome{Matched: true, Results: results, Duration: time.Since(start)})
 
 		if rule.GetBool("stop_processing") {
@@ -403,17 +452,28 @@ type timeoutErr struct{}
 
 func (timeoutErr) Error() string { return "action timed out" }
 
-// runActionWithTimeout abandons (does not kill) an overrunning action: the PB
-// SDK has no context-cancellable Save, so the goroutine finishes on its own
-// while the run is recorded as timed out. Abandoned means exactly that — the
-// goroutine keeps running against ev.Record (and whatever else ExecuteAction
-// touches) after this function has returned and the dispatch loop has moved
-// on to the next rule/event using that same *core.Record. A hung Save that
-// eventually completes (e.g. a 30s+ stall) can still mutate the record out
-// from under later code that assumed the timeout meant nothing happened.
-func (e *Engine) runActionWithTimeout(a storedAction, rule *core.Record, ev event) error {
+var errShuttingDown = errors.New("action cancelled: server is shutting down")
+
+// runActionWithTimeout runs one action under a context that ends at
+// actionTimeout or when ctx (the engine's) ends at terminate. It returns when
+// the action does or when that context ends, whichever is first.
+//
+// Cancelling is all it can do: an action that ignores its context keeps
+// running after this returns, against ev.Record (and whatever else it
+// touches) while the dispatch loop moves on with that same *core.Record. The
+// record-op path and MarkEngineWrite refuse a write after the context ends,
+// which closes that gap for every write that goes through them. The goroutine
+// is counted in e.actions, so the terminate waits for it.
+func (e *Engine) runActionWithTimeout(ctx context.Context, a storedAction, rule *core.Record, ev event) error {
+	if ctx.Err() != nil {
+		return errShuttingDown
+	}
+	actionCtx, cancel := context.WithTimeout(ctx, actionTimeout)
+	defer cancel()
 	done := make(chan error, 1)
+	e.actions.Add(1)
 	go func() {
+		defer e.actions.Done()
 		// A handler panic must surface as a failed action on this rule's run,
 		// not as a dead process: this goroutine is separate from the worker's,
 		// so the worker's recover cannot see it.
@@ -425,12 +485,15 @@ func (e *Engine) runActionWithTimeout(a storedAction, rule *core.Record, ev even
 				done <- fmt.Errorf("action %s panicked: %v", a.Ref, r)
 			}
 		}()
-		done <- ExecuteAction(e.app, e.defs, a.Ref, a.Params, rule, ev.Trigger, ev.Record, ev.Depth)
+		done <- ExecuteActionContext(actionCtx, e.app, e.defs, a.Ref, a.Params, rule, ev.Trigger, ev.Record, ev.Depth)
 	}()
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(actionTimeout):
+	case <-actionCtx.Done():
+		if ctx.Err() != nil {
+			return errShuttingDown
+		}
 		return timeoutErr{}
 	}
 }

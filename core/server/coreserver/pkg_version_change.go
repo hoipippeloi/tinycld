@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,7 +45,9 @@ var errJobBusy = errors.New("another operation is in progress")
 
 // beginVersionChange is the shared start of a version change for the HTTP
 // handler and the upgrade scheduler: validate, gate on compatibility, claim
-// the single-flight job, and run the rebuild in the background.
+// the single-flight job, and hand the rebuild to the app's rebuild runner. It
+// does not wait for the build: the caller (a request, an auto-upgrade tick)
+// returns as soon as the job has started.
 func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.VersionChange, trigger string) (*installjob.Job, error) {
 	if len(changes) == 0 {
 		return nil, errors.New("at least one change is required")
@@ -78,7 +81,10 @@ func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.Version
 	if _, ok := installjob.Claim(job); !ok {
 		return nil, errJobBusy
 	}
-	go runVersionChangeRebuild(app, job)
+	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runVersionChangeRebuild(run, app, job) }); err != nil {
+		finishJob(job)
+		return nil, err
+	}
 	return job, nil
 }
 
@@ -120,7 +126,10 @@ func handleVersionChange(app *pocketbase.PocketBase, re *core.RequestEvent) erro
 // report means no destructive schema change. If targetVersion is omitted (or the
 // target can't be fetched), it falls back to the current build's full set — an
 // upper bound — so the UI still gets a (conservative) warning.
-func handleDropReport(app *pocketbase.PocketBase, re *core.RequestEvent) error {
+//
+// The fetch runs under the request's context: a client that gives up ends the
+// request, which kills npm pack and every process it started.
+func handleDropReport(app core.App, re *core.RequestEvent) error {
 	var body struct {
 		Slug          string `json:"slug"`
 		TargetVersion string `json:"targetVersion"`
@@ -139,7 +148,7 @@ func handleDropReport(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 	// Narrow to exactly what the downgrade reverts: current ∖ target. Best-effort
 	// — if the target can't be fetched, fall back to the full current set.
 	if body.TargetVersion != "" {
-		if targetFiles, err := targetMigrationFiles(app, body.Slug, body.TargetVersion); err == nil {
+		if targetFiles, err := targetMigrationFiles(re.Request.Context(), app, body.Slug, body.TargetVersion); err == nil {
 			files = subtractStrings(files, targetFiles)
 		} else {
 			// Best-effort fallback already in play (reports the conservative
@@ -164,7 +173,8 @@ func handleDropReport(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 // targetMigrationFiles read-only fetches a package version and returns the
 // migration filenames it ships (the basenames in its manifest migrations dir).
 // It does NOT touch the workspace — it packs into a temp dir and lists files.
-func targetMigrationFiles(app core.App, slug, targetVersion string) ([]string, error) {
+// Every command it runs is bound to ctx.
+func targetMigrationFiles(ctx context.Context, app core.App, slug, targetVersion string) ([]string, error) {
 	reg, err := app.FindFirstRecordByFilter("pkg_registry", "slug = {:s}",
 		map[string]any{"s": slug})
 	if err != nil {
@@ -181,19 +191,19 @@ func targetMigrationFiles(app core.App, slug, targetVersion string) ([]string, e
 	}
 	defer os.RemoveAll(tmpDir)
 
-	if out, err := runCmd(tmpDir, "npm", "pack", spec, "--pack-destination", tmpDir); err != nil {
+	if out, err := runCmdContext(ctx, tmpDir, "npm", "pack", spec, "--pack-destination", tmpDir); err != nil {
 		return nil, errFromCmd("npm pack", out, err)
 	}
 	tgz, _ := filepath.Glob(filepath.Join(tmpDir, "*.tgz"))
 	if len(tgz) == 0 {
 		return nil, fmt.Errorf("no .tgz produced by npm pack %s", spec)
 	}
-	if _, err := runCmd(tmpDir, "tar", "xzf", tgz[0], "-C", tmpDir); err != nil {
+	if _, err := runCmdContext(ctx, tmpDir, "tar", "xzf", tgz[0], "-C", tmpDir); err != nil {
 		return nil, fmt.Errorf("untar: %w", err)
 	}
 	extractDir := filepath.Join(tmpDir, "package")
 
-	migDir, err := targetMigrationsDir(slug, extractDir)
+	migDir, err := targetMigrationsDir(ctx, slug, extractDir)
 	if err != nil {
 		return nil, err
 	}
@@ -211,14 +221,14 @@ func targetMigrationFiles(app core.App, slug, targetVersion string) ([]string, e
 // make the core drop report fall back to dry-reverting the ENTIRE core migration
 // set (and error out), so a core downgrade wrongly reported no data loss. Every
 // other package declares its dir through manifest.migrations.directory.
-func targetMigrationsDir(slug, extractDir string) (string, error) {
+func targetMigrationsDir(ctx context.Context, slug, extractDir string) (string, error) {
 	if slug == baseRegistrySlug {
 		// The base tarball is the `tinycld` member packed at its own root, so its
 		// core migrations sit at core/server/pb_migrations (NOT nested under
 		// tinycld/). Matches the `npm notice core/server/pb_migrations/…` layout.
 		return filepath.Join("core", "server", "pb_migrations"), nil
 	}
-	manifest, err := parseManifestViaNode(extractDir)
+	manifest, err := parseManifestViaNodeContext(ctx, extractDir)
 	if err != nil {
 		return "", fmt.Errorf("parse manifest: %w", err)
 	}

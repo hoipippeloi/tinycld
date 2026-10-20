@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -89,7 +90,15 @@ type npmPackSource struct {
 // sha256 + untar. Its CopyCurrent always fails — only a host with a
 // currently-active build can copy members from one, and such a host wraps
 // this source with its own CopyCurrent (coreserver's hostMemberSource).
-func NpmPackSource() MemberSource { return npmPackSource{pack: realPack} }
+func NpmPackSource() MemberSource { return NpmPackSourceContext(context.Background()) }
+
+// NpmPackSourceContext is NpmPackSource with its npm pack and untar bound to
+// ctx (see commandContext).
+func NpmPackSourceContext(ctx context.Context) MemberSource {
+	return npmPackSource{pack: func(spec, workDir string) (string, string, error) {
+		return realPack(ctx, spec, workDir)
+	}}
+}
 
 func (s npmPackSource) Fetch(ms MemberSpec, buildDir string) (string, error) {
 	return fetchMemberWith(ms, buildDir, s.pack)
@@ -104,12 +113,12 @@ func (s npmPackSource) CopyCurrent(ms MemberSpec, buildDir string) (string, erro
 // tarball integrity. The hash is taken between pack and untar — the one
 // moment the exact fetched bytes exist as a single artifact — so the recipe
 // identity covers precisely what the build consumed.
-func realPack(spec, _ string) (string, string, error) {
+func realPack(ctx context.Context, spec, _ string) (string, string, error) {
 	tmp, err := os.MkdirTemp("", "tinycld-fetch-*")
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := RunCmd(tmp, "npm", "pack", spec); err != nil {
+	if _, err := RunCmdContext(ctx, tmp, "npm", "pack", spec); err != nil {
 		return "", "", fmt.Errorf("npm pack %s: %w", spec, err)
 	}
 	entries, _ := os.ReadDir(tmp)
@@ -127,7 +136,7 @@ func realPack(spec, _ string) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("hash %s: %w", tgz, err)
 	}
-	if _, err := RunCmd(tmp, "tar", "xzf", tgz); err != nil {
+	if _, err := RunCmdContext(ctx, tmp, "tar", "xzf", tgz); err != nil {
 		return "", "", fmt.Errorf("untar %s: %w", tgz, err)
 	}
 	// npm pack always extracts into a subdirectory named "package".
@@ -156,6 +165,14 @@ func fetchMemberWith(ms MemberSpec, buildDir string, pack packFn) (string, error
 // srcRoot is where the scaffold extras (incl. the overrides file) are copied
 // from — the host's active workspace root, or the builder's scaffold source.
 func AssembleBuild(sink ProgressSink, m RebuildManifest, buildDir string, src MemberSource, srcRoot string, opts ScaffoldOptions) error {
+	return AssembleBuildContext(context.Background(), sink, m, buildDir, src, srcRoot, opts)
+}
+
+// AssembleBuildContext is AssembleBuild bound to ctx: it stops before the next
+// member once ctx has ended, and binds its own commands (the scaffold copy,
+// the manifest reads) to ctx. src's commands are src's own; pass a source
+// bound to the same ctx (NpmPackSourceContext).
+func AssembleBuildContext(ctx context.Context, sink ProgressSink, m RebuildManifest, buildDir string, src MemberSource, srcRoot string, opts ScaffoldOptions) error {
 	sink = sinkOrNop(sink)
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
 		return err
@@ -171,6 +188,9 @@ func AssembleBuild(sink ProgressSink, m RebuildManifest, buildDir string, src Me
 	members := make([]string, 0, len(m.Members))
 	integrities := make(map[string]string, len(m.Members))
 	for i, ms := range m.Members {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("assemble stopped before member %s: %w", ms.Slug, err)
+		}
 		// Tick the progress bar across the assemble band [ProgAssembleStart,
 		// ProgAssembleEnd) as each member is materialized, BEFORE the work so a
 		// slow npm-pack visibly parks the bar on the member it's fetching rather
@@ -196,14 +216,14 @@ func AssembleBuild(sink ProgressSink, m RebuildManifest, buildDir string, src Me
 		members = append(members, ms.Slug)
 	}
 	sink.Logf("assembled %d members; writing workspace scaffold", len(members))
-	if err := WriteWorkspaceScaffold(buildDir, members, srcRoot, opts); err != nil {
+	if err := writeWorkspaceScaffold(ctx, buildDir, members, srcRoot, opts); err != nil {
 		return err
 	}
 	// Record the RESOLVED member set (names + semvers from the on-disk
 	// manifests, tarball integrities from the source) so the build carries its
 	// own identity — the RecipeHash input, and the integrity carry-forward
 	// source for the NEXT build's FromCurrent members.
-	resolvedMembers, err := ResolveMembers(m, buildDir, integrities)
+	resolvedMembers, err := resolveMembers(ctx, m, buildDir, integrities)
 	if err != nil {
 		return err
 	}
@@ -231,13 +251,17 @@ func assembleMemberPct(i, n int) int {
 // The contents mirror the canonical assembled-root files; only the pnpm
 // `packages:` list varies per build, plus the injected storeDir.
 func WriteWorkspaceScaffold(buildDir string, members []string, srcRoot string, opts ScaffoldOptions) error {
+	return writeWorkspaceScaffold(context.Background(), buildDir, members, srcRoot, opts)
+}
+
+func writeWorkspaceScaffold(ctx context.Context, buildDir string, members []string, srcRoot string, opts ScaffoldOptions) error {
 	if err := writeRootPackageJSON(buildDir, members); err != nil {
 		return err
 	}
 	// Copy the scaffold extras FIRST: writePnpmWorkspaceYAML reads
 	// package-versions.json (a scaffold extra) to emit the `overrides:` block, so
 	// the file must already be in buildDir when the YAML is generated.
-	if err := copyScaffoldExtras(srcRoot, buildDir); err != nil {
+	if err := copyScaffoldExtras(ctx, srcRoot, buildDir); err != nil {
 		return err
 	}
 	return writePnpmWorkspaceYAML(buildDir, members, opts.storeDir())
@@ -246,7 +270,7 @@ func WriteWorkspaceScaffold(buildDir string, members []string, srcRoot string, o
 // copyScaffoldExtras copies each scaffoldExtras entry from srcRoot to buildDir.
 // A missing source entry is skipped (unit tests assemble without a full root);
 // a real build's srcRoot always carries them.
-func copyScaffoldExtras(srcRoot, buildDir string) error {
+func copyScaffoldExtras(ctx context.Context, srcRoot, buildDir string) error {
 	for _, name := range scaffoldExtras {
 		src := filepath.Join(srcRoot, name)
 		info, err := os.Stat(src)
@@ -256,7 +280,7 @@ func copyScaffoldExtras(srcRoot, buildDir string) error {
 			}
 			return err
 		}
-		if err := copyPath(src, filepath.Join(buildDir, name), info.IsDir()); err != nil {
+		if err := copyPath(ctx, src, filepath.Join(buildDir, name), info.IsDir()); err != nil {
 			return fmt.Errorf("copy scaffold %s: %w", name, err)
 		}
 	}
@@ -265,14 +289,14 @@ func copyScaffoldExtras(srcRoot, buildDir string) error {
 
 // copyPath copies src→dst, dispatching to CopyDir for directories and a plain
 // `cp -a` for single files (CopyDir's `src/.` form is directory-only).
-func copyPath(src, dst string, isDir bool) error {
+func copyPath(ctx context.Context, src, dst string, isDir bool) error {
 	if isDir {
 		return CopyDir(src, dst)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	_, err := RunCmd(".", "cp", "-a", src, dst)
+	_, err := RunCmdContext(ctx, ".", "cp", "-a", src, dst)
 	return err
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"tinycld.org/core/drainhooks"
 	"tinycld.org/core/readonly"
+	"tinycld.org/core/shutdown"
 )
 
 // Document edits arrive as websocket frames, not HTTP requests, so the
@@ -28,10 +29,15 @@ import (
 //     connection with a going-away code. Accepting has already stopped, so
 //     a client's reconnect reaches the next process, whose hello carries
 //     the same epoch and whose sync accepts the client's diff.
-//   - terminate: Suspend for a plain stop with no supervisor.
+//   - terminate: Broker.Stop. It fences the broker, closes every connection
+//     and waits for the saves in flight, then runs the final Suspend; after it
+//     returns nothing in the broker touches the database, which the
+//     terminate chain's finalizer closes next.
 //
 // A drain's Suspend is bounded: drainhooks.RunBegin runs inside the HTTP
-// drain budget, so the flushes get suspendBudget and no more.
+// drain budget, so the flushes get suspendBudget and no more. The stop gets
+// the same budget for its waits and final pass together, cut shorter by the
+// terminate's shared deadline (tinycld.org/core/shutdown) when less is left.
 
 const (
 	suspendBudget      = 10 * time.Second
@@ -39,7 +45,11 @@ const (
 	drainCloseReason   = "server restarting; reconnect"
 	// realtimeSuspendPriority runs the terminate hook ahead of the drain's
 	// shutdown (coreserver's drainShutdownPriority, -10000), so a plain stop
-	// stores every document before PocketBase cuts request contexts.
+	// stores every document before PocketBase cuts request contexts. It is
+	// second in the chain, after only a package operation's stop, so the
+	// saves in flight get their share of the shared deadline before every
+	// wait that is cheaper to cut. Like every handler it runs before the
+	// chain's finalizer, which closes the database.
 	realtimeSuspendPriority = -10001
 )
 
@@ -49,11 +59,6 @@ var (
 	// process (on a connection accepted before accepting stopped) is turned
 	// away so the client reconnects to the next process.
 	draining atomic.Bool
-
-	// openConns maps each live room connection's Client to its websocket,
-	// so a drain can close them all.
-	openConnsMu sync.Mutex
-	openConns   = map[*Client]*websocket.Conn{}
 )
 
 // registerLifecycle binds the hooks above. The read-only hook registers
@@ -68,11 +73,12 @@ func registerLifecycle(app core.App) {
 		})
 	})
 	drainhooks.OnBegin("realtime-rooms", beginDrain)
+	shutdown.Register(app)
 	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 		Id:       "tinycldRealtimeSuspend",
 		Priority: realtimeSuspendPriority,
 		Func: func(e *core.TerminateEvent) error {
-			suspendForExit("terminate")
+			stopForExit(shutdown.Context(app), "terminate")
 			return e.Next()
 		},
 	})
@@ -81,7 +87,20 @@ func registerLifecycle(app core.App) {
 func beginDrain() {
 	draining.Store(true)
 	suspendForExit("drain")
-	closeAllConns()
+	sharedBroker().closeAllConns()
+}
+
+// stopForExit stops the shared broker and lets it go, so an app built later
+// in the same process (a test binary builds many) gets a fresh one. end is
+// the terminate's end (see Broker.Stop).
+func stopForExit(end context.Context, reason string) {
+	b := sharedBroker()
+	b.Stop(end, reason)
+	processBrokerMu.Lock()
+	if processBroker == b {
+		processBroker = nil
+	}
+	processBrokerMu.Unlock()
 }
 
 // suspendForExit stores every document unless the server is read-only, in
@@ -96,31 +115,17 @@ func suspendForExit(reason string) {
 	Suspend(ctx, reason)
 }
 
-// trackConn records conn as client's connection until the returned func runs.
-func trackConn(client *Client, conn *websocket.Conn) func() {
-	openConnsMu.Lock()
-	openConns[client] = conn
-	openConnsMu.Unlock()
-	return func() {
-		openConnsMu.Lock()
-		delete(openConns, client)
-		openConnsMu.Unlock()
-	}
-}
-
-func closeAllConns() {
-	openConnsMu.Lock()
-	conns := make([]*websocket.Conn, 0, len(openConns))
-	for _, conn := range openConns {
-		conns = append(conns, conn)
-	}
-	openConnsMu.Unlock()
+// closeAllConns sends every connection a going-away close and does not wait:
+// the process goes on draining, and the rooms' teardowns run while the
+// database is open. The stop waits for them (see Broker.Stop).
+func (b *Broker) closeAllConns() {
+	conns := b.liveConns()
 	if len(conns) == 0 {
 		return
 	}
 	log.Info("drain: closing realtime connections; clients reconnect to the next server", "count", len(conns))
-	for _, conn := range conns {
-		go closeGoingAway(conn)
+	for _, lc := range conns {
+		go closeGoingAway(lc.conn)
 	}
 }
 

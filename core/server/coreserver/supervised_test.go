@@ -167,6 +167,16 @@ func notDevelopment(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
 }
 
+// inDevelopment makes the restart paths take dev mode (nothing relaunches the
+// process) whatever directory the test binary runs from: isDevelopment reads
+// the binary's location, which go test only usually puts under os.TempDir.
+func inDevelopment(t *testing.T) {
+	t.Helper()
+	prev := isDevelopment
+	isDevelopment = func() bool { return true }
+	t.Cleanup(func() { isDevelopment = prev })
+}
+
 func recordExit(t *testing.T) *[]int {
 	t.Helper()
 	var codes []int
@@ -700,11 +710,29 @@ func TestSupervisedDrainRunsBeginHandlersFirst(t *testing.T) {
 	drainhooks.OnBegin("acme-listeners", func() { close(release) })
 	d := &drain{drainer: dr, requested: true}
 	done := make(chan struct{})
-	go func() { d.shutdown(); close(done) }()
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	go func() { d.shutdown(app); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		close(release)
 		t.Fatal("the drain waited on the request before running the drain-begin handlers")
+	}
+}
+
+// A drain message gives the child the supervisor's drain bound, a SIGTERM its
+// stop bound; the terminate's shared deadline is taken from the one that
+// began it.
+func TestDrainKillAfterFollowsWhatBeganTheStop(t *testing.T) {
+	d := &drain{}
+	killAfter := d.killAfter(3*time.Second, 11*time.Second)
+	if got := killAfter(); got != 3*time.Second {
+		t.Fatalf("a SIGTERM's kill comes after %v, want the stop bound 3s", got)
+	}
+	d.mu.Lock()
+	d.requested = true
+	d.mu.Unlock()
+	if got := killAfter(); got != 11*time.Second {
+		t.Fatalf("a drain's kill comes after %v, want the drain bound 11s", got)
 	}
 }

@@ -5,18 +5,20 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/backup"
 	"tinycld.org/core/backup/format"
 	"tinycld.org/core/backup/repo"
 	"tinycld.org/core/backup/snapshot"
 	"tinycld.org/core/installjob"
+	"tinycld.org/core/shutdown"
 )
 
 // heldRepo is a repository whose Put reports that it started and then, when
@@ -77,25 +79,18 @@ type terminateSnapshot struct {
 
 // terminate runs the app's OnTerminate chain the way PocketBase does on SIGTERM,
 // finalizer included, and reports the state just before the finalizer. The
-// observer is bound last, so it runs after every hook the composition bound.
-// It looks only once: the test app's own cleanup runs the chain again, on a
-// database this run has already closed.
+// finalizer itself looks, so it sees the state after every hook the
+// composition bound, whatever their priorities.
 func terminate(t *testing.T, app core.App, rowID string) terminateSnapshot {
 	t.Helper()
 	var seen terminateSnapshot
-	var observe sync.Once
-	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		observe.Do(func() {
+	done := make(chan error, 1)
+	go func() {
+		done <- app.OnTerminate().Trigger(&core.TerminateEvent{App: app}, func(e *core.TerminateEvent) error {
 			if row, err := e.App.FindRecordById("backups", rowID); err == nil {
 				seen.status = row.GetString("status")
 			}
 			seen.interlocked = installjob.Running()
-		})
-		return e.Next()
-	})
-	done := make(chan error, 1)
-	go func() {
-		done <- app.OnTerminate().Trigger(&core.TerminateEvent{App: app}, func(e *core.TerminateEvent) error {
 			return e.App.ResetBootstrapState()
 		})
 	}()
@@ -243,4 +238,73 @@ func TestAFailedRestartLeavesBackupsRunnable(t *testing.T) {
 	failedRestart(t, app)
 
 	runLiveBackup(t, app, "after a failed restart")
+}
+
+// stuckRepo is a repository whose Put ignores its context, as a VACUUM INTO
+// does: cancellation cannot reach it. It returns only when the test ends.
+type stuckRepo struct {
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (r *stuckRepo) Kind() string { return "stuck" }
+func (r *stuckRepo) Put(context.Context, *snapshot.Snapshot, func(int64)) (repo.PutResult, error) {
+	r.entered <- struct{}{}
+	<-r.release
+	return repo.PutResult{}, errors.New("released at the end of the test")
+}
+func (r *stuckRepo) Manifest(context.Context, repo.Ref) (format.Manifest, error) {
+	return format.Manifest{}, nil
+}
+func (r *stuckRepo) Fetch(context.Context, repo.Ref, string) error     { return nil }
+func (r *stuckRepo) List(context.Context) ([]repo.SnapshotInfo, error) { return nil, nil }
+
+// A backup run that cancellation cannot reach is the cheapest wait to cut: the
+// next boot closes its row. It must not use the terminate's shared deadline
+// before a background job that is finishing a write. The backup stop is bound
+// first ("widgets" binds its runner after the boot wiring), so at the default
+// priority it waited out the whole deadline and the database closed under the
+// job; after the default-priority handlers, the job finishes and the backup
+// wait gets what is left.
+func TestTerminate_BackupRunWaitsAfterTheBackgroundJobs(t *testing.T) {
+	const budget = 800 * time.Millisecond
+	app := terminateApp(t)
+	shutdown.SetKillAfter(app, func() time.Duration { return shutdown.FinalizerMargin + budget })
+
+	release, releaseAll := releaser()
+	t.Cleanup(releaseAll)
+	stuck := &stuckRepo{entered: make(chan struct{}, 1), release: release}
+	if _, err := backup.Start(app, backup.Request{Kind: backup.KindManual, Repo: stuck, TargetHost: stuck.Kind()}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-stuck.entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run never reached its repository")
+	}
+
+	// The job's last write takes a moment after the cancel, as a save in
+	// flight does.
+	var finished atomic.Bool
+	background.For(app, "widgets").Run("widget index", func(ctx context.Context) {
+		<-ctx.Done()
+		time.Sleep(200 * time.Millisecond)
+		finished.Store(true)
+	})
+
+	var finishedAtClose bool
+	begun := time.Now()
+	err := app.OnTerminate().Trigger(&core.TerminateEvent{App: app}, func(e *core.TerminateEvent) error {
+		finishedAtClose = finished.Load()
+		return e.App.ResetBootstrapState()
+	})
+	if err != nil {
+		t.Fatalf("terminate: %v", err)
+	}
+	if took := time.Since(begun); took >= budget+time.Second {
+		t.Fatalf("the terminate took %v; its waits did not share the %v deadline", took, budget)
+	}
+	if !finishedAtClose {
+		t.Fatal("the database closed under a background job: the backup wait used the deadline before it")
+	}
 }

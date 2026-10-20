@@ -35,31 +35,7 @@ type pkgAccessEnv struct {
 
 func setupPkgAccessApp(t *testing.T) *pkgAccessEnv {
 	t.Helper()
-	app, err := tests.NewTestApp()
-	if err != nil {
-		t.Fatalf("NewTestApp: %v", err)
-	}
-	t.Cleanup(func() { app.Cleanup() })
-
-	// Same fixture normalization as guest_rls_test.go: the bundled users
-	// collection pre-carries the username index 1820000000 adds.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	kept := users.Indexes[:0]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatal(err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	// A fake installed package "demo" owning demo_notes by naming convention,
 	// with rules any authenticated user passes — so a refused write below is
@@ -176,8 +152,7 @@ func runWrite(t *testing.T, app *tests.TestApp, method, url, token, body string,
 
 // One fresh env per scenario, each inside its own subtest: ApiScenario.Test
 // re-triggers OnServe (reusing an app panics on duplicate routes — see
-// guest_rls), and rlstest.Apply's global-migrations snapshot restores on the
-// OWNING t's cleanup, so consecutive setups need distinct t scopes.
+// guest_rls).
 func TestPkgAccess_ReadonlyMemberWritesRefused(t *testing.T) {
 	t.Run("create refused", func(t *testing.T) {
 		env := setupPkgAccessApp(t)

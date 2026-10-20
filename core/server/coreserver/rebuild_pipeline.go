@@ -1,6 +1,8 @@
 package coreserver
 
 import (
+	"context"
+
 	"tinycld.org/core/installjob"
 	"tinycld.org/core/pkgbuild"
 	"tinycld.org/core/syscfg"
@@ -11,7 +13,7 @@ import (
 // not at init: binaryName is set by Register() after package init, and
 // systemConfig values (the Sentry keys the export steps read) must be the
 // live settings at build time.
-func runBuildPipeline(job *installjob.Job, buildDir, buildID string) (buildOutput, error) {
+func runBuildPipeline(ctx context.Context, job *installjob.Job, buildDir, buildID string) (buildOutput, error) {
 	p := pkgbuild.Pipeline{
 		BinaryName: binaryName,
 		// Through the seam, not systemConfig directly. A self-rebuild only ever
@@ -22,5 +24,5 @@ func runBuildPipeline(job *installjob.Job, buildDir, buildID string) (buildOutpu
 		// this path, rather than silently building with an empty Sentry DSN.
 		ConfigValue: syscfg.Get,
 	}
-	return p.Execute(installJobSink{job}, buildDir, buildID)
+	return p.ExecuteContext(ctx, installJobSink{job}, buildDir, buildID)
 }

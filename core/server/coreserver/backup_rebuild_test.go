@@ -20,7 +20,9 @@ import (
 func stubRestoreRebuildDeps(t *testing.T, deps rebuildDeps) {
 	t.Helper()
 	prev := restoreRebuildDeps
-	restoreRebuildDeps = func(*pocketbase.PocketBase, *installjob.Job, RebuildManifest, *core.Record) rebuildDeps { return deps }
+	restoreRebuildDeps = func(*jobRun, *pocketbase.PocketBase, *installjob.Job, RebuildManifest, *core.Record) rebuildDeps {
+		return deps
+	}
 	t.Cleanup(func() { restoreRebuildDeps = prev })
 }
 
@@ -81,6 +83,7 @@ func TestSupervisedRestoreRebuildRestartsColdAndIsUnderway(t *testing.T) {
 // its maintenance 503 for a restart that never comes.
 func TestRestoreRebuildWithoutARestartIsNotUnderway(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	inDevelopment(t)
 	t.Cleanup(resetReplacementForTest)
 	exits := recordExit(t)
 	app := bootstrappedApp(t)
@@ -100,15 +103,16 @@ func TestRestoreRebuildWithoutARestartIsNotUnderway(t *testing.T) {
 // "success" before its restart.
 func TestRestoreRebuildTagsItsInstallLogRow(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
+	inDevelopment(t)
 	t.Cleanup(resetReplacementForTest)
 	recordExit(t)
 	app := bootstrappedApp(t)
 	addInstallLogCollection(t, app)
 	prev := restoreRebuildDeps
 	var buildID string
-	restoreRebuildDeps = func(a *pocketbase.PocketBase, j *installjob.Job, m RebuildManifest, r *core.Record) rebuildDeps {
+	restoreRebuildDeps = func(run *jobRun, a *pocketbase.PocketBase, j *installjob.Job, m RebuildManifest, r *core.Record) rebuildDeps {
 		buildID = m.BuildID
-		return withStubbedSteps(prev(a, j, m, r))
+		return withStubbedSteps(prev(run, a, j, m, r))
 	}
 	t.Cleanup(func() { restoreRebuildDeps = prev })
 

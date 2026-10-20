@@ -4,7 +4,6 @@ package coreserver
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"io"
 	"net"
@@ -13,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -20,6 +20,7 @@ import (
 
 	"tinycld.org/core/drainhooks"
 	"tinycld.org/core/listeners"
+	"tinycld.org/core/shutdown"
 	"tinycld.org/core/supervise"
 )
 
@@ -68,6 +69,26 @@ func (d *drain) redirectListener(srv *http.Server, l net.Listener) net.Listener 
 	return dr.Listener(l)
 }
 
+// isRequested reports whether a drain message, not a plain SIGTERM, began
+// the stop.
+func (d *drain) isRequested() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.requested
+}
+
+// killAfter is the time from the terminate to the supervisor's kill: the
+// drain bound when a drain message began the stop, the stop bound when a
+// SIGTERM did.
+func (d *drain) killAfter(stopBound, drainBound time.Duration) func() time.Duration {
+	return func() time.Duration {
+		if d.isRequested() {
+			return drainBound
+		}
+		return stopBound
+	}
+}
+
 func (d *drain) begin() {
 	d.mu.Lock()
 	d.requested = true
@@ -80,14 +101,15 @@ func (d *drain) begin() {
 
 // shutdown stops accepting (it closes the listeners this process serves on,
 // which are dups: the supervisor's own copies stay open for the next child)
-// and answers every request already accepted, within ChildDrainTimeout.
+// and answers every request already accepted, within ChildDrainTimeout or
+// what is left of the terminate's shared deadline, whichever ends first.
 //
 // Accepting stops first, with keep-alives off, so a client whose connection
 // a begin handler ends (a realtime stream) reconnects to the next server
 // rather than to this one. The drain-begin handlers run next: a package
 // serving its own port stops accepting on it now, as HTTP does, rather than
 // when its terminate hook runs after the HTTP drain.
-func (d *drain) shutdown() {
+func (d *drain) shutdown(app core.App) {
 	d.mu.Lock()
 	requested := d.requested
 	var drainers []*supervise.Drainer
@@ -104,7 +126,7 @@ func (d *drain) shutdown() {
 		dr.StopAccepting()
 	}
 	drainhooks.RunBegin()
-	ctx, cancel := context.WithTimeout(context.Background(), supervise.ChildDrainTimeout)
+	ctx, cancel := shutdown.Within(app, supervise.ChildDrainTimeout)
 	defer cancel()
 	var wg sync.WaitGroup
 	for _, dr := range drainers {
@@ -153,6 +175,9 @@ func registerSupervised(app core.App) {
 	ctl := openControl()
 	setControl(ctl)
 	d := &drain{}
+	// The supervisor kills this process a fixed time after it asks it to
+	// stop; the terminate's waits share a deadline inside that time.
+	shutdown.SetKillAfter(app, d.killAfter(supervise.ChildBounds(os.Getenv)))
 	endRealtimeOnDrain(app)
 	// The reader starts now, not at ready: a rebuild can ask for a restart
 	// before this process is ready, and its ack must be read.
@@ -190,7 +215,7 @@ func registerSupervised(app core.App) {
 		Id:       "tinycldSupervisedDrain",
 		Priority: drainShutdownPriority,
 		Func: func(e *core.TerminateEvent) error {
-			d.shutdown()
+			d.shutdown(app)
 			return e.Next()
 		},
 	})

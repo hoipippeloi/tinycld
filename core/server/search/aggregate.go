@@ -7,15 +7,20 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/logging"
 )
 
-var log = logging.ForPackage("search")
+// jobsPkg names the runner the source searches run on, and the logger.
+const jobsPkg = "search"
+
+var log = logging.ForPackage(jobsPkg)
 
 // sourceTimeout bounds one package's search. The whole request is only as slow
 // as its slowest source, so a package wedged on a lock or a pathological query
-// must not hold the others hostage — it lands in Partial instead.
-const sourceTimeout = 5 * time.Second
+// must not hold the others hostage — it lands in Partial instead. A var so a
+// test can shorten it.
+var sourceTimeout = 5 * time.Second
 
 // maxConcurrentSources caps parallel fan-out. Every source hits the same SQLite
 // file, so unbounded parallelism buys nothing and costs connection contention.
@@ -74,6 +79,12 @@ func Aggregate(ctx context.Context, app core.App, userID string, q Query, source
 	}
 	results := make([]outcome, len(sources))
 
+	// Each Search runs as a job on the app's runner, not a bare goroutine:
+	// the request stops waiting at sourceTimeout, but the call runs on until
+	// it returns, and the runner holds the app's terminate until then. A bare
+	// goroutine could still be querying when the database closes.
+	jobs := background.For(app, jobsPkg)
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrentSources)
 	for i, src := range sources {
@@ -83,30 +94,43 @@ func Aggregate(ctx context.Context, app core.App, userID string, q Query, source
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
+			// Ends at sourceTimeout, when the request ends, or (inside the
+			// job, below) at terminate. Cancelled when the wait ends, so a
+			// source still running is told to stop.
 			sourceCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 			defer cancel()
 
 			done := make(chan outcome, 1)
-			go func() {
-				// The recover must live in the goroutine that CALLS Search: a
-				// panic cannot be recovered across a goroutine boundary, so
-				// guarding the parent would let one package's bug crash the
-				// whole process instead of degrading to "returned nothing".
+			started := jobs.Run("search "+src.Slug, func(jobCtx context.Context) {
+				searchCtx, stop := context.WithCancel(sourceCtx)
+				defer stop()
+				defer context.AfterFunc(jobCtx, stop)()
+				// The recover must live in the goroutine that CALLS Search:
+				// the runner's own recover would log the panic but leave done
+				// empty, so the request would wait out sourceTimeout for a
+				// source that has already failed.
 				defer func() {
 					if r := recover(); r != nil {
 						done <- outcome{slug: src.Slug, err: errPanic(r)}
 					}
 				}()
-				res, err := src.Search(app, userID, perSource)
+				q := perSource
+				q.Ctx = searchCtx
+				res, err := src.Search(app, userID, q)
 				done <- outcome{slug: src.Slug, result: res, err: err}
-			}()
+			})
+			if !started {
+				results[i] = outcome{slug: src.Slug, err: errTerminating}
+				return
+			}
 
 			select {
 			case o := <-done:
 				results[i] = o
 			case <-sourceCtx.Done():
-				// The goroutine may still be running; it writes only to its own
-				// buffered channel, so abandoning it leaks nothing observable.
+				// The job may still be running, now with its context ended. It
+				// writes only to its own buffered channel, and the runner
+				// waits for it at terminate.
 				results[i] = outcome{slug: src.Slug, err: sourceCtx.Err()}
 			}
 		}(i, src)

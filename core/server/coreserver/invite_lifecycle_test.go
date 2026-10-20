@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -114,7 +115,7 @@ func TestExistingMemberEmail_SendsAddedSubject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sendExistingMemberEmail(app, target, "member")
+	sendExistingMemberEmail(context.Background(), app, target, "member")
 
 	sends := read()
 	if len(sends) != 1 {

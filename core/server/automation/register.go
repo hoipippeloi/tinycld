@@ -94,7 +94,13 @@ func registerCoreNativeActions() {
 		if strings.TrimSpace(req.Params["title"]) == "" {
 			return fmt.Errorf("core:notify: a title is required")
 		}
-		return deliverNotification(a, notify.NotifyParams{
+		// DeliverToUserContext writes its row whatever ctx says (ctx ends
+		// only its pushes), so the action refuses the write itself.
+		ctx := req.Context()
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("core:notify: write refused: %w", err)
+		}
+		return deliverNotification(ctx, a, notify.NotifyParams{
 			UserID:  req.OwnerID,
 			Type:    "automation",
 			Package: "core",

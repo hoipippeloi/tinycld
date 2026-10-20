@@ -6,7 +6,6 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketbase/pocketbase/tools/types"
 	"tinycld.org/core/rlstest"
 )
 
@@ -22,33 +21,7 @@ import (
 // different contract: it RETURNS the error so the refusal path is assertable.)
 func adminConsoleTestApp(t *testing.T) *tests.TestApp {
 	t.Helper()
-	app, err := tests.NewTestApp()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { app.Cleanup() })
-
-	// Same fixture reconciliation as guest_rls_test / org_pkg_access_rls_test:
-	// PB's bundled users fixture ships its own username index, which collides
-	// with the one 1820000000 creates. Drop it so the migration applies the way
-	// it does against a real (fixture-free) DB.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	return app
 }
 

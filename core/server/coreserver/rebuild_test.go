@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -598,7 +599,7 @@ func TestBackupRestoreClosure_DisarmsMarkerAndBackup(t *testing.T) {
 	if out, err := exec.Command("sqlite3", dbFile, "VACUUM;").CombinedOutput(); err != nil {
 		t.Fatalf("init sqlite db: %v\n%s", err, out)
 	}
-	restoreFn, err := backupDatabase(filepath.Join(state, "builds", "x", "tinycld"))
+	restoreFn, err := backupDatabase(context.Background(), filepath.Join(state, "builds", "x", "tinycld"))
 	if err != nil {
 		t.Fatalf("backupDatabase: %v", err)
 	}
@@ -852,7 +853,7 @@ func TestProductionRebuildTagsItsInstallLogRow(t *testing.T) {
 	}
 	m := RebuildManifest{BuildID: "build-42", Members: []MemberSpec{{Slug: "tinycld", Spec: "x"}}}
 
-	if err := rebuildWith(job, m, withStubbedSteps(productionRebuildDeps(app, job, m, logRecord))); err != nil {
+	if err := rebuildWith(job, m, withStubbedSteps(productionRebuildDeps(detachedRun(context.Background()), app, job, m, logRecord))); err != nil {
 		t.Fatal(err)
 	}
 

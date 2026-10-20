@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestProductionRebuildDeps_WireVerifyCompat(t *testing.T) {
 		{Slug: "gizmos"},
 	}}
 
-	deps := productionRebuildDeps(pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
+	deps := productionRebuildDeps(detachedRun(context.Background()), pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
 	if deps.verifyCompat == nil {
 		t.Fatal("production deps must wire verifyCompat")
 	}
@@ -39,7 +40,7 @@ func TestProductionRebuildDeps_WireVerifyCompat(t *testing.T) {
 // target that moves its pnpm or Go pin fails half-way through the build again.
 func TestProductionRebuildDeps_WirePrepareTools(t *testing.T) {
 	m := RebuildManifest{BuildID: "b", Members: []MemberSpec{{Slug: baseMemberSlug, FromCurrent: true}}}
-	deps := productionRebuildDeps(pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
+	deps := productionRebuildDeps(detachedRun(context.Background()), pocketbase.New(), &installjob.Job{ID: "j"}, m, nil)
 	if deps.prepareTools == nil {
 		t.Fatal("production deps must wire prepareTools")
 	}

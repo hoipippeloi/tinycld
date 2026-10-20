@@ -90,10 +90,9 @@ func TestServeSkipsBootPushWhenFlagUnreadable(t *testing.T) {
 // takes) on a fresh data dir with this repo's migrations applied.
 func bootedPocketBase(t *testing.T) *pocketbase.PocketBase {
 	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: rlstest.AssembledDataDir(t), HideStartBanner: true})
 	mustNil(t, app.Bootstrap())
 	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
 	return app
 }
 

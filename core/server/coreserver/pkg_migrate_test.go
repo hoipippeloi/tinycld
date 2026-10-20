@@ -15,22 +15,29 @@ import (
 // everything else untouched.
 
 // withTestMigrations registers synthetic migrations into the process-global
-// core.AppMigrations list so the named runner can resolve them by filename.
+// core.AppMigrations list so the named runner can resolve them by filename,
+// and removes them again when the test ends.
 //
-// core.AppMigrations exposes no public remove/clear, so these registrations
-// persist for the rest of the test binary's run. That is safe here because:
-//   - every test uses uniquely-prefixed filenames (9xxxxxxxxx_), so they never
-//     collide with each other or with the bundled migrations, and
-//   - no test invokes a global `migrate up`, so a leaked synthetic Up is never
-//     executed against another test's app.
+// They must not outlive the test: tests.NewTestApp runs every migration in
+// core.AppMigrations against each new app, so a leaked registration would run
+// its Up on every later test's database — changing the schema those tests see
+// and slowing each of them down.
 //
-// The named runner only ever touches the exact files a test passes it, so a
-// leaked registration is inert for every other test.
+// core.AppMigrations has no remove, so the test registers into a copy and the
+// original list is put back at cleanup.
 func withTestMigrations(t *testing.T, migs []*core.Migration) {
 	t.Helper()
-	for _, m := range migs {
-		core.AppMigrations.Register(m.Up, m.Down, m.File)
+	saved := core.AppMigrations
+	t.Cleanup(func() { core.AppMigrations = saved })
+
+	var scoped core.MigrationsList
+	for _, m := range saved.Items() {
+		scoped.Add(m)
 	}
+	for _, m := range migs {
+		scoped.Register(m.Up, m.Down, m.File)
+	}
+	core.AppMigrations = scoped
 }
 
 func newMigrateTestApp(t *testing.T) *tests.TestApp {
@@ -446,9 +453,6 @@ func TestPkgMigrate_CalendarSlots_OrderingCreatesAllTables(t *testing.T) {
 // not-found error. We assert the apply fails LOUDLY (non-nil error) and leaves
 // NO half-built schema (atomic rollback) — proving the unit-level apply path is
 // safe and that the reported missing-tables bug must be boot-timing-induced.
-//
-// Uses distinct filenames and collection names from Test A because
-// core.AppMigrations registrations persist for the whole test binary.
 func TestPkgMigrate_CalendarSlots_DependentMigrationAloneFailsAtomically(t *testing.T) {
 	app := newMigrateTestApp(t)
 

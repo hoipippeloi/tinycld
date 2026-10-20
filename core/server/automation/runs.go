@@ -2,13 +2,16 @@
 package automation
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/notify"
+	"tinycld.org/core/readonly"
 )
 
 const (
@@ -16,19 +19,26 @@ const (
 	autoDisableAfter = 20
 )
 
+// jobsPkg names the engine's job runner and its logger.
+const jobsPkg = "automation"
+
+const disabledNoticeDroppedMsg = "rule disabled notification dropped: the server stayed read-only past the wait"
+
 // notifyUser is an indirection so tests can intercept the auto-disable
-// notification without racing the real push I/O against app teardown.
-var notifyUser = notify.NotifyUser
+// notification. ctx ends its pushes. DeliverToUserContext logs its own
+// failure, so the error is not needed here.
+var notifyUser = func(ctx context.Context, app core.App, params notify.NotifyParams) {
+	_ = notify.DeliverToUserContext(ctx, app, params)
+}
 
 // deliverNotification is the reporting variant, for core:notify — an action
 // whose run result must reflect whether the notification actually landed.
-var deliverNotification = notify.DeliverToUser
+// ctx ends its pushes.
+var deliverNotification = notify.DeliverToUserContext
 
 // appIsLive reports whether app still has a usable DB connection pool. The
-// auto-disable notification fires from a background goroutine that can
-// outlive the request/test that triggered it; checking this before touching
-// app avoids a nil-pointer panic against a torn-down app. engine.go's worker
-// (Task 7) reuses this same helper rather than redefining it.
+// engine's worker, its cron callbacks and core:notify check it before they
+// touch app, which can be torn down under them.
 func appIsLive(app core.App) bool {
 	return app != nil && app.ConcurrentDB() != nil
 }
@@ -140,17 +150,35 @@ func recordRunResult(app core.App, rule *core.Record, fullyFailed bool) {
 		log.Error("auto-disable failed", "ruleID", rule.Id, "err", err)
 		return
 	}
-	go func() {
-		if !appIsLive(app) {
-			return
-		}
-		notifyUser(app, notify.NotifyParams{
-			UserID:  rule.GetString("owner"),
-			Type:    "automation_disabled",
-			Package: "core",
-			Title:   "Automation rule disabled",
-			Body:    "\"" + rule.GetString("name") + "\" failed repeatedly and was turned off.",
-			URL:     "/",
-		})
-	}()
+	params := notify.NotifyParams{
+		UserID:  rule.GetString("owner"),
+		Type:    "automation_disabled",
+		Package: "core",
+		Title:   "Automation rule disabled",
+		Body:    "\"" + rule.GetString("name") + "\" failed repeatedly and was turned off.",
+		URL:     "/",
+	}
+	ruleID := rule.Id
+	// Off the worker: a push can stall, and the next event must not wait for
+	// it. The job runner holds the app's terminate until the notice ends, so
+	// it never writes to a closed database.
+	background.For(app, jobsPkg).Run("rule disabled notification", func(jobCtx context.Context) {
+		ctx, cancel := context.WithTimeout(jobCtx, readonly.TailWait)
+		defer cancel()
+		notifyRuleDisabledWhenWritable(ctx, app, ruleID, params)
+	})
+}
+
+// notifyRuleDisabledWhenWritable writes the notice of a rule already
+// disabled, possibly just before the server went read-only; the row then
+// waits for the mode to end, bounded by ctx (TailWait, or the app's
+// terminate).
+func notifyRuleDisabledWhenWritable(ctx context.Context, app core.App, ruleID string, params notify.NotifyParams) {
+	err := readonly.WhenWritable(ctx, func() error {
+		notifyUser(ctx, app, params)
+		return nil
+	})
+	if err != nil {
+		log.Warn(disabledNoticeDroppedMsg, "ruleID", ruleID, "err", err)
+	}
 }

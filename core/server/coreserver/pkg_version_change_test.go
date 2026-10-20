@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,7 +29,7 @@ func TestTargetMigrationsDirBase(t *testing.T) {
 		}
 	}
 
-	got, err := targetMigrationsDir(baseRegistrySlug, extractDir)
+	got, err := targetMigrationsDir(context.Background(), baseRegistrySlug, extractDir)
 	if err != nil {
 		t.Fatalf("targetMigrationsDir(core) err = %v", err)
 	}

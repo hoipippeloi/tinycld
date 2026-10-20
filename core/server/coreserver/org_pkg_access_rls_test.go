@@ -7,7 +7,6 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
-	"github.com/pocketbase/pocketbase/tools/types"
 	"tinycld.org/core/rlstest"
 )
 
@@ -40,31 +39,7 @@ type pkgAccessRLSEnv struct {
 
 func setupPkgAccessRLSApp(t *testing.T) *pkgAccessRLSEnv {
 	t.Helper()
-	app, err := tests.NewTestApp()
-	if err != nil {
-		t.Fatalf("NewTestApp: %v", err)
-	}
-	t.Cleanup(func() { app.Cleanup() })
-
-	// Same fixture reconciliation as guest_rls_test: drop the bundled username
-	// index so 1820000000 applies the way it does against a real DB.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	admin := guestRLSUser(t, app, "admin@test.local", "admin")
 	member := guestRLSUser(t, app, "member@test.local", "member")

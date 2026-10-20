@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -34,15 +35,15 @@ func nodeCurrentDir() string { return filepath.Join(stateToolchainsDir(), "node"
 
 // prepareBuildTools fetches the tools the assembled target needs and verifies
 // them. A failure leaves live state untouched; the caller discards the build.
-func prepareBuildTools(job *installjob.Job, buildDir string) error {
+func prepareBuildTools(ctx context.Context, job *installjob.Job, buildDir string) error {
 	logf := func(format string, args ...any) { jobLogf(job, format, args...) }
 	if err := useWritableCorepackHome(logf); err != nil {
 		return err
 	}
-	if err := ensureNode(logf, buildDir); err != nil {
+	if err := ensureNode(ctx, logf, buildDir); err != nil {
 		logf("could not fetch Node.js: %v", err)
 	}
-	return pkgbuild.VerifyBuildTools(buildDir, nil)
+	return pkgbuild.VerifyBuildTools(buildDir, pkgbuild.EnvRunnerFor(ctx))
 }
 
 // useWritableCorepackHome points this process (and so every pnpm it runs) at a
@@ -132,20 +133,20 @@ func copyFileMode(src, dst string) error {
 // else a new download. Only the last two put the download first on PATH, so
 // a newer image's Node is never hidden behind an old download in the state
 // volume.
-func ensureNode(logf func(format string, args ...any), buildDir string) error {
+func ensureNode(ctx context.Context, logf func(format string, args ...any), buildDir string) error {
 	cachedBin := filepath.Join(nodeCurrentDir(), "bin")
 	removeFromPath(cachedBin)
 	want := pkgbuild.RequiredNode(buildDir)
-	if want == "" || nodeOK("node", want) {
+	if want == "" || nodeOK(ctx, "node", want) {
 		return nil
 	}
-	if nodeOK(filepath.Join(cachedBin, "node"), want) {
+	if nodeOK(ctx, filepath.Join(cachedBin, "node"), want) {
 		prependPath(cachedBin)
 		logf("target needs node %s; using the earlier download at %s", want, cachedBin)
 		return nil
 	}
 	logf("target needs node %s, which this server does not have; fetching it", want)
-	dir, err := pkgbuild.NodeDist{Dir: filepath.Join(stateToolchainsDir(), "node")}.Ensure(want)
+	dir, err := pkgbuild.NodeDist{Dir: filepath.Join(stateToolchainsDir(), "node")}.EnsureContext(ctx, want)
 	if err != nil {
 		return err
 	}
@@ -165,8 +166,8 @@ func ensureNode(logf func(format string, args ...any), buildDir string) error {
 }
 
 // nodeOK reports whether the node binary at bin runs and satisfies want.
-func nodeOK(bin, want string) bool {
-	out, err := pkgbuild.RunCmd(".", bin, "--version")
+func nodeOK(ctx context.Context, bin, want string) bool {
+	out, err := pkgbuild.RunCmdContext(ctx, ".", bin, "--version")
 	if err != nil {
 		return false
 	}

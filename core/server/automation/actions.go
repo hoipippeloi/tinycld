@@ -2,6 +2,7 @@
 package automation
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -49,7 +50,13 @@ func takeEngineWrite(recordID string) (engineWrite, bool) {
 // The record id must be known before the write (native handlers set an explicit
 // id on create). The stamp is removed again if the write fails, so a failed
 // attempt doesn't suppress the next genuine user edit of that record.
+//
+// The write does not run once req.Context() has ended: the action timed out
+// or the app is terminating, and the database can close under the write.
 func MarkEngineWrite(req ActionRequest, recordID string, write func() error) error {
+	if err := req.Context().Err(); err != nil {
+		return fmt.Errorf("write refused: %w", err)
+	}
 	if req.Rule == nil || recordID == "" {
 		return write()
 	}
@@ -261,6 +268,12 @@ func checkPersonalAccess(app core.App, rule *core.Record, pkg string) error {
 // ExecuteAction runs one rule action against one trigger event. depth is the
 // chain depth to stamp onto any resulting engine write.
 func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]any, rule *core.Record, trigger TriggerDef, record *core.Record, depth int) error {
+	return ExecuteActionContext(context.Background(), app, defs, ref, rawParams, rule, trigger, record, depth)
+}
+
+// ExecuteActionContext is ExecuteAction bound to ctx. A native handler gets
+// ctx as ActionRequest.Ctx; a record-op does not write once ctx has ended.
+func ExecuteActionContext(ctx context.Context, app core.App, defs *Defs, ref string, rawParams map[string]any, rule *core.Record, trigger TriggerDef, record *core.Record, depth int) error {
 	action, pkg, ok := defs.Action(ref)
 	if !ok {
 		return fmt.Errorf("unknown action %q (package uninstalled?)", ref)
@@ -274,7 +287,7 @@ func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]an
 	}
 	env := TemplateEnv{App: app, Labels: defs.RecordLabels, OwnerID: ownerID}
 	params := substituteParams(action, rawParams, record, trigger, relationKeys, env)
-	req := ActionRequest{Rule: rule, OwnerID: ownerID, Params: params, Record: record, Depth: depth}
+	req := ActionRequest{Rule: rule, OwnerID: ownerID, Params: params, Record: record, Depth: depth, Ctx: ctx}
 
 	// Both kinds pass the relation-id gates: a record-op's superuser Save
 	// bypasses collection rules just as thoroughly as a native handler's
@@ -310,11 +323,14 @@ func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]an
 			}
 			made.Set(field, v)
 		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("record-op %q: write refused: %w", ref, err)
+		}
 		marked := defsHaveTrigger(defs, action.Collection, "create")
 		if marked {
 			markEngineWrite(made.Id, rule.Id, depth)
 		}
-		if err := app.Save(made); err != nil {
+		if err := app.SaveWithContext(ctx, made); err != nil {
 			if marked {
 				takeEngineWrite(made.Id)
 			}
@@ -335,17 +351,25 @@ func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]an
 			return err
 		}
 		if action.Op.Type == "delete" {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("record-op %q: write refused: %w", ref, err)
+			}
 			marked := defsHaveTrigger(defs, action.Collection, "delete")
 			if marked {
 				markEngineWrite(record.Id, rule.Id, depth)
 			}
-			if err := app.Delete(record); err != nil {
+			if err := app.DeleteWithContext(ctx, record); err != nil {
 				if marked {
 					takeEngineWrite(record.Id)
 				}
 				return err
 			}
 			return nil
+		}
+		// Before the Sets: a refused write must not leave the shared trigger
+		// record changed in memory either.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("record-op %q: write refused: %w", ref, err)
 		}
 		for field, sv := range action.Op.Set {
 			v, err := resolveSetValue(sv, params, record, ownerID)
@@ -358,7 +382,7 @@ func ExecuteAction(app core.App, defs *Defs, ref string, rawParams map[string]an
 		if marked {
 			markEngineWrite(record.Id, rule.Id, depth)
 		}
-		if err := app.Save(record); err != nil {
+		if err := app.SaveWithContext(ctx, record); err != nil {
 			if marked {
 				takeEngineWrite(record.Id)
 			}

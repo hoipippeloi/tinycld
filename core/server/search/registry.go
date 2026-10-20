@@ -31,6 +31,13 @@ type Source struct {
 	//
 	// Returning an error is safe: the aggregator isolates it, names the package
 	// in Response.Partial, and returns everything else.
+	//
+	// Search must honour q.Context(): bind its queries to it (fts.SearchOpts
+	// Ctx, dbx's WithContext) and return soon after it ends. The aggregator
+	// stops waiting at sourceTimeout and cancels the context, but the call
+	// runs on to its return, and the app's terminate waits for it before the
+	// database closes. A source that ignores the context therefore holds the
+	// shutdown for as long as its query runs.
 	Search func(app core.App, userID string, q Query) (Result, error)
 }
 

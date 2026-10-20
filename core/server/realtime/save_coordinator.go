@@ -79,9 +79,10 @@ func RetryBackoff(attempt int) time.Duration {
 //
 // The ctx bounds the flush itself: document parsers honour it, so a
 // pathological workbook is abandoned rather than wedging the saver.
-// The teardown path passes a ctx carrying teardownTimeout; the other
-// paths pass a background ctx, since a timer-driven save has no
-// deadline of its own.
+// The teardown path passes a ctx carrying teardownTimeout; a timer-driven
+// save has no deadline of its own. Every ctx ends when the broker's stop
+// runs out of budget (see Broker.Stop), so a flush still running then is
+// abandoned rather than left writing as the database closes.
 //
 // Implementations must be safe to call concurrently with other
 // methods on the same coordinator (the coordinator never invokes
@@ -123,6 +124,10 @@ type roomSaver struct {
 
 	handle DocHandle
 
+	// broker is the broker whose room this is, nil for a room no broker
+	// created (unit tests). Its gate fences this room's saves at the exit.
+	broker *Broker
+
 	dirty         bool
 	firstDirtyAt  time.Time
 	debounceTimer *time.Timer
@@ -160,7 +165,7 @@ func NewSaveCoordinator(flush FlushFn) *SaveCoordinator {
 		ceilingEvery:    DefaultCeilingInterval,
 		teardownTimeout: DefaultTeardownTimeout,
 		maxAttempts:     DefaultMaxSaveAttempts,
-		logger:          slog.Default(),
+		logger:          log,
 		backoff:         RetryBackoff,
 		captureGiveUp:   captureGiveUpToSentry,
 		rooms:           map[string]*roomSaver{},
@@ -182,22 +187,76 @@ func (c *SaveCoordinator) SetKind(kind string) {
 }
 
 // OnRoomCreate is the realtime.RoomKindOptions.OnRoomCreate hook.
-// Records the room's DocHandle so we can pass it to flush later.
-// The room argument is unused here — SaveCoordinator only needs the
-// handle — but it's part of the hook signature.
-func (c *SaveCoordinator) OnRoomCreate(driveItemID string, handle DocHandle, _ *Room) {
+// Records the room's DocHandle so we can pass it to flush later, and the
+// room's broker, whose stop fences this room's saves and stops its timers.
+func (c *SaveCoordinator) OnRoomCreate(driveItemID string, handle DocHandle, room *Room) {
+	rs := &roomSaver{handle: handle}
+	if room != nil && room.broker != nil {
+		rs.broker = room.broker
+		room.broker.adopt(c)
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if existing, ok := c.rooms[driveItemID]; ok {
 		// Should never happen — the broker only fires create
 		// once per (kind, id). Log and overwrite anyway so the
 		// process keeps running.
-		c.logger.Warn("realtime: OnRoomCreate fired twice for the same room; overwriting", "driveItemID", driveItemID)
+		c.logger.Warn("OnRoomCreate fired twice for the same room; overwriting", "driveItemID", driveItemID)
 		existing.mu.Lock()
 		existing.closed = true
 		existing.mu.Unlock()
 	}
-	c.rooms[driveItemID] = &roomSaver{handle: handle}
+	c.rooms[driveItemID] = rs
+}
+
+// gate is the exit gate this room's saves pass. Caller need not hold rs.mu:
+// broker is written once, before the room is published.
+func (rs *roomSaver) gate() *exitGate {
+	if rs.broker == nil {
+		return detachedGate
+	}
+	return rs.broker.gate
+}
+
+// stopTimers stops the save timers of every room b serves. The stop calls it
+// once the gate is fenced, so no timer is armed after it: OnDocUpdate and
+// the save paths arm timers only while the gate is open. The rooms stay
+// dirty; their teardown or the stop's FlushDirty saves them.
+func (c *SaveCoordinator) stopTimers(b *Broker) {
+	c.mu.Lock()
+	rooms := make([]*roomSaver, 0, len(c.rooms))
+	for _, rs := range c.rooms {
+		rooms = append(rooms, rs)
+	}
+	c.mu.Unlock()
+	for _, rs := range rooms {
+		if rs.broker != b {
+			continue
+		}
+		rs.mu.Lock()
+		rs.stopTimersLocked()
+		rs.mu.Unlock()
+	}
+}
+
+// markDirtyLocked records an edit not yet saved. Caller holds rs.mu.
+func (rs *roomSaver) markDirtyLocked() {
+	if !rs.dirty {
+		rs.dirty = true
+		rs.firstDirtyAt = time.Now()
+	}
+}
+
+// stopTimersLocked stops both timers. Caller holds rs.mu.
+func (rs *roomSaver) stopTimersLocked() {
+	if rs.debounceTimer != nil {
+		rs.debounceTimer.Stop()
+		rs.debounceTimer = nil
+	}
+	if rs.ceilingTimer != nil {
+		rs.ceilingTimer.Stop()
+		rs.ceilingTimer = nil
+	}
 }
 
 // OnDocUpdate is the realtime.RoomKindOptions.OnDocUpdate hook.
@@ -221,7 +280,19 @@ func (c *SaveCoordinator) OnDocUpdate(driveItemID string) {
 		return
 	}
 
-	now := time.Now()
+	switch rs.gate().current() {
+	case phaseFenced:
+		// A route call already in progress when the stop began. No timer:
+		// the room's teardown or the stop's FlushDirty saves it.
+		rs.markDirtyLocked()
+		return
+	case phaseSealed:
+		rs.markDirtyLocked()
+		c.logger.Warn("edit arrived after the documents were stored; it is not saved here, and the client resends it to the next server",
+			"driveItemID", driveItemID, "kind", c.kind)
+		return
+	}
+
 	// Arm the ceiling timer on the first edit of a clean cycle. The
 	// debounce timer is reset on every edit; the ceiling fires
 	// unconditionally after ceilingEvery so a constant typist still gets
@@ -236,10 +307,7 @@ func (c *SaveCoordinator) OnDocUpdate(driveItemID string) {
 			c.triggerSave(driveItemID, "ceiling")
 		})
 	}
-	if !rs.dirty {
-		rs.dirty = true
-		rs.firstDirtyAt = now
-	}
+	rs.markDirtyLocked()
 	// Reset debounce on every edit.
 	if rs.debounceTimer != nil {
 		rs.debounceTimer.Stop()
@@ -280,7 +348,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 	for rs.saveInFlight {
 		rs.mu.Unlock()
 		if time.Now().After(deadline) {
-			c.logger.Error("realtime: teardown timed out waiting for an in-flight save",
+			c.logger.Error("teardown timed out waiting for an in-flight save",
 				"driveItemID", driveItemID, "timeout", c.teardownTimeout)
 			rs.mu.Lock()
 			rs.closed = true
@@ -293,14 +361,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 	// Still holding rs.mu from the loop's final check: the in-flight
 	// save (if any) has fully finished — including arming any retry
 	// timer — so stopping timers and reading dirty here races nothing.
-	if rs.debounceTimer != nil {
-		rs.debounceTimer.Stop()
-		rs.debounceTimer = nil
-	}
-	if rs.ceilingTimer != nil {
-		rs.ceilingTimer.Stop()
-		rs.ceilingTimer = nil
-	}
+	rs.stopTimersLocked()
 	wasDirty := rs.dirty
 	rs.dirty = false
 	handle := rs.handle
@@ -310,9 +371,20 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 		// The flush writes. The broker parks the document with these
 		// edits in it, and Suspend has already stored its state for the
 		// case where this process is replaced.
-		c.logger.Info("realtime: teardown save skipped: read-only; the parked document keeps the edits",
+		c.logger.Info("teardown save skipped: read-only; the parked document keeps the edits",
 			"driveItemID", driveItemID)
 		wasDirty = false
+	}
+
+	gate := rs.gate()
+	if wasDirty {
+		// The teardown save is the room's last chance, so it runs while
+		// the stop is fenced; only a sealed broker refuses it.
+		if _, ok := gate.enter(true); !ok {
+			c.logger.Warn("teardown save refused: the server has stopped; the room's last edits are not stored here",
+				"driveItemID", driveItemID, "kind", c.kind)
+			wasDirty = false
+		}
 	}
 
 	if !wasDirty {
@@ -324,21 +396,25 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 	}
 
 	done := make(chan error, 1)
-	flushCtx, cancelFlush := context.WithTimeout(context.Background(), c.teardownTimeout)
+	flushCtx, cancelFlush := context.WithTimeout(gate.ctx, c.teardownTimeout)
 	defer cancelFlush()
 	go func() {
+		// Left when the flush returns, not when this hook does: a flush
+		// that outlives teardownTimeout still holds the database, and the
+		// stop waits for it.
+		defer gate.leave()
 		done <- c.flush(flushCtx, driveItemID, handle)
 	}()
 	select {
 	case err := <-done:
 		if err != nil {
-			c.logger.Error("realtime: teardown save failed", "driveItemID", driveItemID, "err", err)
+			c.logger.Error("teardown save failed", "driveItemID", driveItemID, "err", err)
 		}
 	case <-time.After(time.Until(deadline)):
 		// The deadline is shared with the in-flight wait above, so a
 		// teardown never stalls the broker longer than teardownTimeout
 		// in total.
-		c.logger.Error("realtime: teardown save timed out", "driveItemID", driveItemID, "timeout", c.teardownTimeout)
+		c.logger.Error("teardown save timed out", "driveItemID", driveItemID, "timeout", c.teardownTimeout)
 	}
 
 	rs.mu.Lock()
@@ -382,21 +458,24 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 		rs.mu.Unlock()
 		return
 	}
+	gate := rs.gate()
+	if phase, ok := gate.enter(false); !ok {
+		// The room stays dirty, so the edits are not dropped: while the
+		// stop is fenced its teardown or FlushDirty saves them.
+		rs.stopTimersLocked()
+		rs.mu.Unlock()
+		c.refusedSave(driveItemID, reason, phase)
+		return
+	}
 	rs.readOnlyDeferrals = 0
 	rs.saveInFlight = true
 	rs.dirty = false
-	if rs.debounceTimer != nil {
-		rs.debounceTimer.Stop()
-		rs.debounceTimer = nil
-	}
-	if rs.ceilingTimer != nil {
-		rs.ceilingTimer.Stop()
-		rs.ceilingTimer = nil
-	}
+	rs.stopTimersLocked()
 	handle := rs.handle
 	rs.mu.Unlock()
 
-	err := c.flush(context.Background(), driveItemID, handle)
+	err := c.flush(gate.ctx, driveItemID, handle)
+	gate.leave()
 
 	rs.mu.Lock()
 	rs.saveInFlight = false
@@ -425,7 +504,7 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 				rs.debounceTimer = nil
 			}
 			rs.mu.Unlock()
-			c.logger.Error("realtime: save failed; giving up after max attempts",
+			c.logger.Error("save failed; giving up after max attempts",
 				"driveItemID", driveItemID, "kind", c.kind, "reason", reason,
 				"attempts", detail.Attempts, "err", err)
 			if c.captureGiveUp != nil {
@@ -434,11 +513,19 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 			return
 		}
 
+		if gate.current() != phaseOpen {
+			// The stop has begun: its teardown or FlushDirty retries.
+			rs.mu.Unlock()
+			c.logger.Warn("save failed as the server stops; the stop's final flush retries it",
+				"driveItemID", driveItemID, "reason", reason, "err", err)
+			return
+		}
+
 		// Schedule a retry with exponential backoff. The next
 		// OnDocUpdate would also re-arm timers, but we want to retry
 		// even if no further edits arrive.
 		backoff := c.backoff(rs.failures - 1)
-		c.logger.Warn("realtime: save failed; scheduling retry",
+		c.logger.Warn("save failed; scheduling retry",
 			"driveItemID", driveItemID, "reason", reason,
 			"attempt", rs.failures, "backoff", backoff, "err", err)
 		// Use the debounce slot for the retry timer; if the
@@ -462,9 +549,24 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 
 	if resave {
 		// Edits arrived during the in-flight save; immediately
-		// re-fire so they don't sit until the next debounce.
+		// re-fire so they don't sit until the next debounce. Once the
+		// stop has begun the gate refuses it and the room stays dirty
+		// for the stop's own flush.
 		go c.triggerSave(driveItemID, "coalesced")
 	}
+}
+
+// refusedSave logs a timer-driven save the exit gate refused. The room is
+// still dirty, so the edits are not lost while the stop is fenced; once it
+// is sealed they were not stored here, and the clients keep them.
+func (c *SaveCoordinator) refusedSave(driveItemID, reason string, phase exitPhase) {
+	if phase == phaseFenced {
+		c.logger.Warn("save refused: the server is stopping; the stop's final flush saves the room",
+			"driveItemID", driveItemID, "kind", c.kind, "reason", reason)
+		return
+	}
+	c.logger.Warn("save refused: the server has stopped; the room's edits are not stored here",
+		"driveItemID", driveItemID, "kind", c.kind, "reason", reason)
 }
 
 // deferForReadOnly re-arms the room's save for later, without flushing,
@@ -472,20 +574,21 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 // the edits, so nothing is lost while the save waits. Logged once per
 // pause at Info: a deferral is expected, so it is neither a failure nor a
 // warning. Caller holds rs.mu.
+//
+// Once the stop has begun no timer is armed: the process exits without
+// writing, and the clients keep the edits for the next server.
 func (c *SaveCoordinator) deferForReadOnly(driveItemID string, rs *roomSaver) {
+	if rs.gate().current() != phaseOpen {
+		rs.stopTimersLocked()
+		return
+	}
 	backoff := c.backoff(rs.readOnlyDeferrals)
 	if rs.readOnlyDeferrals == 0 {
-		c.logger.Info("realtime: save deferred: read-only",
+		c.logger.Info("save deferred: read-only",
 			"driveItemID", driveItemID, "retryIn", backoff)
 	}
 	rs.readOnlyDeferrals++
-	if rs.debounceTimer != nil {
-		rs.debounceTimer.Stop()
-	}
-	if rs.ceilingTimer != nil {
-		rs.ceilingTimer.Stop()
-		rs.ceilingTimer = nil
-	}
+	rs.stopTimersLocked()
 	rs.debounceTimer = time.AfterFunc(backoff, func() {
 		c.triggerSave(driveItemID, "read-only retry")
 	})
@@ -500,18 +603,21 @@ func (c *SaveCoordinator) deferForReadOnly(driveItemID string, rs *roomSaver) {
 //
 // If the room is not open (no live editor since the last flush), the
 // stored blob is already current, so this is a no-op success. While the
-// server is read-only it returns ErrReadOnly without flushing.
+// server is read-only it returns ErrReadOnly without flushing, and once
+// the stop has begun ErrStopping.
 func (c *SaveCoordinator) FlushNow(driveItemID string) error {
 	if readonly.Active() {
 		return ErrReadOnly
 	}
-	return c.flushRoom(context.Background(), driveItemID, false)
+	return c.flushRoom(context.Background(), driveItemID, false, false)
 }
 
 // FlushDirty flushes every dirty room now and returns the errors joined.
 // It ignores read-only mode: the broker's Suspend calls it from inside the
 // pause's own entry, so the stored file is current before the state is
-// checkpointed. Rooms flush concurrently, bounded by ctx.
+// checkpointed. Rooms flush concurrently, bounded by ctx. It is the stop's
+// final flush, so it runs while the stop is fenced; a sealed broker
+// refuses it.
 func (c *SaveCoordinator) FlushDirty(ctx context.Context) error {
 	c.mu.Lock()
 	ids := make([]string, 0, len(c.rooms))
@@ -526,7 +632,7 @@ func (c *SaveCoordinator) FlushDirty(ctx context.Context) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = c.flushRoom(ctx, id, true)
+			errs[i] = c.flushRoom(ctx, id, true, true)
 		}()
 	}
 	wg.Wait()
@@ -535,14 +641,17 @@ func (c *SaveCoordinator) FlushDirty(ctx context.Context) error {
 
 // flushRoom claims the room's in-flight slot and runs one flush. With
 // onlyIfDirty set, a room that is clean once the slot is claimed (a save
-// in flight just cleaned it) is left alone.
+// in flight just cleaned it) is left alone. exitWork marks FlushDirty, the
+// stop's own flush, which the gate lets run while the stop is fenced; it
+// refuses FlushNow from then on. Either way the flush also ends when the
+// stop cancels the saves still running.
 //
 // If a timer-driven save is already in flight for the room, this waits
 // for it to finish rather than running a second concurrent flush — the
 // coordinator never invokes FlushFn for the same room twice in parallel.
 // It spins with a short sleep rather than a condition variable to keep
 // the existing lock discipline; flushes are infrequent and brief.
-func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onlyIfDirty bool) error {
+func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onlyIfDirty, exitWork bool) error {
 	c.mu.Lock()
 	rs := c.rooms[driveItemID]
 	c.mu.Unlock()
@@ -551,6 +660,9 @@ func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onl
 		// current state to durable storage. Nothing to do.
 		return nil
 	}
+	gate := rs.gate()
+	ctx, cancel := gate.bound(ctx)
+	defer cancel()
 	for {
 		rs.mu.Lock()
 		if rs.closed {
@@ -569,12 +681,17 @@ func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onl
 			rs.mu.Unlock()
 			return nil
 		}
+		if _, ok := gate.enter(exitWork); !ok {
+			rs.mu.Unlock()
+			return ErrStopping
+		}
 		rs.saveInFlight = true
 		rs.dirty = false
 		handle := rs.handle
 		rs.mu.Unlock()
 
 		err := c.flush(ctx, driveItemID, handle)
+		gate.leave()
 
 		rs.mu.Lock()
 		rs.saveInFlight = false

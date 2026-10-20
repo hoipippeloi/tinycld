@@ -118,14 +118,13 @@ func TestAuditRowDroppedAndLoggedWhenReadOnlyOutlastsTheWait(t *testing.T) {
 // and never writes.
 func TestAuditRowParkedInReadOnlyIsDroppedAndLoggedAtTerminate(t *testing.T) {
 	app, rec := auditTestAppNoCleanup(t)
-	readonly.Register(app)
 	logs := readonlytest.CaptureLogs(t)
 	readonly.Enter()
 	t.Cleanup(readonly.Leave)
 
 	ran := make(chan struct{}, 1)
 	logWhenWritable(app, "widgets", rec.Id, func() { ran <- struct{}{} })
-	// The terminate waits for the tail to return, so its log is written by
+	// The terminate waits for the job to return, so its log is written by
 	// the time Cleanup returns.
 	app.Cleanup()
 

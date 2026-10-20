@@ -312,28 +312,7 @@ func TestTriggerRecordOpNeedsMatchingCollection(t *testing.T) {
 func pkgaccessApp(t *testing.T) (*tests.TestApp, *core.Record, *core.Record, *core.Record, *Defs) {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
-	app := rlstest.NewApp(t)
-
-	// Same fixture reconciliation as coreserver's RLS suites: drop the
-	// bundled username index so 1820000000 (users_username_required) applies
-	// the way it does against a real DB.
-	users, err := app.FindCollectionByNameOrId("users")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var kept types.JSONArray[string]
-	for _, idx := range users.Indexes {
-		if !strings.Contains(idx, "username") {
-			kept = append(kept, idx)
-		}
-	}
-	users.Indexes = kept
-	users.PasswordAuth.IdentityFields = []string{"email"}
-	if err := app.Save(users); err != nil {
-		t.Fatalf("drop fixture username index: %v", err)
-	}
-
-	rlstest.Apply(t, app, rlstest.MigrationsDir(t, "../pb_migrations"))
+	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	src := core.NewBaseCollection("things")
 	src.Fields.Add(&core.TextField{Name: "title"})

@@ -34,13 +34,13 @@ func testScheduler(t *testing.T, at time.Time, in []VersionInfo, solve solveFunc
 	s := &localScheduler{
 		app:      app,
 		now:      func() time.Time { return at },
-		discover: func() ([]VersionInfo, error) { return in, nil },
+		discover: func(context.Context) ([]VersionInfo, error) { return in, nil },
 		solve:    solve,
 		apply: func(c []installjob.VersionChange) error {
 			applied = append(applied, c)
 			return nil
 		},
-		notify: func(n notice) { sent = append(sent, n) },
+		notify: func(_ context.Context, n notice) { sent = append(sent, n) },
 	}
 	return s, &applied, &sent
 }

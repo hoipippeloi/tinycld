@@ -182,15 +182,20 @@ func TestTerminateSuspends(t *testing.T) {
 	broker := NewBroker()
 	t.Cleanup(broker.Close)
 	f := newLifecycleFixture(t, broker)
-	_ = dialClient(t, f.opts, "room-t", "alice")
+	a := dialClient(t, f.opts, "room-t", "alice")
 	room := waitForRoomMembers(t, broker, "test", "room-t", 1, time.Second)
+	// Read before terminate: terminate closes the connection, and the room's
+	// teardown releases the document, after which DocEpoch is 0.
+	epoch := room.DocEpoch()
+	closed := readUntilClose(a.conn)
 
 	err := f.app.OnTerminate().Trigger(&core.TerminateEvent{App: f.app}, func(*core.TerminateEvent) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
+	<-closed
 	cp, found, _ := f.store.Load("test", "room-t")
-	if !found || cp.Epoch != room.DocEpoch() {
+	if !found || cp.Epoch != epoch {
 		t.Fatalf("checkpoint after terminate = %+v found=%v", cp, found)
 	}
 }

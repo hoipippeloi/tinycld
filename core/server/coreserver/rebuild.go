@@ -1,7 +1,9 @@
 package coreserver
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +51,10 @@ const (
 // control flow (ordering, failure handling, rollback) is unit-testable without
 // running a real build.
 type rebuildDeps struct {
+	// run ties the job to the app's lifetime: its ctx ends at the terminate,
+	// and it marks where the database tail starts. Optional (nil-safe) for
+	// orchestrator tests: nil is a run nothing stops.
+	run      *jobRun
 	assemble func(m RebuildManifest, buildDir string) error
 	// verifyCompat re-checks peerVersions from the manifests assemble actually
 	// fetched into the build dir. The pre-flight gates read only the INSTALLED
@@ -96,6 +102,13 @@ type rebuildDeps struct {
 // fail finalizes the install log (if any) and marks the job failed. Used at
 // every pre-activation failure exit so the status endpoint reports the failure
 // instead of hanging the UI poller.
+func (d rebuildDeps) jobRun() *jobRun {
+	if d.run != nil {
+		return d.run
+	}
+	return detachedRun(context.Background())
+}
+
 func (d rebuildDeps) fail(job *installjob.Job, step string, err error) error {
 	if d.finalizeLog != nil {
 		d.finalizeLog("failed", err.Error())
@@ -108,9 +121,24 @@ func (d rebuildDeps) fail(job *installjob.Job, step string, err error) error {
 // here; the freshly-built binary applies them on its post-swap boot. On any
 // failure before activation the build dir is discarded and (if the DB was
 // already backed up) the DB is restored, leaving the live `current` unchanged.
+//
+// When the app terminates, the build steps stop at once (their commands are
+// bound to the run's ctx) and the build is discarded, live state untouched.
+// The database tail does not start once the terminate has come, and the
+// backup copy that opens it stops at the cancel. From the migration sync on,
+// the tail runs to its end: the sync changes the live database, and the
+// supervisor can roll that back only once the tail has armed the backup
+// (see restartOntoBuild).
 func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 	buildDir := filepath.Join(stateBuildsDir(), m.BuildID)
 	rebuildStart := monoNow()
+	run := d.jobRun()
+	// discard ends a job the terminate stopped before its tail.
+	discard := func(step string, err error) error {
+		jobLogf(job, "stopped: %v — discarding build dir %s (live state untouched)", err, buildDir)
+		_ = os.RemoveAll(buildDir)
+		return d.fail(job, step, err)
+	}
 
 	// Document exactly what this build is assembled from — the most useful single
 	// line for reproducing / post-morteming a build later.
@@ -119,14 +147,20 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 
 	emitProgress(job, "Gathering components", progAssembleStart, "")
 	if err := timeStep(job, "assemble", func() error { return d.assemble(m, buildDir) }); err != nil {
-		return d.fail(job, "assemble", err)
+		return d.fail(job, "assemble", run.cause(err))
+	}
+	if err := run.checkpoint(); err != nil {
+		return discard("assemble", err)
 	}
 	if d.verifyCompat != nil {
 		emitProgress(job, "Checking compatibility", progAssembleEnd, "")
 		if err := timeStep(job, "verify peer versions", func() error { return d.verifyCompat(m, buildDir) }); err != nil {
 			jobLogf(job, "peer-version verify failed — discarding build dir %s (live state untouched)", buildDir)
 			_ = os.RemoveAll(buildDir)
-			return d.fail(job, "compat", err)
+			return d.fail(job, "compat", run.cause(err))
+		}
+		if err := run.checkpoint(); err != nil {
+			return discard("compat", err)
 		}
 	}
 	if d.prepareTools != nil {
@@ -134,7 +168,10 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		if err := timeStep(job, "prepare build tools", func() error { return d.prepareTools(buildDir) }); err != nil {
 			jobLogf(job, "build tools unavailable — discarding build dir %s (live state untouched)", buildDir)
 			_ = os.RemoveAll(buildDir)
-			return d.fail(job, "tools", err)
+			return d.fail(job, "tools", run.cause(err))
+		}
+		if err := run.checkpoint(); err != nil {
+			return discard("tools", err)
 		}
 	}
 	out, err := d.pipeline(job, buildDir)
@@ -142,7 +179,10 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 		// Failure precedes the DB backup; live state untouched. Discard build.
 		jobLogf(job, "build failed — discarding build dir %s (live state untouched)", buildDir)
 		_ = os.RemoveAll(buildDir)
-		return d.fail(job, "build", err)
+		return d.fail(job, "build", run.cause(err))
+	}
+	if err := run.enterTail(); err != nil {
+		return discard("build", err)
 	}
 	// Tag before the backup: if the new build is rolled back, the boot
 	// reconciler finds this job's row by the build id in whichever database
@@ -160,7 +200,13 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 	if err := timeStep(job, "backup database", d.backupDB); err != nil {
 		_ = os.RemoveAll(buildDir)
 		resumeWrites()
-		return d.fail(job, "backup", err)
+		return d.fail(job, "backup", run.cause(err))
+	}
+	// The last point the terminate can stop the rebuild: the database is
+	// still the one the backup copied, so there is nothing to restore.
+	if err := run.checkpoint(); err != nil {
+		resumeWrites()
+		return discard("backup", err)
 	}
 	emitProgress(job, "Updating your data", progSyncMig, "")
 	if err := timeStep(job, "sync migrations", func() error {
@@ -217,7 +263,11 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 			jobLogf(job, "registry mirrored to the live build")
 		}
 	}
-	if d.prune != nil {
+	// Pruning is housekeeping that can take seconds on a large build tree; a
+	// terminating app leaves it to the next rebuild.
+	if d.prune != nil && run.stopping() {
+		jobLogf(job, "build prune skipped: the server is shutting down")
+	} else if d.prune != nil {
 		if err := d.prune(buildsToKeep); err != nil {
 			jobLogf(job, "WARNING: build prune failed (old builds retained): %v", err)
 		}
@@ -268,8 +318,11 @@ func failJob(job *installjob.Job, step string, err error) error {
 	emitProgress(job, shown, job.Progress, "FAILED: "+step+": "+err.Error())
 	emitComplete(job, "failed", job.Error)
 	// Surface the failure to Sentry (background jobs bypass the request-scoped
-	// middleware). No-op when Sentry isn't configured.
-	captureRebuildFailure(job, job.Action, step, err)
+	// middleware). No-op when Sentry isn't configured. A job the terminate
+	// stopped is not a fault.
+	if !errors.Is(err, errRebuildCancelled) {
+		captureRebuildFailure(job, job.Action, step, err)
+	}
 	return err
 }
 
@@ -278,36 +331,41 @@ func failJob(job *installjob.Job, step string, err error) error {
 // operation (install / uninstall / version change / core upgrade) funnels into.
 // logRecord is the pkg_install_log row the status endpoint polls; it is
 // finalized (success/failed) before the restart so the UI poller terminates.
-func rebuild(app *pocketbase.PocketBase, job *installjob.Job, m RebuildManifest, logRecord *core.Record) error {
-	return rebuildWith(job, m, productionRebuildDeps(app, job, m, logRecord))
+func rebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job, m RebuildManifest, logRecord *core.Record) error {
+	return rebuildWith(job, m, productionRebuildDeps(run, app, job, m, logRecord))
 }
 
 // productionRebuildDeps builds the real dependency set rebuild() runs with.
 // Split from rebuild() so a test can assert the production wiring (e.g. that
 // verifyCompat is actually bound to verifyTargetPeerVersions) instead of only
 // exercising the orchestrator with stubs.
-func productionRebuildDeps(app *pocketbase.PocketBase, job *installjob.Job, m RebuildManifest, logRecord *core.Record) rebuildDeps {
+//
+// Every build step is bound to run's ctx. The steps after the backup are not:
+// they are the tail, which runs to its end once it has changed the database.
+func productionRebuildDeps(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job, m RebuildManifest, logRecord *core.Record) rebuildDeps {
 	buildDir := filepath.Join(stateBuildsDir(), m.BuildID)
+	ctx := run.ctx
 
 	// backupDatabase returns the restore closure; capture it across steps.
 	var restoreClosure func() error
 
 	return rebuildDeps{
-		assemble: func(mm RebuildManifest, bd string) error { return assembleBuild(job, mm, bd) },
+		run:      run,
+		assemble: func(mm RebuildManifest, bd string) error { return assembleBuild(ctx, job, mm, bd) },
 		verifyCompat: func(mm RebuildManifest, bd string) error {
-			if err := verifyTargetPeerVersions(mm, bd); err != nil {
+			if err := pkgbuild.VerifyTargetPeerVersionsContext(ctx, mm, bd); err != nil {
 				return err
 			}
-			logRecipeHashBreadcrumb(job, bd)
+			logRecipeHashBreadcrumb(ctx, job, bd)
 			return nil
 		},
-		prepareTools: func(bd string) error { return prepareBuildTools(job, bd) },
+		prepareTools: func(bd string) error { return prepareBuildTools(ctx, job, bd) },
 		pipeline: func(j *installjob.Job, bd string) (buildOutput, error) {
-			return runBuildPipeline(j, bd, m.BuildID)
+			return runBuildPipeline(ctx, j, bd, m.BuildID)
 		},
 		tagLog: func(buildID string) error { return tagInstallLog(app, logRecord, buildID) },
 		backupDB: func() error {
-			r, e := backupDatabase(filepath.Join(buildDir, "tinycld"))
+			r, e := backupDatabase(ctx, filepath.Join(buildDir, "tinycld"))
 			restoreClosure = r
 			return e
 		},
@@ -381,13 +439,19 @@ func productionRebuildDeps(app *pocketbase.PocketBase, job *installjob.Job, m Re
 		finalizeLog: func(status, errMsg string) {
 			finalizeInstallLog(app, logRecord, status, errMsg, job.LogLines)
 		},
-		restart: func() { restartOntoBuild(app, m.BuildID, false) },
+		restart: func() { restartOntoBuild(ctx, app, m.BuildID, false) },
 	}
 }
 
 // restartOntoBuild is the post-activation success path's restart, and
 // reports whether the restart is under way (see requestRestart).
-func restartOntoBuild(app *pocketbase.PocketBase, buildID string, cold bool) (underway bool) {
+//
+// Once ctx has ended the app is terminating: the backup is armed and the WAL
+// checkpointed as always, but no restart is asked for. The process ends
+// anyway, and the supervisor's next start boots the `current` build it finds
+// armed, checks it, and rolls it back if it does not become ready. Asking
+// would only hold the terminate for the supervisor's ack.
+func restartOntoBuild(ctx context.Context, app *pocketbase.PocketBase, buildID string, cold bool) (underway bool) {
 	// Arm the surviving data.db.backup as a rollback snapshot BEFORE the
 	// restart. DOWN migrations already ran against the live DB and the symlink
 	// already flipped, so if the new build never becomes ready the supervisor
@@ -399,6 +463,10 @@ func restartOntoBuild(app *pocketbase.PocketBase, buildID string, cold bool) (un
 	// from the WAL into data.db before the restart, or the new binary reads a
 	// data.db missing them.
 	checkpointWAL(app)
+	if ctx.Err() != nil {
+		srvLog.Info("not asking for a restart: the server is shutting down; its next start boots the new build", "buildID", buildID)
+		return false
+	}
 	return requestRestart(cold)
 }
 
@@ -409,8 +477,8 @@ func restartOntoBuild(app *pocketbase.PocketBase, buildID string, cold bool) (un
 // unavailability reason today: a FromCurrent member copied from an active
 // build that predates members.lock.json carries no integrity, which
 // RecipeHash refuses by design.
-func logRecipeHashBreadcrumb(job *installjob.Job, buildDir string) {
-	tc, err := pkgbuild.DetectToolchain(nil)
+func logRecipeHashBreadcrumb(ctx context.Context, job *installjob.Job, buildDir string) {
+	tc, err := pkgbuild.DetectToolchain(pkgbuild.RunnerFor(ctx))
 	if err != nil {
 		jobLogf(job, "recipe hash unavailable: %v", err)
 		return

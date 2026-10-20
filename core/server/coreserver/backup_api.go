@@ -20,6 +20,7 @@ import (
 	"tinycld.org/core/backup"
 	"tinycld.org/core/backup/format"
 	"tinycld.org/core/backup/repo"
+	"tinycld.org/core/shutdown"
 )
 
 // minPassphrase is the floor the API enforces on every archive passphrase. An
@@ -177,13 +178,19 @@ func RegisterBackupBoot(app core.App) {
 	// run cancelled here still writes its ledger row, notifies administrators
 	// and posts its callback through this app. That work must finish while the
 	// database is open, or it panics on a closed one as the process exits.
-	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		ctx, cancel := context.WithTimeout(context.Background(), backupStopBound)
-		defer cancel()
-		if err := backup.StopAll(ctx, e.App); err != nil {
-			srvLog.Warn("closing the app under a backup run that did not stop in time", "bound", backupStopBound, "err", err)
-		}
-		return e.Next()
+	shutdown.Register(app)
+	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
+		Id:       "tinycldBackupStop",
+		Priority: backupStopPriority,
+		Func: func(e *core.TerminateEvent) error {
+			ctx, cancel := shutdown.Within(app, backupStopBound)
+			defer cancel()
+			if err := backup.StopAll(ctx, e.App); err != nil {
+				srvLog.Warn("closing the app under a backup run that did not stop in time",
+					"bound", backupStopBound, "cause", context.Cause(ctx), "err", err)
+			}
+			return e.Next()
+		},
 	})
 }
 
@@ -191,10 +198,22 @@ func RegisterBackupBoot(app core.App) {
 // announcement and callback ends at the cancel, so the wait is normally the
 // time of a few database writes. What it bounds is the work cancellation cannot
 // reach — a snapshot's VACUUM INTO, a restore staging an uploaded archive — so a
-// stop is never held hostage by it. It sits under the 10 s grace a supervisor
-// commonly gives a process before it kills it, so the warning is written rather
-// than cut off.
+// stop is never held hostage by it. The terminate's shared deadline
+// (tinycld.org/core/shutdown) can cut it shorter.
 const backupStopBound = 8 * time.Second
+
+// backupStopPriority runs the backup stop after every terminate handler at
+// the default priority: the background job runners and the tail writes
+// among them. Bound at the default priority, it ran first of those (it is
+// bound early in the boot), so a run that cancellation cannot reach could
+// use the whole shared deadline before them, and the database then closed
+// under their writes. A backup run is the cheapest wait to cut: the next boot
+// closes the row of an interrupted run (backup.MarkInterrupted), and a
+// restore whose staging did not finish leaves no sentinel, so no boot swaps
+// it in. A run's terminal work writes its ledger row and notifies
+// administrators directly, not through a background job, so a runner that
+// has stopped first drops none of it.
+const backupStopPriority = 100
 
 // passphraseRecipient refuses a short phrase before anything is attempted.
 func passphraseRecipient(p string) (age.Recipient, error) {

@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,9 +17,9 @@ func newBuildID() string {
 	return fmt.Sprintf("build-%d", time.Now().UnixMilli())
 }
 
-// finishJob is the deferred cleanup every rebuild-based pipeline shares: clear
-// the single-flight slot and close the job's Done channel so any caller
-// awaiting it unblocks.
+// finishJob is the cleanup every rebuild-based pipeline shares: clear the
+// single-flight slot and close the job's Done channel so any caller awaiting
+// it unblocks. The rebuild runner (jobRun.exec) calls it when a job returns.
 func finishJob(job *installjob.Job) {
 	// Release compares before clearing, so a late unwind cannot evict whoever
 	// holds the interlock now.
@@ -30,7 +31,7 @@ func finishJob(job *installjob.Job) {
 // manifest, returning the package slug + version. It mirrors the old install
 // pipeline's validate→pack→parse→validate prologue but performs NO workspace
 // mutation — the real fetch happens again inside the rebuild's assemble step.
-func resolveInstallSlugVersion(app *pocketbase.PocketBase, job *installjob.Job) (slug, version string, err error) {
+func resolveInstallSlugVersion(ctx context.Context, app *pocketbase.PocketBase, job *installjob.Job) (slug, version string, err error) {
 	// The resolve pre-flight (pack just far enough to read the manifest) occupies
 	// a tiny band below the assemble band [progAssembleStart, …) so the bar never
 	// jumps backward when assembleBuild re-fetches the member for real.
@@ -45,23 +46,28 @@ func resolveInstallSlugVersion(app *pocketbase.PocketBase, job *installjob.Job) 
 	defer os.RemoveAll(tmp)
 
 	emitProgress(job, "Downloading the package", 2, job.NpmPkg)
-	if _, err := runCmd(tmp, "npm", "pack", job.NpmPkg, "--pack-destination", tmp); err != nil {
+	if _, err := runCmdContext(ctx, tmp, "npm", "pack", job.NpmPkg, "--pack-destination", tmp); err != nil {
 		return "", "", fmt.Errorf("npm pack: %w", err)
 	}
 	tgz, _ := filepath.Glob(filepath.Join(tmp, "*.tgz"))
 	if len(tgz) == 0 {
 		return "", "", fmt.Errorf("no .tgz after npm pack")
 	}
-	if _, err := runCmd(tmp, "tar", "xzf", tgz[0], "-C", tmp); err != nil {
+	if _, err := runCmdContext(ctx, tmp, "tar", "xzf", tgz[0], "-C", tmp); err != nil {
 		return "", "", err
 	}
 	extractDir := filepath.Join(tmp, "package")
-	manifest, err := parseManifestViaNode(extractDir)
+	manifest, err := parseManifestViaNodeContext(ctx, extractDir)
 	if err != nil {
 		return "", "", fmt.Errorf("parse manifest: %w", err)
 	}
 	emitProgress(job, "Reading package details", 3, fmt.Sprintf("%s (%s)", manifest.Name, manifest.Slug))
 
+	// The compat gate below reads the database; nothing of it runs once the
+	// app is terminating.
+	if err := ctx.Err(); err != nil {
+		return manifest.Slug, manifest.Version, err
+	}
 	bundledSlugs := getBundledSlugs(app)
 	hasGoPrereqs := checkGoBuildPrereqs() == nil
 	if err := validateManifest(manifest, hasGoPrereqs, bundledSlugs); err != nil {
@@ -83,15 +89,14 @@ func resolveInstallSlugVersion(app *pocketbase.PocketBase, job *installjob.Job) 
 
 // runInstallRebuild installs a package by computing the desired set (current +
 // the new member) and triggering a full rebuild.
-func runInstallRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
-	defer finishJob(job)
-
+func runInstallRebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job) {
 	// Create the install-log row up front (slug falls back to the npm spec until
 	// resolved) so the status endpoint the UI polls has something to report.
-	logRecord := createInstallLog(app, job, "install")
+	logRecord := run.createLog("install")
 	jobLogf(job, "INSTALL requested: spec=%s (job %s)", job.NpmPkg, job.ID)
 
-	slug, version, err := resolveInstallSlugVersion(app, job)
+	slug, version, err := resolveInstallSlugVersion(run.ctx, app, job)
+	err = run.cause(err)
 	// resolveInstallSlugVersion returns the slug as soon as the manifest parses,
 	// even when it then fails (e.g. the compat gate). Key the install-log row to
 	// that slug BEFORE finalizing, so a resolve/compat failure is observable via
@@ -115,7 +120,7 @@ func runInstallRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	m := desiredSet(newBuildID(), current, setDelta{
 		op: "install", slug: slug, version: version, spec: job.NpmPkg,
 	})
-	if err := rebuild(app, job, m, logRecord); err != nil {
+	if err := rebuild(run, app, job, m, logRecord); err != nil {
 		job.Status = "failed"
 		job.Error = err.Error()
 	}
@@ -123,10 +128,8 @@ func runInstallRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 
 // runUninstallRebuild uninstalls a package by computing the desired set (current
 // minus the member) and triggering a full rebuild.
-func runUninstallRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
-	defer finishJob(job)
-
-	logRecord := createInstallLog(app, job, "uninstall")
+func runUninstallRebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job) {
+	logRecord := run.createLog("uninstall")
 	jobLogf(job, "UNINSTALL requested: slug=%s (job %s)", job.Slug, job.ID)
 
 	current, err := buildCurrentMemberSet(app)
@@ -137,7 +140,7 @@ func runUninstallRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	}
 	member := registrySlugToMember(job.Slug)
 	m := desiredSet(newBuildID(), current, setDelta{op: "uninstall", slug: member})
-	if err := rebuild(app, job, m, logRecord); err != nil {
+	if err := rebuild(run, app, job, m, logRecord); err != nil {
 		job.Status = "failed"
 		job.Error = err.Error()
 	}
@@ -176,16 +179,18 @@ func loadBuildManifest(buildID string) (RebuildManifest, error) {
 // disk. We back up the DB, sync the schema to the target build's migration set
 // (reverting any migrations newer builds applied), flip the `current` symlink
 // to the target, mirror its manifest into the registry, and restart.
-func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
-	defer finishJob(job)
-
+//
+// A revert is all database tail. The terminate stops it before the tail
+// starts and during the backup copy; from the migration sync on it runs to
+// its end, as rebuildWith's tail does.
+func runRevertRebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job) {
 	targetID := job.BuildID
 	// The install-log + status endpoint key on pkg_slug. The UI polls
 	// status/<pkg_slug> for revert/success, so the revert must log under the
 	// package the target build represents (e.g. "todo"), NOT the build id.
 	// Resolve it from the target's pkg_build row (labeled by the changed member).
 	job.Slug = revertTargetSlug(app, targetID)
-	logRecord := createInstallLog(app, job, "revert")
+	logRecord := run.createLog("revert")
 	failRevert := func(step string, err error) {
 		finalizeInstallLog(app, logRecord, "failed", err.Error(), job.LogLines)
 		_ = failJob(job, step, err)
@@ -205,6 +210,10 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 		return
 	}
 
+	if err := run.enterTail(); err != nil {
+		failRevert("validate", err)
+		return
+	}
 	// Tag before the backup, as rebuildWith does: if the reverted-to build is
 	// rolled back, the boot reconciler finds this row by its build id.
 	if err := tagInstallLog(app, logRecord, targetID); err != nil {
@@ -216,8 +225,15 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	// Every failure from here until activation leaves this process serving, so
 	// each one resumes writes after it has put the database back.
 	resumeWrites := pauseWritesForBackup()
-	restoreDB, err := backupDatabase(filepath.Join(stateBuildsDir(), targetID, "tinycld"))
+	restoreDB, err := backupDatabase(run.ctx, filepath.Join(stateBuildsDir(), targetID, "tinycld"))
 	if err != nil {
+		resumeWrites()
+		failRevert("backup", run.cause(err))
+		return
+	}
+	// The last point the terminate can stop the revert: the database is
+	// still the one the backup copied.
+	if err := run.checkpoint(); err != nil {
 		resumeWrites()
 		failRevert("backup", err)
 		return
@@ -295,16 +311,14 @@ func runRevertRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 	// flipped against the live DB), so it arms the surviving backup the same way
 	// the rebuild path does — the supervisor rolls the DB back if the reverted
 	// build never becomes ready, and commits the backup once it is.
-	restartOntoBuild(app, targetID, false)
+	restartOntoBuild(run.ctx, app, targetID, false)
 }
 
 // runVersionChangeRebuild applies one or more version changes (upgrades or
 // downgrades, including the base/core) by folding each change into the current
 // member set, then triggering a single rebuild for the whole set.
-func runVersionChangeRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
-	defer finishJob(job)
-
-	logRecord := createInstallLog(app, job, "version_change")
+func runVersionChangeRebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.Job) {
+	logRecord := run.createLog("version_change")
 	jobLogf(job, "VERSION CHANGE requested: %d change(s) (job %s)", len(job.Changes), job.ID)
 	for _, ch := range job.Changes {
 		jobLogf(job, "  change: %s -> %s", ch.Slug, ch.TargetVersion)
@@ -339,7 +353,7 @@ func runVersionChangeRebuild(app *pocketbase.PocketBase, job *installjob.Job) {
 		})
 	}
 	m := desiredSetMulti(buildID, current, deltas)
-	if err := rebuild(app, job, m, logRecord); err != nil {
+	if err := rebuild(run, app, job, m, logRecord); err != nil {
 		job.Status = "failed"
 		job.Error = err.Error()
 	}

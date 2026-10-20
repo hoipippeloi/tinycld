@@ -1,6 +1,7 @@
 package search
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/oauth"
 )
 
@@ -18,6 +20,9 @@ import (
 func errPanic(r any) error {
 	return fmt.Errorf("panic: %v", r)
 }
+
+// errTerminating reports a source not run because the app is terminating.
+var errTerminating = errors.New("not searched: the server is shutting down")
 
 // Register binds GET /api/search.
 //
@@ -33,6 +38,10 @@ func Register(app *pocketbase.PocketBase) {
 	// instead of handing it the results it may see. Evaluated per request so
 	// it is right whatever order packages registered in.
 	oauth.RegisterSharedEndpoint("GET", "/api/search", searchScopes)
+
+	// Bind the runner's terminate handler at startup rather than on the
+	// first search.
+	background.For(app, jobsPkg)
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.GET("/api/search", func(re *core.RequestEvent) error {

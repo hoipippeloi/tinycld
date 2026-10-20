@@ -114,7 +114,7 @@ func newSupervisor(args []string, getenv func(string) string, opts options, sigs
 		getenv: getenv,
 		sigs:   sigs,
 		cred:   cred,
-		env:    childEnv(os.Environ(), home),
+		env:    append(childEnv(os.Environ(), home), boundsEnv(opts.stopBound, opts.drainBound)...),
 		ports:  newPortPool(),
 	}
 	current, err := s.state.Current()

@@ -8,6 +8,8 @@
 // exists once and both clients read the same rows.
 package search
 
+import "context"
+
 // Row is one normalized hit. The display fields mirror the web's SearchRow so
 // the palette can render a row without knowing which package produced it.
 type Row struct {
@@ -49,6 +51,20 @@ type Query struct {
 	// see sourceLimit.
 	Limit  int
 	Offset int
+	// Ctx ends when the source's time is up: at sourceTimeout, when the
+	// request ends, or when the app terminates. Read it through Context(),
+	// which never returns nil. See Source.Search for what a source must do
+	// with it.
+	Ctx context.Context
+}
+
+// Context returns the query's context, or context.Background() for a query
+// built without one (a package test that calls its source directly).
+func (q Query) Context() context.Context {
+	if q.Ctx == nil {
+		return context.Background()
+	}
+	return q.Ctx
 }
 
 // Result is what one source returns. Total is that package's full match count,

@@ -1934,3 +1934,24 @@ func TestRunNoHealthyBuildReachesSentry(t *testing.T) {
 		t.Fatalf("exit event context = %s, want it to name %q", detail, errNoHealthyBuild)
 	}
 }
+
+// Every child gets the supervisor's own stop and drain bounds in its env.
+func TestNewSupervisorPassesItsBoundsToChildren(t *testing.T) {
+	r := newTestRoot(t)
+	r.build("a", knobs{"FAKE_NAME": "A"})
+	r.point("a")
+	t.Setenv("TINYCLD_STATE_DIR", r.dir)
+	t.Setenv("HTTP_ADDR", freeAddr(t))
+	t.Setenv("AUTOCERT_ENABLED", "")
+	opts := testOptions()
+	opts.stopBound, opts.drainBound = 3*time.Second, 11*time.Second
+	s, err := newSupervisor(nil, os.Getenv, opts, make(chan os.Signal))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.ports.closeAll)
+	stop, drain := ChildBounds(envOf(s.env))
+	if stop != opts.stopBound || drain != opts.drainBound {
+		t.Fatalf("children get bounds %v, %v; want %v, %v", stop, drain, opts.stopBound, opts.drainBound)
+	}
+}
