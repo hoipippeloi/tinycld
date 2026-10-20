@@ -2,6 +2,7 @@
 package automation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -170,7 +171,7 @@ func TestCoreNotifyHandler(t *testing.T) {
 
 	captured := make(chan notify.NotifyParams, 1)
 	original := deliverNotification
-	deliverNotification = func(app core.App, params notify.NotifyParams) error {
+	deliverNotification = func(_ context.Context, app core.App, params notify.NotifyParams) error {
 		captured <- params
 		return nil
 	}
@@ -221,7 +222,7 @@ func TestCoreNotifyReportsDeliveryFailure(t *testing.T) {
 	registerCoreNativeActions()
 
 	original := deliverNotification
-	deliverNotification = func(core.App, notify.NotifyParams) error {
+	deliverNotification = func(context.Context, core.App, notify.NotifyParams) error {
 		return fmt.Errorf("notifications collection unavailable")
 	}
 	t.Cleanup(func() { deliverNotification = original })

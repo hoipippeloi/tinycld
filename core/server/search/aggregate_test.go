@@ -3,11 +3,15 @@ package search
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+
+	"tinycld.org/core/background"
 )
 
 // testApp gives Aggregate a real core.App, which it needs only for its logger.
@@ -131,12 +135,25 @@ func TestAggregateIsolatesAPanickingSource(t *testing.T) {
 	}
 }
 
+// shortenSourceTimeout sets sourceTimeout for one test. Call it before
+// testApp, so the restore runs after the app's Cleanup has waited for every
+// source job: a job still reading the var would race the restore.
+func shortenSourceTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := sourceTimeout
+	sourceTimeout = d
+	t.Cleanup(func() { sourceTimeout = prev })
+}
+
 func TestAggregateTimesOutASlowSourceWithoutBlockingTheRest(t *testing.T) {
+	const timeout = 100 * time.Millisecond
+	shortenSourceTimeout(t, timeout)
 	app := testApp(t)
 	slow := Source{
 		Slug: "gizmos", Order: 5,
+		// Ignores its context, as a source that has not adopted it does.
 		Search: func(core.App, string, Query) (Result, error) {
-			time.Sleep(2 * sourceTimeout)
+			time.Sleep(2 * timeout)
 			return Result{}, nil
 		},
 	}
@@ -146,7 +163,7 @@ func TestAggregateTimesOutASlowSourceWithoutBlockingTheRest(t *testing.T) {
 	resp := Aggregate(context.Background(), app, "u1", Query{Include: []string{"budget"}}, sources)
 	elapsed := time.Since(start)
 
-	if elapsed >= 2*sourceTimeout {
+	if elapsed >= 2*timeout {
 		t.Fatalf("waited %v — a slow source must be cut off, not awaited", elapsed)
 	}
 	if len(resp.Rows) != 1 || resp.Rows[0].Slug != "cogs" {
@@ -259,5 +276,145 @@ func TestAggregateOverFetchesSoRankingCanChoose(t *testing.T) {
 	Aggregate(context.Background(), app, "u1", Query{Include: []string{"x"}, Limit: 10}, []Source{src})
 	if gotLimit <= 10 {
 		t.Fatalf("source limit = %d, want more than the page size", gotLimit)
+	}
+}
+
+// A source still running at sourceTimeout is told to stop: its context ends,
+// so its query is cancelled and its goroutine returns rather than running on.
+func TestAggregateCancelsASlowSourceAtTheTimeout(t *testing.T) {
+	shortenSourceTimeout(t, 50*time.Millisecond)
+	app := testApp(t)
+	ended := make(chan error, 1)
+	slow := Source{
+		Slug: "gizmos", Order: 5,
+		Search: func(_ core.App, _ string, q Query) (Result, error) {
+			<-q.Context().Done()
+			ended <- q.Context().Err()
+			return Result{}, q.Context().Err()
+		},
+	}
+
+	resp := Aggregate(context.Background(), app, "u1", Query{Include: []string{"budget"}}, []Source{slow})
+	if len(resp.Partial) != 1 || resp.Partial[0] != "gizmos" {
+		t.Fatalf("partial = %v, want [gizmos]", resp.Partial)
+	}
+	select {
+	case err := <-ended:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("the source's context ended with %v, want the timeout", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the slow source was never cancelled: its goroutine runs on after the request")
+	}
+}
+
+// The request ending (the client went away) cancels a source still running.
+func TestAggregateCancelsASourceWhenTheRequestEnds(t *testing.T) {
+	app := testApp(t)
+	reqCtx, cancelReq := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	ended := make(chan struct{})
+	slow := Source{
+		Slug: "gizmos", Order: 5,
+		Search: func(_ core.App, _ string, q Query) (Result, error) {
+			close(started)
+			<-q.Context().Done()
+			close(ended)
+			return Result{}, q.Context().Err()
+		},
+	}
+	go func() {
+		<-started
+		cancelReq()
+	}()
+
+	resp := Aggregate(reqCtx, app, "u1", Query{Include: []string{"budget"}}, []Source{slow})
+	if len(resp.Partial) != 1 {
+		t.Fatalf("partial = %v, want [gizmos]", resp.Partial)
+	}
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source was not cancelled when the request ended")
+	}
+}
+
+// A source the request gave up on can still be querying when the app
+// terminates. The terminate waits for it, with its context ended, so its query
+// never runs against a closed database.
+func TestTerminateWaitsForASourceStillRunning(t *testing.T) {
+	shortenSourceTimeout(t, 50*time.Millisecond)
+	app := testApp(t)
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	var dbOpenAtEnd atomic.Bool
+	slow := Source{
+		Slug: "gizmos", Order: 5,
+		// Ignores the context past the cancel for a while, as a source with a
+		// query in flight does, then touches the database.
+		Search: func(a core.App, _ string, q Query) (Result, error) {
+			<-q.Context().Done()
+			close(cancelled)
+			<-release
+			dbOpenAtEnd.Store(a.ConcurrentDB() != nil)
+			return Result{}, nil
+		},
+	}
+
+	// Runs before the app's Cleanup (cleanups run last-in first-out), which
+	// would otherwise wait forever on the held source after a failure.
+	var once sync.Once
+	letGo := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(letGo)
+
+	Aggregate(context.Background(), app, "u1", Query{Include: []string{"budget"}}, []Source{slow})
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the source was never cancelled at the timeout")
+	}
+
+	terminated := make(chan struct{})
+	go func() {
+		app.(*tests.TestApp).Cleanup()
+		close(terminated)
+	}()
+	select {
+	case <-terminated:
+		t.Fatal("terminate returned while a source was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+	letGo()
+	select {
+	case <-terminated:
+	case <-time.After(10 * time.Second):
+		t.Fatal("terminate did not return after the source did")
+	}
+	if !dbOpenAtEnd.Load() {
+		t.Fatal("the database closed before the source returned")
+	}
+}
+
+// A search that starts after the terminate began is not run: the database
+// is about to close. The source is reported in Partial, not as zero hits.
+func TestAggregateAfterTerminateRunsNoSource(t *testing.T) {
+	app := testApp(t)
+	// Register binds the runner at startup; do the same before the terminate.
+	background.For(app, jobsPkg)
+	app.(*tests.TestApp).Cleanup()
+	called := false
+	src := Source{
+		Slug: "gizmos", Order: 5,
+		Search: func(core.App, string, Query) (Result, error) {
+			called = true
+			return Result{}, nil
+		},
+	}
+	resp := Aggregate(context.Background(), app, "u1", Query{Include: []string{"budget"}}, []Source{src})
+	if called {
+		t.Fatal("a source ran after the terminate")
+	}
+	if len(resp.Partial) != 1 || resp.Partial[0] != "gizmos" {
+		t.Fatalf("partial = %v, want [gizmos]", resp.Partial)
 	}
 }

@@ -1,6 +1,8 @@
 package fts
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -101,5 +103,27 @@ func TestSearch_NilScopeReturnsNoRowsNotPanic(t *testing.T) {
 	}
 	if results != nil || total != 0 {
 		t.Fatalf("Search with nil Scope = (%v, %d), want (nil, 0)", results, total)
+	}
+}
+
+// A search whose context has ended runs no query and returns the context's
+// error, so a federated source that passes its context through stops when the
+// aggregator cancels it.
+func TestSearch_EndedContextRunsNoQuery(t *testing.T) {
+	app, user := setupUsersApp(t)
+	cfg := Config{
+		Slug:       "test",
+		Collection: "users",
+		// Missing on purpose: a query that ran would fail with "no such table"
+		// rather than the context's error.
+		Table: "fts_users_missing",
+		Scope: OwnerScope{Field: "id"},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := Search(app, cfg, user.Id, SearchOpts{Query: "anything", Limit: 25, Ctx: ctx})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Search with an ended context = %v, want context.Canceled", err)
 	}
 }

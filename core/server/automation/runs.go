@@ -33,7 +33,8 @@ var notifyUser = func(ctx context.Context, app core.App, params notify.NotifyPar
 
 // deliverNotification is the reporting variant, for core:notify — an action
 // whose run result must reflect whether the notification actually landed.
-var deliverNotification = notify.DeliverToUser
+// ctx ends its pushes.
+var deliverNotification = notify.DeliverToUserContext
 
 // appIsLive reports whether app still has a usable DB connection pool. The
 // engine's worker, its cron callbacks and core:notify check it before they
