@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,13 +24,13 @@ func currentWorkspaceRoot() string {
 
 // hostMemberSource is the standalone MemberSource: changed members are
 // fetched with the standard npm-pack source, unchanged (FromCurrent) members
-// are copied from the live build.
-type hostMemberSource struct{}
+// are copied from the live build. ctx bounds the fetch's commands.
+type hostMemberSource struct{ ctx context.Context }
 
 var _ pkgbuild.MemberSource = hostMemberSource{}
 
-func (hostMemberSource) Fetch(ms MemberSpec, buildDir string) (string, error) {
-	return pkgbuild.NpmPackSource().Fetch(ms, buildDir)
+func (s hostMemberSource) Fetch(ms MemberSpec, buildDir string) (string, error) {
+	return pkgbuild.NpmPackSourceContext(s.ctx).Fetch(ms, buildDir)
 }
 
 func (hostMemberSource) CopyCurrent(ms MemberSpec, buildDir string) (string, error) {
@@ -68,9 +69,9 @@ func copyMemberFromCurrent(ms MemberSpec, buildDir string) (string, error) {
 // host-side wrapper so the production wiring reads at one glance: the job's
 // progress sink (install-log row + durable log), the host MemberSource, and
 // the active root as the scaffold source.
-func assembleBuild(job *installjob.Job, m RebuildManifest, buildDir string) error {
-	if err := pkgbuild.AssembleBuild(installJobSink{job}, m, buildDir,
-		hostMemberSource{}, currentWorkspaceRoot(), pkgbuild.ScaffoldOptions{}); err != nil {
+func assembleBuild(ctx context.Context, job *installjob.Job, m RebuildManifest, buildDir string) error {
+	if err := pkgbuild.AssembleBuildContext(ctx, installJobSink{job}, m, buildDir,
+		hostMemberSource{ctx: ctx}, currentWorkspaceRoot(), pkgbuild.ScaffoldOptions{}); err != nil {
 		return err
 	}
 	return adoptTargetScaffold(job, m, buildDir, resolveServerDir())

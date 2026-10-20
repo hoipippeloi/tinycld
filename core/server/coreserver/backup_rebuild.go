@@ -58,7 +58,7 @@ var restoreRebuildDeps = productionRebuildDeps
 // restoreRebuilder is the restore's rebuilder: a build carrying exactly the
 // archive's lockfile, activated and restarted onto cold.
 func restoreRebuilder(app *pocketbase.PocketBase) backup.Rebuilder {
-	return func(_ context.Context, job *installjob.Job, lf format.Lockfile) error {
+	return func(ctx context.Context, job *installjob.Job, lf format.Lockfile) error {
 		// The restore hands its own claim over rather than releasing it, so there
 		// is nothing to claim here: an install slipping into a release/re-claim
 		// window would have wasted a pre-restore backup and a fully staged
@@ -80,7 +80,10 @@ func restoreRebuilder(app *pocketbase.PocketBase) backup.Rebuilder {
 		// its log line, so the member order must not change run to run.
 		sort.Slice(m.Members, func(i, j int) bool { return m.Members[i].Slug < m.Members[j].Slug })
 		logRecord := createInstallLog(app, job, "install")
-		deps := restoreRebuildDeps(app, job, m, logRecord)
+		// The restore's own ctx and stop bound (the backup engine's) govern
+		// this rebuild, so no rebuild runner tracks it.
+		run := detachedRun(ctx)
+		deps := restoreRebuildDeps(run, app, job, m, logRecord)
 		// No migration sync. The live database is about to be replaced by the
 		// archive's, so reconciling THIS database's schema to the new build
 		// would migrate a database that is on its way out — and the staged one
@@ -89,7 +92,7 @@ func restoreRebuilder(app *pocketbase.PocketBase) backup.Rebuilder {
 		// Cold: the new process's boot sets this pb_data aside for the staged
 		// one, so it must not start while this process still serves from it.
 		underway := false
-		deps.restart = func() { underway = restartOntoBuild(app, m.BuildID, true) }
+		deps.restart = func() { underway = restartOntoBuild(ctx, app, m.BuildID, true) }
 		if err := rebuildWith(job, m, deps); err != nil {
 			return fmt.Errorf("rebuild for restore: %w", err)
 		}

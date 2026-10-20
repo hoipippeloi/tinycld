@@ -20,7 +20,9 @@ import (
 func stubRestoreRebuildDeps(t *testing.T, deps rebuildDeps) {
 	t.Helper()
 	prev := restoreRebuildDeps
-	restoreRebuildDeps = func(*pocketbase.PocketBase, *installjob.Job, RebuildManifest, *core.Record) rebuildDeps { return deps }
+	restoreRebuildDeps = func(*jobRun, *pocketbase.PocketBase, *installjob.Job, RebuildManifest, *core.Record) rebuildDeps {
+		return deps
+	}
 	t.Cleanup(func() { restoreRebuildDeps = prev })
 }
 
@@ -106,9 +108,9 @@ func TestRestoreRebuildTagsItsInstallLogRow(t *testing.T) {
 	addInstallLogCollection(t, app)
 	prev := restoreRebuildDeps
 	var buildID string
-	restoreRebuildDeps = func(a *pocketbase.PocketBase, j *installjob.Job, m RebuildManifest, r *core.Record) rebuildDeps {
+	restoreRebuildDeps = func(run *jobRun, a *pocketbase.PocketBase, j *installjob.Job, m RebuildManifest, r *core.Record) rebuildDeps {
 		buildID = m.BuildID
-		return withStubbedSteps(prev(a, j, m, r))
+		return withStubbedSteps(prev(run, a, j, m, r))
 	}
 	t.Cleanup(func() { restoreRebuildDeps = prev })
 

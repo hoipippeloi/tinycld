@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bufio"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -76,6 +77,11 @@ type nodeRelease struct {
 // returns its directory (whose bin/ holds node). See pickNodeRelease for which
 // release; a directory an earlier call already filled is reused.
 func (d NodeDist) Ensure(rangeSpec string) (string, error) {
+	return d.EnsureContext(context.Background(), rangeSpec)
+}
+
+// EnsureContext is Ensure with every download bound to ctx.
+func (d NodeDist) EnsureContext(ctx context.Context, rangeSpec string) (string, error) {
 	c, err := semver.NewConstraint(rangeSpec)
 	if err != nil {
 		return "", fmt.Errorf("invalid engines.node range %q: %w", rangeSpec, err)
@@ -85,7 +91,7 @@ func (d NodeDist) Ensure(rangeSpec string) (string, error) {
 		return "", err
 	}
 	var releases []nodeRelease
-	if err := d.getJSON(d.baseURL()+"/index.json", &releases); err != nil {
+	if err := d.getJSON(ctx, d.baseURL()+"/index.json", &releases); err != nil {
 		return "", err
 	}
 	version := pickNodeRelease(releases, c, platform)
@@ -96,7 +102,7 @@ func (d NodeDist) Ensure(rangeSpec string) (string, error) {
 	if _, err := os.Stat(filepath.Join(dest, "bin", "node")); err == nil {
 		return dest, nil
 	}
-	if err := d.install(version, platform, dest); err != nil {
+	if err := d.install(ctx, version, platform, dest); err != nil {
 		return "", fmt.Errorf("install Node.js %s: %w", version, err)
 	}
 	return dest, nil
@@ -177,9 +183,9 @@ func (d NodeDist) platform() (string, error) {
 	return goos + "-" + arch, nil
 }
 
-func (d NodeDist) install(version, platform, dest string) error {
+func (d NodeDist) install(ctx context.Context, version, platform, dest string) error {
 	name := fmt.Sprintf("node-%s-%s.tar.gz", version, platform)
-	sum, err := d.expectedSHA256(version, name)
+	sum, err := d.expectedSHA256(ctx, version, name)
 	if err != nil {
 		return err
 	}
@@ -193,7 +199,7 @@ func (d NodeDist) install(version, platform, dest string) error {
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 
-	resp, err := d.client().Get(d.baseURL() + "/" + version + "/" + name)
+	resp, err := d.get(ctx, d.baseURL()+"/"+version+"/"+name)
 	if err != nil {
 		return err
 	}
@@ -229,8 +235,8 @@ func (d NodeDist) install(version, platform, dest string) error {
 	return os.Rename(staging, dest)
 }
 
-func (d NodeDist) expectedSHA256(version, name string) (string, error) {
-	resp, err := d.client().Get(d.baseURL() + "/" + version + "/SHASUMS256.txt")
+func (d NodeDist) expectedSHA256(ctx context.Context, version, name string) (string, error) {
+	resp, err := d.get(ctx, d.baseURL()+"/"+version+"/SHASUMS256.txt")
 	if err != nil {
 		return "", err
 	}
@@ -323,8 +329,17 @@ func insideDir(dir, rel string) (string, error) {
 	return target, nil
 }
 
-func (d NodeDist) getJSON(url string, v any) error {
-	resp, err := d.client().Get(url)
+// get is a GET of url bound to ctx.
+func (d NodeDist) get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	return d.client().Do(req)
+}
+
+func (d NodeDist) getJSON(ctx context.Context, url string, v any) error {
+	resp, err := d.get(ctx, url)
 	if err != nil {
 		return err
 	}

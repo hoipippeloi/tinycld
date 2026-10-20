@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/autoupgrade"
+	"tinycld.org/core/background"
 	"tinycld.org/core/installjob"
 	"tinycld.org/core/readonly"
 )
@@ -23,19 +25,27 @@ const (
 	resultOff            = "off"
 	resultReadOnly       = "read-only"
 	resultUnrestored     = "paused: a database backup needs attention"
+	resultStopped        = "stopped: the server is shutting down"
 )
 
 // localScheduler is the Delegate for a deployment that can rebuild itself. It
 // wakes every hour; inside the owner's window it applies the newest compatible
 // set through the same path as a manual version change, so the entrypoint's
 // health probe commits or rolls back exactly as it does for a person.
+//
+// The loop runs on the app's background runner, so the terminate waits for a
+// tick in progress. A tick is short: its network lookups and its mail are
+// bound to the ctx the terminate cancels, and a version change it starts is
+// handed to the rebuild runner, which the tick does not wait for.
 type localScheduler struct {
 	app      core.App
+	jobs     *background.Jobs
+	every    time.Duration
 	now      func() time.Time
-	discover func() ([]VersionInfo, error)
+	discover func(ctx context.Context) ([]VersionInfo, error)
 	solve    solveFunc
 	apply    func([]installjob.VersionChange) error
-	notify   func(notice)
+	notify   func(ctx context.Context, n notice)
 	// disabled is why ticks do nothing ("" = active). The switch still works:
 	// a development build or a test server must not rebuild itself at 3am.
 	disabled string
@@ -47,22 +57,28 @@ type localScheduler struct {
 
 func newLocalScheduler(app *pocketbase.PocketBase) *localScheduler {
 	s := &localScheduler{
-		app: app,
-		now: time.Now,
-		discover: func() ([]VersionInfo, error) {
+		app:   app,
+		jobs:  background.For(app, "coreserver"),
+		every: tickEvery,
+		now:   time.Now,
+		discover: func(ctx context.Context) ([]VersionInfo, error) {
 			rows, err := app.FindRecordsByFilter("pkg_registry", "id != ''", "slug", 0, 0)
 			if err != nil {
 				return nil, err
 			}
-			return versionInfosForRows(rows, versionsForSpec), nil
+			return versionInfosForRows(rows, func(spec string) (pkgSource, []string, string) {
+				return versionsForSpecContext(ctx, spec)
+			}), nil
 		},
 		solve: func(c map[string]string) ([]compatViolation, error) { return solveRegistryCompat(app, c) },
 		apply: func(c []installjob.VersionChange) error {
 			_, err := beginVersionChange(app, c, "auto")
 			return err
 		},
-		notify: func(n notice) {
-			notifyAdmins(app, func(name, email, subj, html, text string) error { return send(app, name, email, subj, html, text) }, n)
+		notify: func(ctx context.Context, n notice) {
+			notifyAdmins(app, func(name, email, subj, html, text string) error {
+				return sendContext(ctx, app, name, email, subj, html, text)
+			}, n)
 		},
 	}
 	switch {
@@ -159,19 +175,43 @@ func lastAutoJob(app core.App) (time.Time, string) {
 	return rows[0].GetDateTime("created").Time(), results[rows[0].GetString("status")]
 }
 
+// Start runs the hourly loop until ctx ends or the app terminates.
 func (s *localScheduler) Start(ctx context.Context) {
-	go func() {
-		t := time.NewTicker(tickEvery)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				s.tick(ctx)
-			}
+	s.jobs.Run("auto-upgrade checks", func(jobCtx context.Context) {
+		loopCtx, cancel := context.WithCancel(jobCtx)
+		defer cancel()
+		defer context.AfterFunc(ctx, cancel)()
+		s.loop(loopCtx)
+	})
+}
+
+func (s *localScheduler) loop(ctx context.Context) {
+	every := s.every
+	if every <= 0 {
+		every = tickEvery
+	}
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.safeTick(ctx)
+		}
+	}
+}
+
+// safeTick is one tick whose panic is logged and recorded, so the next
+// hour's tick still runs.
+func (s *localScheduler) safeTick(ctx context.Context) {
+	defer func() {
+		if p := recover(); p != nil {
+			srvLog.Error("auto-upgrade: check panicked", "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+			s.record(fmt.Sprintf("failed: internal error: %v", p))
 		}
 	}()
+	s.tick(ctx)
 }
 
 func (s *localScheduler) record(result string) string {
@@ -181,9 +221,14 @@ func (s *localScheduler) record(result string) string {
 	return result
 }
 
-func (s *localScheduler) tick(_ context.Context) string {
+// tick returns early once ctx has ended, before its next database write,
+// mail or version change.
+func (s *localScheduler) tick(ctx context.Context) string {
 	if s.disabled != "" {
 		return s.record(resultDisabledPrefix + s.disabled)
+	}
+	if ctx.Err() != nil {
+		return resultStopped
 	}
 	// Read-only mode means a second process is about to migrate this
 	// database. The tick is not a cron job, so the cron guard does not skip
@@ -218,11 +263,18 @@ func (s *localScheduler) tick(_ context.Context) string {
 	if installjob.Running() {
 		return "busy"
 	}
-	if err := remindBlocked(s.app, now, s.notify); err != nil {
+	notify := func(n notice) { s.notify(ctx, n) }
+	if err := remindBlocked(s.app, now, notify); err != nil {
 		srvLog.Warn("auto-upgrade: blocked reminders failed", "err", err)
 	}
+	if ctx.Err() != nil {
+		return resultStopped
+	}
 
-	infos, err := s.discover()
+	infos, err := s.discover(ctx)
+	if ctx.Err() != nil {
+		return resultStopped
+	}
 	if err != nil {
 		return s.record("failed: " + err.Error())
 	}
@@ -232,7 +284,7 @@ func (s *localScheduler) tick(_ context.Context) string {
 	}
 	if plan.Target == nil && len(plan.Violations) > 0 {
 		fp := fingerprint(plan.Wanted, plan.Violations)
-		if err := recordPause(s.app, fp, plan.Wanted, formatViolations(plan.Violations), now, s.notify); err != nil {
+		if err := recordPause(s.app, fp, plan.Wanted, formatViolations(plan.Violations), now, notify); err != nil {
 			srvLog.Warn("auto-upgrade: record pause failed", "err", err)
 		}
 		return s.record("paused: conflict")
@@ -254,6 +306,9 @@ func (s *localScheduler) tick(_ context.Context) string {
 	changes := make([]installjob.VersionChange, 0, len(plan.Target))
 	for _, slug := range sortedKeys(plan.Target) {
 		changes = append(changes, installjob.VersionChange{Slug: slug, TargetVersion: plan.Target[slug]})
+	}
+	if ctx.Err() != nil {
+		return resultStopped
 	}
 	if err := s.apply(changes); err != nil {
 		srvLog.Warn("auto-upgrade: apply failed", "err", err)

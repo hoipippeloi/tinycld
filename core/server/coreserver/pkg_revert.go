@@ -39,7 +39,10 @@ func handleRevert(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 		})
 	}
 
-	go runRevertRebuild(app, job)
+	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runRevertRebuild(run, app, job) }); err != nil {
+		finishJob(job)
+		return re.JSON(http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+	}
 
 	return re.JSON(http.StatusAccepted, map[string]any{"jobId": job.ID})
 }

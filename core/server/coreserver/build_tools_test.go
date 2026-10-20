@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,7 +201,7 @@ func TestEnsureNode_ImageNodeWinsOverOldDownload(t *testing.T) {
 	cachedBin := filepath.Join(nodeCurrentDir(), "bin")
 	t.Setenv("PATH", cachedBin+string(os.PathListSeparator)+imageBin)
 
-	if err := ensureNode(noLog, nodeBuild(t, ">=22")); err != nil {
+	if err := ensureNode(context.Background(), noLog, nodeBuild(t, ">=22")); err != nil {
 		t.Fatal(err)
 	}
 	if got := os.Getenv("PATH"); got != imageBin {
@@ -216,7 +217,7 @@ func TestEnsureNode_UsesEarlierDownloadWhenImageIsTooOld(t *testing.T) {
 	cachedNode(t, "v22.12.0")
 	t.Setenv("PATH", imageBin)
 
-	if err := ensureNode(noLog, nodeBuild(t, ">=22")); err != nil {
+	if err := ensureNode(context.Background(), noLog, nodeBuild(t, ">=22")); err != nil {
 		t.Fatal(err)
 	}
 	want := filepath.Join(nodeCurrentDir(), "bin") + string(os.PathListSeparator) + imageBin
@@ -228,7 +229,7 @@ func TestEnsureNode_UsesEarlierDownloadWhenImageIsTooOld(t *testing.T) {
 func TestEnsureNode_NoEnginesRangeDoesNothing(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
 	buildDir, _ := laneBuild(t, "3.0.0", "3.0.0")
-	if err := ensureNode(noLog, buildDir); err != nil {
+	if err := ensureNode(context.Background(), noLog, buildDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(stateToolchainsDir(), "node")); !os.IsNotExist(err) {

@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -94,6 +95,10 @@ type Pipeline struct {
 	ConfigValue func(key string) string
 	// Now is the throttle clock. Default time.Now.
 	Now func() time.Time
+
+	// ctx is the run's context, set by ExecuteContext. The default runners
+	// bind every command to it; an injected runner is the host's own.
+	ctx context.Context
 }
 
 // BuildOutput captures what a successful pipeline produced for the host to
@@ -105,18 +110,25 @@ type BuildOutput struct {
 	Bundles        []BundleMeta
 }
 
+func (p Pipeline) context() context.Context {
+	if p.ctx != nil {
+		return p.ctx
+	}
+	return context.Background()
+}
+
 func (p Pipeline) run() CmdRunner {
 	if p.Run != nil {
 		return p.Run
 	}
-	return RunCmd
+	return RunnerFor(p.context())
 }
 
 func (p Pipeline) runEnv() CmdEnvRunner {
 	if p.RunEnv != nil {
 		return p.RunEnv
 	}
-	return RunCmdEnv
+	return EnvRunnerFor(p.context())
 }
 
 func (p Pipeline) goStream() StreamingRunner {
@@ -128,14 +140,14 @@ func (p Pipeline) goStream() StreamingRunner {
 			return p.Run(dir, name, args...)
 		}
 	}
-	return RunCmdStreaming
+	return StreamingRunnerFor(p.context())
 }
 
 func (p Pipeline) expoStream() StreamingRunner {
 	if p.ExpoStream != nil {
 		return p.ExpoStream
 	}
-	return RunCmdStreaming
+	return StreamingRunnerFor(p.context())
 }
 
 func (p Pipeline) stage() func(string) (string, error) {
@@ -176,6 +188,13 @@ func (p Pipeline) now() time.Time {
 // Execute runs the pipeline against an assembled build dir. Each step reports
 // through sink.
 func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOutput, error) {
+	return p.ExecuteContext(context.Background(), sink, buildDir, buildID)
+}
+
+// ExecuteContext is Execute bound to ctx: the default runners kill a running
+// command when ctx ends, and no step starts after it has ended.
+func (p Pipeline) ExecuteContext(ctx context.Context, sink ProgressSink, buildDir, buildID string) (BuildOutput, error) {
+	p.ctx = ctx
 	sink = sinkOrNop(sink)
 	appDir := filepath.Join(buildDir, "tinycld")
 	goDir := filepath.Join(appDir, "server")
@@ -200,12 +219,18 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// then runs in-process as the server, on every boot, with full privileges (DB
 	// handle, filesystem, secrets). Installing a package = trusting its author with
 	// the server. By design — see the doc section referenced above.
+	if err := p.stopped("prepare server"); err != nil {
+		return BuildOutput{}, err
+	}
 	if p.PrepareServer != nil {
 		if err := TimeStep(sink, "prepare server dir", func() error {
 			return p.PrepareServer(goDir)
 		}); err != nil {
 			return BuildOutput{}, wrapStep("prepare server", err)
 		}
+	}
+	if err := p.stopped("go build"); err != nil {
+		return BuildOutput{}, err
 	}
 	sink.Progress(stepServer, ProgGoBuild, "Getting source code")
 	if err := TimeStep(sink, "go build (server binary)", func() error {
@@ -215,6 +240,9 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	}
 	// Cross-compile the per-org CLI binaries. Never fails the build — see
 	// buildCLIBinaries.
+	if err := p.stopped("cli cross-compile"); err != nil {
+		return BuildOutput{}, err
+	}
 	sink.Progress(stepCLI, ProgCLIBuild, "")
 	_ = TimeStep(sink, "cli cross-compile (best-effort)", func() error {
 		p.buildCLIBinaries(sink, appDir)
@@ -223,6 +251,9 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// The web bundle owns [ProgExpoWebStart, ProgExpoWeb): runExportWithProgress
 	// climbs the bar through it from Metro's per-module progress so a cold
 	// (multi-minute) bundle visibly advances instead of parking at one value.
+	if err := p.stopped("expo export"); err != nil {
+		return BuildOutput{}, err
+	}
 	sink.Progress(stepWebBundle, ProgExpoWebStart, "")
 	if err := TimeStep(sink, "expo export (web bundle)", func() error {
 		out, e := p.runExportWithProgress(sink, ProgExpoWebStart, ProgExpoWeb,
@@ -243,6 +274,9 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// entrypoint's promote_release (which reads /workspace/current/release-staging
 	// after the swap) finds the new bundle. Without this the server serves the old
 	// bundle or 404s ("Unmatched Route") on a newly-installed package's routes.
+	if err := p.stopped("stage release"); err != nil {
+		return BuildOutput{}, err
+	}
 	sink.Progress(stepStage, ProgStageRelease, "")
 	stageDir, err := p.stage()(appDir)
 	if err != nil {
@@ -254,6 +288,9 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 	// Export the native iOS/Android OTA bundles and stage them into the release so
 	// /api/app/update can advertise them. nativeExport no-ops (returns nil) when the
 	// RN toolchain is absent, leaving mobile on the embedded bundle.
+	if err := p.stopped("native export"); err != nil {
+		return BuildOutput{}, err
+	}
 	sink.Progress(stepNative, ProgNativeStart, "")
 	sink.Logf("web bundle staged: release %s (runtime version %s)", releaseID, runtimeVersion)
 	var bundles []BundleMeta
@@ -287,6 +324,15 @@ func (p Pipeline) Execute(sink ProgressSink, buildDir, buildID string) (BuildOut
 
 func wrapStep(step string, err error) error {
 	return fmt.Errorf("%s: %w", step, err)
+}
+
+// stopped is the error for a step that must not start because the run's ctx
+// has ended, or nil.
+func (p Pipeline) stopped(step string) error {
+	if err := p.context().Err(); err != nil {
+		return wrapStep(step, err)
+	}
+	return nil
 }
 
 // CheckBuildPrereqs verifies that Go is available on PATH. A C compiler is
@@ -357,7 +403,7 @@ func (p Pipeline) runPnpmInstall(sink ProgressSink, buildDir string) error {
 		// the guard env is irrelevant there.
 		out, err = p.PnpmStream(onLine, buildDir, "pnpm", "install", "--no-frozen-lockfile")
 	} else {
-		out, err = RunCmdStreamingEnv(onLine, buildDir, childEnv(buildDir), "pnpm", "install", "--no-frozen-lockfile")
+		out, err = RunCmdStreamingEnvContext(p.context(), onLine, buildDir, childEnv(buildDir), "pnpm", "install", "--no-frozen-lockfile")
 	}
 	if err != nil {
 		// The failing output must ride the error itself: in a confined

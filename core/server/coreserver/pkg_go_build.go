@@ -1,12 +1,15 @@
 package coreserver
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/pocketbase/pocketbase"
+
+	"tinycld.org/core/pkgbuild"
 )
 
 // recoverLiveDBAfterExternalWrite re-establishes the live app's SQLite
@@ -97,7 +100,11 @@ func armDatabaseBackup(buildID string) {
 // lives under the STATE dir (resolveStateDir()), not the build/binary dir, so
 // it persists across the per-build symlink swap. The legacy appDir parameter
 // is retained for caller compatibility but no longer used for path resolution.
-func backupDatabase(_ string) (rollbackFn func() error, err error) {
+//
+// The VACUUM INTO copy is bound to ctx: the database is unchanged until the
+// migration sync after it, so a terminate during the copy stops it, and the
+// partial copy is removed.
+func backupDatabase(ctx context.Context, _ string) (rollbackFn func() error, err error) {
 	dbPath := filepath.Join(statePbDataDir(), "data.db")
 	backupPath := dbBackupPath()
 
@@ -109,10 +116,10 @@ func backupDatabase(_ string) (rollbackFn func() error, err error) {
 	}
 
 	// Use sqlite3 VACUUM INTO for a consistent snapshot
-	cmd := exec.Command("sqlite3", dbPath, fmt.Sprintf("VACUUM INTO '%s';", backupPath))
-	out, err := cmd.CombinedOutput()
+	out, err := pkgbuild.RunCmdContext(ctx, ".", "sqlite3", dbPath, fmt.Sprintf("VACUUM INTO '%s';", backupPath))
 	if err != nil {
-		return nil, fmt.Errorf("database backup failed: %v\n%s", err, out)
+		_ = os.Remove(backupPath)
+		return nil, fmt.Errorf("database backup failed: %w\n%s", err, out)
 	}
 
 	var sizeNote string
@@ -131,7 +138,9 @@ func backupDatabase(_ string) (rollbackFn func() error, err error) {
 	// can't be handled here). See supervisor.rollback in supervise/run_unix.go.
 	rollbackFn = func() error {
 		srvLog.Info("restoring database from backup")
-		// Use cp for streaming copy to avoid loading entire DB into memory
+		// Use cp for streaming copy to avoid loading entire DB into memory.
+		// Not bound to any ctx: a restore that stopped half way would leave
+		// a torn data.db.
 		cmd := exec.Command("cp", backupPath, dbPath)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to restore backup: %v\n%s", err, out)

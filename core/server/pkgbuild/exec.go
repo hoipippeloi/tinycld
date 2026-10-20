@@ -2,11 +2,13 @@ package pkgbuild
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"tinycld.org/core/logging"
 )
@@ -35,7 +37,59 @@ type CmdEnvRunner func(dir string, extraEnv []string, name string, args ...strin
 // the full install trace — including the real npm/pnpm/go/expo errors that
 // would otherwise be buried in the SSE stream / DB record only.
 func RunCmd(dir string, name string, args ...string) (string, error) {
-	return RunCmdEnv(dir, nil, name, args...)
+	return RunCmdEnvContext(context.Background(), dir, nil, name, args...)
+}
+
+// RunCmdContext is RunCmd bound to ctx: when ctx ends, the command and every
+// process it started are killed (see commandContext).
+func RunCmdContext(ctx context.Context, dir string, name string, args ...string) (string, error) {
+	return RunCmdEnvContext(ctx, dir, nil, name, args...)
+}
+
+// RunnerFor is the CmdRunner that runs each command bound to ctx.
+func RunnerFor(ctx context.Context) CmdRunner {
+	return func(dir, name string, args ...string) (string, error) {
+		return RunCmdContext(ctx, dir, name, args...)
+	}
+}
+
+// EnvRunnerFor is the CmdEnvRunner that runs each command bound to ctx.
+func EnvRunnerFor(ctx context.Context) CmdEnvRunner {
+	return func(dir string, extraEnv []string, name string, args ...string) (string, error) {
+		return RunCmdEnvContext(ctx, dir, extraEnv, name, args...)
+	}
+}
+
+// StreamingRunnerFor is the StreamingRunner that runs each command bound to
+// ctx.
+func StreamingRunnerFor(ctx context.Context) StreamingRunner {
+	return func(onLine func(line string), dir, name string, args ...string) (string, error) {
+		return RunCmdStreamingEnvContext(ctx, onLine, dir, nil, name, args...)
+	}
+}
+
+// cmdWaitDelay is how long a killed command's output pipes may stay open
+// before Wait stops reading them. The kill reaches the whole process group,
+// so the pipes normally close at once; the delay only bounds a process that
+// left the group and kept a pipe.
+const cmdWaitDelay = 2 * time.Second
+
+// commandContext is exec.Command bound to ctx. A build command starts
+// children of its own (pnpm runs node, the generator, tsx; go runs the
+// compiler), and exec.CommandContext kills only the direct child, which
+// leaves its children running and holding the output pipes. So the command
+// runs in a new process group, and the cancel kills that group (on unix).
+//
+// A ctx that can never end (context.Background) keeps the plain command in
+// this process's group, so a terminal's Ctrl-C still reaches it.
+func commandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	if ctx.Done() == nil {
+		return exec.Command(name, args...)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = cmdWaitDelay
+	return cmd
 }
 
 // RunCmdEnv is RunCmd with extra environment entries ("KEY=VALUE") appended to
@@ -43,8 +97,13 @@ func RunCmd(dir string, name string, args ...string) (string, error) {
 // NOT logged (only the command + args are), so a value like a Sentry auth token
 // never lands in the build log — unlike threading it through args.
 func RunCmdEnv(dir string, extraEnv []string, name string, args ...string) (string, error) {
+	return RunCmdEnvContext(context.Background(), dir, extraEnv, name, args...)
+}
+
+// RunCmdEnvContext is RunCmdEnv bound to ctx (see commandContext).
+func RunCmdEnvContext(ctx context.Context, dir string, extraEnv []string, name string, args ...string) (string, error) {
 	log.Debug("$ command", "dir", dir, "cmd", name, "args", strings.Join(args, " "))
-	cmd := exec.Command(name, args...)
+	cmd := commandContext(ctx, name, args...)
 	cmd.Dir = dir
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)
@@ -69,8 +128,13 @@ func RunCmdEnv(dir string, extraEnv []string, name string, args ...string) (stri
 // every version listing into a decode error whenever npm had anything to
 // warn about (the hosted e2e's router cwd sat under a workspace .npmrc).
 func RunCmdStdout(dir string, name string, args ...string) (string, error) {
+	return RunCmdStdoutContext(context.Background(), dir, name, args...)
+}
+
+// RunCmdStdoutContext is RunCmdStdout bound to ctx (see commandContext).
+func RunCmdStdoutContext(ctx context.Context, dir string, name string, args ...string) (string, error) {
 	log.Debug("$ command", "dir", dir, "cmd", name, "args", strings.Join(args, " "))
-	cmd := exec.Command(name, args...)
+	cmd := commandContext(ctx, name, args...)
 	cmd.Dir = dir
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -96,15 +160,21 @@ func RunCmdStdout(dir string, name string, args ...string) (string, error) {
 // sit frozen for minutes. It still buffers + returns the full output and error
 // so the buffered-RunCmd contract is preserved.
 func RunCmdStreaming(onLine func(line string), dir, name string, args ...string) (string, error) {
-	return RunCmdStreamingEnv(onLine, dir, nil, name, args...)
+	return RunCmdStreamingEnvContext(context.Background(), onLine, dir, nil, name, args...)
 }
 
 // RunCmdStreamingEnv is RunCmdStreaming with extra environment entries
 // ("KEY=VALUE") appended to the inherited env — the streaming mirror of
 // RunCmdEnv.
 func RunCmdStreamingEnv(onLine func(line string), dir string, extraEnv []string, name string, args ...string) (string, error) {
+	return RunCmdStreamingEnvContext(context.Background(), onLine, dir, extraEnv, name, args...)
+}
+
+// RunCmdStreamingEnvContext is RunCmdStreamingEnv bound to ctx (see
+// commandContext).
+func RunCmdStreamingEnvContext(ctx context.Context, onLine func(line string), dir string, extraEnv []string, name string, args ...string) (string, error) {
 	log.Debug("$ command", "dir", dir, "cmd", name, "args", strings.Join(args, " "))
-	cmd := exec.Command(name, args...)
+	cmd := commandContext(ctx, name, args...)
 	cmd.Dir = dir
 	if len(extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), extraEnv...)

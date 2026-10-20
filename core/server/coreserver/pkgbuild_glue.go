@@ -1,6 +1,8 @@
 package coreserver
 
 import (
+	"context"
+
 	"tinycld.org/core/installjob"
 	"tinycld.org/core/pkgbuild"
 )
@@ -18,6 +20,10 @@ import (
 // steps.
 func runCmd(dir string, name string, args ...string) (string, error) {
 	return pkgbuild.RunCmd(dir, name, args...)
+}
+
+func runCmdContext(ctx context.Context, dir string, name string, args ...string) (string, error) {
+	return pkgbuild.RunCmdContext(ctx, dir, name, args...)
 }
 
 func runCmdEnv(dir string, extraEnv []string, name string, args ...string) (string, error) {
@@ -45,6 +51,10 @@ type manifestServer = pkgbuild.ManifestServer
 
 func parseManifestViaNode(packageDir string) (*parsedManifest, error) {
 	return pkgbuild.ParseManifestViaNode(packageDir)
+}
+
+func parseManifestViaNodeContext(ctx context.Context, packageDir string) (*parsedManifest, error) {
+	return pkgbuild.ParseManifestViaNodeContext(ctx, packageDir)
 }
 
 func validateManifest(m *parsedManifest, allowServer bool, bundledSlugs map[string]bool) error {
@@ -117,6 +127,10 @@ func stripNpmVersion(spec string) string { return pkgbuild.StripNpmVersion(spec)
 
 func versionsForSpec(spec string) (pkgSource, []string, string) {
 	return pkgbuild.VersionsForSpec(spec)
+}
+
+func versionsForSpecContext(ctx context.Context, spec string) (pkgSource, []string, string) {
+	return pkgbuild.VersionsForSpecContext(ctx, spec)
 }
 
 func sortVersionsDesc(versions []string) []string { return pkgbuild.SortVersionsDesc(versions) }

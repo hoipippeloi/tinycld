@@ -100,17 +100,31 @@ type options struct {
 	// SIGKILL.
 	//
 	// A child's terminate chain waits in sequence, each wait bounded on its
-	// own: the mail protocol servers' drain (mailproto drainBound, 5 s, all
-	// servers at once, plus any write in progress), a backup run
-	// (coreserver backupStopBound, 8 s), tail writes
-	// (readonly tailStopBound, 5 s) and the automation worker (automation
-	// shutdownDrainWait, 5 s). Their worst cases add up to about 23 s, more
-	// than this bound and more than what drainBound leaves after a full
-	// drain. Each worst case is stuck work, and they seldom coincide; when
-	// they do, SIGKILL ends the child with the database open, which SQLite's
-	// journal survives, and only the cut-off wait's warning and its
-	// unfinished write are lost. A new wait in that chain must fit in what
-	// is left, not add to the sum. The background job runners
+	// own. In chain order:
+	//   - a package operation (coreserver rebuildStopPriority, first in the
+	//     chain): the cancel kills its build commands, then a wait of 2 s
+	//     (rebuildCancelGrace) for a job still building, or 6 s
+	//     (rebuildTailStopBound) for one in its database tail. It claims the
+	//     same interlock as a backup run, so it never waits beside one.
+	//   - the realtime stop (realtime suspendBudget, 10 s). In read-only
+	//     mode, which covers a supervised rebuild's whole tail, it has no
+	//     final pass to make and returns at once.
+	//   - PocketBase's HTTP shutdown (1 s), the mail protocol servers' drain
+	//     (mailproto drainBound, 5 s, all servers at once, plus any write in
+	//     progress), a backup run (coreserver backupStopBound, 8 s), tail
+	//     writes (readonly tailStopBound, 5 s) and the automation worker
+	//     (automation shutdownDrainWait, 5 s).
+	// Their worst cases add up to more than 30 s, far more than this bound, and
+	// the realtime stop's 10 s alone uses all of it. Each worst case is stuck
+	// work, and they seldom coincide; when they do, SIGKILL ends the child
+	// with the database open, which SQLite's journal survives, and only the
+	// cut-off wait's warning and its unfinished write are lost. A rebuild
+	// SIGKILLed after its migration sync but before it armed its backup is
+	// the one loss this bound can cause that a later boot does not repair.
+	// The fix that makes the chain fit is one deadline per terminate, shared
+	// by every wait (each takes the lesser of its own bound and what is
+	// left), not a longer bound per wait. Until then a new wait must fit in
+	// what is left, not add to the sum. The background job runners
 	// (tinycld.org/core/background) also wait, with no bound of their own:
 	// each cancels its jobs' ctx first, so the wait is the database writes
 	// those jobs have in progress.

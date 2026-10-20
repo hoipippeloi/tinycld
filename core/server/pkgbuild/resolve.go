@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -108,7 +109,7 @@ type buildMember struct {
 // — recorded under the name @tinycld/core (the key peer ranges constrain). A
 // member whose manifest cannot be read is a hard error: facts we cannot read
 // are not facts we can vouch for.
-func readBuildMembers(m RebuildManifest, buildDir string) ([]buildMember, error) {
+func readBuildMembers(ctx context.Context, m RebuildManifest, buildDir string) ([]buildMember, error) {
 	out := make([]buildMember, 0, len(m.Members))
 	for _, ms := range m.Members {
 		if ms.Slug == BaseMemberSlug {
@@ -122,7 +123,7 @@ func readBuildMembers(m RebuildManifest, buildDir string) ([]buildMember, error)
 			}})
 			continue
 		}
-		manifest, err := ParseManifestViaNode(filepath.Join(buildDir, ms.Slug))
+		manifest, err := ParseManifestViaNodeContext(ctx, filepath.Join(buildDir, ms.Slug))
 		if err != nil {
 			return nil, fmt.Errorf("read %s's manifest from the build: %w", ms.Slug, err)
 		}
@@ -155,7 +156,11 @@ func readBuildMembers(m RebuildManifest, buildDir string) ([]buildMember, error)
 // attaching the per-slug integrities the MemberSource reported during
 // assemble. Members without a reported integrity record "".
 func ResolveMembers(m RebuildManifest, buildDir string, integrities map[string]string) ([]ResolvedMember, error) {
-	members, err := readBuildMembers(m, buildDir)
+	return resolveMembers(context.Background(), m, buildDir, integrities)
+}
+
+func resolveMembers(ctx context.Context, m RebuildManifest, buildDir string, integrities map[string]string) ([]ResolvedMember, error) {
+	members, err := readBuildMembers(ctx, m, buildDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve members: %w", err)
 	}

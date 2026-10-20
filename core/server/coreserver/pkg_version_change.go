@@ -44,7 +44,9 @@ var errJobBusy = errors.New("another operation is in progress")
 
 // beginVersionChange is the shared start of a version change for the HTTP
 // handler and the upgrade scheduler: validate, gate on compatibility, claim
-// the single-flight job, and run the rebuild in the background.
+// the single-flight job, and hand the rebuild to the app's rebuild runner. It
+// does not wait for the build: the caller (a request, an auto-upgrade tick)
+// returns as soon as the job has started.
 func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.VersionChange, trigger string) (*installjob.Job, error) {
 	if len(changes) == 0 {
 		return nil, errors.New("at least one change is required")
@@ -78,7 +80,10 @@ func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.Version
 	if _, ok := installjob.Claim(job); !ok {
 		return nil, errJobBusy
 	}
-	go runVersionChangeRebuild(app, job)
+	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runVersionChangeRebuild(run, app, job) }); err != nil {
+		finishJob(job)
+		return nil, err
+	}
 	return job, nil
 }
 

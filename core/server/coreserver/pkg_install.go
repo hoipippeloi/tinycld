@@ -17,22 +17,8 @@ import (
 // ---------- registration ----------
 
 func RegisterPackageInstallEndpoints(app *pocketbase.PocketBase) {
-	// Guard against a hooks-watcher (HooksWatch) restart firing in the MIDDLE of
-	// an install/revert/version-change pipeline. Those pipelines re-run the
-	// generator, which rewrites the watched pb_hooks symlinks; with HooksWatch on,
-	// PocketBase's jsvm watcher would call app.Restart() (an in-process re-exec)
-	// and tear the process down between, say, the file swap and the migration step
-	// — leaving a half-applied state with no rollback. app.Restart() routes
-	// through OnTerminate with IsRestart=true, so we veto it while a job holds the
-	// single-flight lock. Our OWN intentional restarts use os.Exit(75)
-	// (requestRestart), a different path this guard never sees.
-	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
-		if shouldSuppressRestart(e.IsRestart) {
-			srvLog.Info("suppressing watcher restart — a package operation is in progress")
-			return nil // short-circuit: don't run the execve handler
-		}
-		return e.Next()
-	})
+	// Binds the jobs' stop, and the watcher-restart veto, to the terminate.
+	rebuildJobsFor(app)
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		g := e.Router.Group("/api/admin/packages")
@@ -147,7 +133,10 @@ func handleInstall(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 		})
 	}
 
-	go runInstallRebuild(app, job)
+	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runInstallRebuild(run, app, job) }); err != nil {
+		finishJob(job)
+		return re.JSON(http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+	}
 
 	return re.JSON(http.StatusAccepted, map[string]any{"jobId": job.ID})
 }
@@ -188,7 +177,10 @@ func handleUninstall(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 		})
 	}
 
-	go runUninstallRebuild(app, job)
+	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runUninstallRebuild(run, app, job) }); err != nil {
+		finishJob(job)
+		return re.JSON(http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+	}
 
 	return re.JSON(http.StatusAccepted, map[string]any{"jobId": job.ID})
 }

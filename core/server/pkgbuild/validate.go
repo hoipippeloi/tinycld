@@ -1,6 +1,7 @@
 package pkgbuild
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -95,6 +96,12 @@ var shellUnsafePattern = regexp.MustCompile(`[\s;&|$<>` + "`" + `(){}\[\]'"\\]`)
 // with full server privileges by design. Installs are gated to the owner; the
 // trust boundary is install authorization + source selection, not this parse.
 func ParseManifestViaNode(packageDir string) (*ParsedManifest, error) {
+	return ParseManifestViaNodeContext(context.Background(), packageDir)
+}
+
+// ParseManifestViaNodeContext is ParseManifestViaNode with the node process
+// bound to ctx (see commandContext).
+func ParseManifestViaNodeContext(ctx context.Context, packageDir string) (*ParsedManifest, error) {
 	script := `
 const fs = require('fs');
 const vm = require('vm');
@@ -123,7 +130,7 @@ try {
     process.exit(1);
 }
 `
-	cmd := exec.Command("node", "-e", script, packageDir)
+	cmd := commandContext(ctx, "node", "-e", script, packageDir)
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {

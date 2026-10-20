@@ -320,7 +320,7 @@ func (p Pipeline) uploadBundleSourcemaps(sink ProgressSink, outDir, runtimeVersi
 	// sentry-cli reads the auth token from SENTRY_AUTH_TOKEN in its env. Pass it
 	// via RunCmdEnv (NOT a CLI flag) so the secret stays out of the logged args.
 	jsDir := filepath.Join(outDir, "_expo", "static", "js")
-	out, err := RunCmdEnv(outDir, []string{"SENTRY_AUTH_TOKEN=" + authToken},
+	out, err := RunCmdEnvContext(p.context(), outDir, []string{"SENTRY_AUTH_TOKEN=" + authToken},
 		"pnpm", "exec", "sentry-cli", "sourcemaps", "upload",
 		"--org", org, "--project", project,
 		"--release", release, "--dist", bundleID, jsDir)
