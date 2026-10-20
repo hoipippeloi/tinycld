@@ -64,7 +64,9 @@ func mintInviteToken(app core.App, user *core.Record, role string) (string, erro
 	return token, nil
 }
 
-func sendExistingMemberEmail(app core.App, user *core.Record, role string) {
+// sendExistingMemberEmail sends the "you've been added" notice. ctx ends the
+// send.
+func sendExistingMemberEmail(ctx context.Context, app core.App, user *core.Record, role string) {
 	appURL := strings.TrimRight(app.Settings().Meta.AppURL, "/")
 
 	userEmail := user.GetString("email")
@@ -84,7 +86,7 @@ func sendExistingMemberEmail(app core.App, user *core.Record, role string) {
 		Footer:   "If you didn't expect to join, please contact your admin.",
 	})
 
-	send(app, userName, userEmail, subject, htmlBody, text)
+	_ = sendContext(ctx, app, userName, userEmail, subject, htmlBody, text)
 }
 
 // send logs a failure itself; the error is for a caller that must know.

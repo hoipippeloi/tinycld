@@ -15,6 +15,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/background"
 	"tinycld.org/core/notify"
 	"tinycld.org/core/readonly"
 )
@@ -30,9 +31,10 @@ func RegisterInviteEndpoint(app *pocketbase.PocketBase) {
 }
 
 func registerInviteEndpointCore(app core.App) {
+	jobs := background.For(app, "coreserver")
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.POST("/api/invite-member", func(re *core.RequestEvent) error {
-			return handleInviteMember(app, re)
+			return handleInviteMember(app, jobs, re)
 		}).BindFunc(requireAuthCore)
 
 		// Public (no auth): invited user reads invite info to preload the form.
@@ -65,7 +67,7 @@ func isOrgAdmin(user *core.Record) bool {
 	return role == "owner" || role == "admin"
 }
 
-func handleInviteMember(app core.App, re *core.RequestEvent) error {
+func handleInviteMember(app core.App, jobs *background.Jobs, re *core.RequestEvent) error {
 	var req inviteRequest
 	if err := json.NewDecoder(re.Request.Body).Decode(&req); err != nil {
 		return re.BadRequestError("Invalid request body", err)
@@ -198,16 +200,20 @@ func handleInviteMember(app core.App, re *core.RequestEvent) error {
 
 	// Existing verified users get a "you've been added" email (skipped for
 	// demo inviters). New users get the invite link, emailed below when the
-	// admin gave an address.
+	// admin gave an address. The job runner holds the app's terminate until
+	// each job ends, so neither reads a closed database.
 	if !isNewUser && userRecord.GetBool("verified") && !IsDemoUser(app, re.Auth.Id) {
-		go sendExistingMemberEmail(app, userRecord, req.Role)
+		jobs.Run("invite: existing member email", func(ctx context.Context) {
+			sendExistingMemberEmail(ctx, app, userRecord, req.Role)
+		})
 	}
 
-	ctx, release := readonly.TailContext(app)
-	go func() {
-		defer release()
-		notifyInvitedWhenWritable(ctx, app, userRecord.Id, req.Role)
-	}()
+	userID, role := userRecord.Id, req.Role
+	jobs.Run("invite notification", func(jobCtx context.Context) {
+		ctx, cancel := context.WithTimeout(jobCtx, readonly.TailWait)
+		defer cancel()
+		notifyInvitedWhenWritable(ctx, app, userID, role)
+	})
 
 	resp := map[string]any{
 		"userId": userRecord.Id,
@@ -224,12 +230,14 @@ const inviteNotifyDroppedMsg = "invite notification dropped: the server stayed r
 
 // notifyInvitedWhenWritable writes the invited user's notification for an
 // invite already accepted, possibly just before the server went read-only;
-// the row then waits for the mode to end, bounded by ctx (from
-// readonly.TailContext: TailWait, or the app's terminate). The emails need no
-// wait: sending one writes nothing to the database.
+// the row then waits for the mode to end, bounded by ctx (from the job
+// runner: TailWait, or the app's terminate). ctx also ends the pushes. The
+// emails need no wait: sending one writes nothing to the database.
 func notifyInvitedWhenWritable(ctx context.Context, app core.App, userID, role string) {
 	err := readonly.WhenWritable(ctx, func() error {
-		notify.NotifyUser(app, notify.NotifyParams{
+		// DeliverToUserContext logs its own failure, and a failed delivery
+		// is not a read-only drop.
+		_ = notify.DeliverToUserContext(ctx, app, notify.NotifyParams{
 			UserID:  userID,
 			Type:    "org_invite",
 			Package: "core",

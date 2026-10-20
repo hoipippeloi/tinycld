@@ -11,6 +11,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/background"
 	"tinycld.org/core/readonly"
 )
 
@@ -88,6 +89,9 @@ func (e *Engine) Start() {
 		}
 		return te.Next()
 	})
+	// Bound after the drain above, so the runner stops after the worker: a
+	// notice the last dispatch starts is then waited for, not dropped.
+	background.For(e.app, jobsPkg)
 	go e.worker(ctx)
 
 	type colOp struct{ col, op string }

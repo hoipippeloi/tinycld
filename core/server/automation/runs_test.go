@@ -2,6 +2,7 @@
 package automation
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -101,7 +102,7 @@ func TestAutoDisableAfterConsecutiveFailures(t *testing.T) {
 
 	notified := make(chan notify.NotifyParams, 1)
 	orig := notifyUser
-	notifyUser = func(app core.App, p notify.NotifyParams) {
+	notifyUser = func(_ context.Context, _ core.App, p notify.NotifyParams) {
 		select {
 		case notified <- p:
 		default:

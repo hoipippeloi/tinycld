@@ -103,15 +103,17 @@ type options struct {
 	// own: the mail protocol servers' drain (mailproto drainBound, 5 s, all
 	// servers at once, plus any write in progress), a backup run
 	// (coreserver backupStopBound, 8 s), tail writes
-	// (readonly tailStopBound, 5 s), the boot notices (coreserver
-	// bootNoticeStopBound, 2 s) and the automation worker (automation
-	// shutdownDrainWait, 5 s). Their worst cases add up to about 25 s, more
+	// (readonly tailStopBound, 5 s) and the automation worker (automation
+	// shutdownDrainWait, 5 s). Their worst cases add up to about 23 s, more
 	// than this bound and more than what drainBound leaves after a full
 	// drain. Each worst case is stuck work, and they seldom coincide; when
 	// they do, SIGKILL ends the child with the database open, which SQLite's
 	// journal survives, and only the cut-off wait's warning and its
 	// unfinished write are lost. A new wait in that chain must fit in what
-	// is left, not add to the sum.
+	// is left, not add to the sum. The background job runners
+	// (tinycld.org/core/background) also wait, with no bound of their own:
+	// each cancels its jobs' ctx first, so the wait is the database writes
+	// those jobs have in progress.
 	stopBound time.Duration
 	// childUser is who children run as when the supervisor runs as root:
 	// the user the entrypoint's gosu dropped to.
