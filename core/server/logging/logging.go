@@ -37,7 +37,7 @@ func Install(pbHandler slog.Handler) {
 		NewSentryHandler(SentryLevel),
 	}
 	if pbHandler != nil {
-		handlers = append(handlers, pbHandler)
+		handlers = append(handlers, newLogsTableHandler(pbHandler))
 	}
 	slog.SetDefault(slog.New(NewFanout(handlers...)))
 }
