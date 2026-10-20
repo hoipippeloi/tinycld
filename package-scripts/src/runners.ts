@@ -1,3 +1,4 @@
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { CurrentPackage } from './discovery'
 
@@ -83,10 +84,16 @@ export function buildE2eCommand(
 // run has no single target for a filter). Use `test` or `typecheck`
 // directly to pass args. Order: lint first because it's the cheapest and
 // catches issues that often surface as compile/test failures downstream.
-export function buildCheckCommands(pkg: CurrentPackage, appDir: string): Command[] {
-    return [
-        buildLintCommand(pkg, appDir),
-        buildTypecheckCommand(pkg, appDir),
-        buildTestCommand(pkg, appDir),
-    ]
+//
+// A member without a vitest.config.ts has no unit tests (a scaffolded test
+// stub, say); `test` skips it (targets.ts), and so does `check` — vitest would
+// otherwise fail to load the missing config.
+export function buildCheckCommands(
+    pkg: CurrentPackage,
+    appDir: string,
+    hasUnitTests = fs.existsSync(vitestConfigFor(pkg))
+): Command[] {
+    const commands = [buildLintCommand(pkg, appDir), buildTypecheckCommand(pkg, appDir)]
+    if (hasUnitTests) commands.push(buildTestCommand(pkg, appDir))
+    return commands
 }

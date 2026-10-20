@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { login } from './helpers'
+import { login, skipWithoutFormsStub } from './helpers'
 
 /**
  * The forms builder (Settings → Forms) end to end, against the forms-host
@@ -175,6 +175,8 @@ function propControl(page: Page, suffix: string): Locator {
 }
 
 test.describe('Forms builder', () => {
+    test.skip(skipWithoutFormsStub(), 'forms-host-stub not scaffolded in this workspace')
+
     test.beforeEach(async ({ page }) => {
         await login(page)
         await openFormsSettings(page)
