@@ -87,6 +87,7 @@ describe('useFormEdit', () => {
             columns: {},
             fields: { severity: 'low', count: 3 },
             rows: {},
+            tables: {},
             written: { count: 3 },
         })
     })
@@ -120,6 +121,7 @@ describe('useFormEdit', () => {
             columns: { name: 'P' },
             fields: {},
             rows: {},
+            tables: {},
             written: { name: 'P' },
         })
     })
@@ -134,6 +136,7 @@ describe('useFormEdit', () => {
             columns: { name: 'N2' },
             fields: {},
             rows: {},
+            tables: {},
             written: { name: 'N2' },
         })
     })
@@ -178,6 +181,6 @@ describe('useFormEdit', () => {
     it('patch returns empty buckets when nothing changed', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))
         const split = await result.current.patch()
-        expect(split).toEqual({ columns: {}, fields: {}, rows: {}, written: {} })
+        expect(split).toEqual({ columns: {}, fields: {}, rows: {}, tables: {}, written: {} })
     })
 })
