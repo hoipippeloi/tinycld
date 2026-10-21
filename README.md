@@ -93,7 +93,7 @@ pnpm run ssl:generate
   calls `configureCore(appConfig)` at module-init), then mounts the server-address gate, which
   loads core's Providers with a dynamic import once a server address resolves. The polyfills are deliberately not imported here — see the comment at the top of `index.js`.
 - **`lib/app-config.ts`** — `CoreConfig` value handed to core at boot. Branding, server
-  shortcuts, Sentry creds, review-mode flags.
+  shortcuts, Sentry creds, VAPID key, privacy and source URLs.
 - **`lib/configure-core.ts`** — side-effect-only module imported by `_layout.tsx` first (before
   any other `@tinycld/core/*` import) so `configureCore` runs first.
 - **`tinycld.config.ts`** — generated source of truth for installed packages (a typed
