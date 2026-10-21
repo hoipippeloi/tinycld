@@ -306,6 +306,11 @@ export const definitionSchema = z
                 })
             kinds.set(f.key, f.kind)
             if (f.kind === 'select') duplicateOptions(f.options, ['fields', i, 'options'])
+            if (f.kind === 'table')
+                f.columns.forEach((c, j) => {
+                    if (c.kind === 'select')
+                        duplicateOptions(c.options, ['fields', i, 'columns', j, 'options'])
+                })
             if (f.kind === 'number' && f.min !== undefined && f.max !== undefined && f.min > f.max)
                 ctx.addIssue({
                     code: 'custom',

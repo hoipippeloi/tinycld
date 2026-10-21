@@ -59,8 +59,7 @@ describe('computed and table fields', () => {
 
     it('rejects two formulas that depend on each other, naming the cycle', () => {
         const msg = issues(defWith([computed('a', { var: 'b' }), computed('b', { var: 'a' })]))
-        expect(msg).toContain('formula cycle')
-        expect(msg).toContain('a')
+        expect(msg).toContain('formula cycle: a → b → a')
     })
 
     it('rejects a formula that reads itself', () => {
@@ -117,6 +116,22 @@ describe('computed and table fields', () => {
         expect(issues(defWith([dup]))).toContain('duplicate column key a')
         const id = table('lines', [col('id', 'number')])
         expect(issues(defWith([id]))).toContain('id is reserved')
+    })
+
+    it('rejects a select column with a duplicate option value', () => {
+        const options = [
+            { value: 'a', label: 'A' },
+            { value: 'a', label: 'Again' },
+        ]
+        const t = table('lines', [col('pick', 'select', { options })])
+        const r = definitionSchema.safeParse(defWith([t]))
+        expect(r.success).toBe(false)
+        expect(r.error?.issues).toContainEqual(
+            expect.objectContaining({
+                path: ['fields', 0, 'columns', 0, 'options', 1, 'value'],
+                message: 'duplicate option value a',
+            })
+        )
     })
 
     it('rejects a table with no columns', () => {

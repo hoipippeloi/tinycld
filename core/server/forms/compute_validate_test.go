@@ -91,6 +91,10 @@ func TestValidate_RejectsBadFormulas(t *testing.T) {
 		{"duplicate column", tableField("lines", column("a", "number", "")+","+column("a", "number", "")), "duplicate column"},
 		{"no columns", `{"key":"lines","kind":"table","page":"main","label":"l","width":"full","required":false,"hidden":false,"columns":[]}`, "at least one column"},
 		{"bad column kind", tableField("lines", column("a", "markdown", "")), "column kind"},
+		{"blank column label", tableField("lines", `{"key":"a","kind":"number","label":"  "}`), "a column needs a label"},
+		{"long column label", tableField("lines", `{"key":"a","kind":"number","label":"`+strings.Repeat("x", 121)+`"}`), "a column label is at most 120 characters"},
+		{"zero maxLength", tableField("lines", column("a", "text", `"maxLength":0`)), "maxLength is 1 to 10000"},
+		{"huge maxLength", tableField("lines", column("a", "text", `"maxLength":10001`)), "maxLength is 1 to 10000"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -99,6 +103,16 @@ func TestValidate_RejectsBadFormulas(t *testing.T) {
 				t.Fatalf("want error containing %q, got %q", c.want, got)
 			}
 		})
+	}
+}
+
+func TestValidate_AcceptsColumnLimitsAtTheirBounds(t *testing.T) {
+	raw := defWithFields(tableField("lines",
+		`{"key":"a","kind":"text","label":"`+strings.Repeat("x", 120)+`","maxLength":10000},`+
+			column("b", "text", `"maxLength":1`)+","+
+			column("c", "number", `"maxLength":0`)))
+	if got := validateJSON(t, raw); got != "" {
+		t.Fatalf("got %s", got)
 	}
 }
 

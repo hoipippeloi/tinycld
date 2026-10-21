@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	validation "github.com/pocketbase/ozzo-validation/v4"
 )
@@ -206,6 +207,17 @@ func columnErrors(cols []Column, path ...any) validation.Errors {
 		seen[c.Key] = c.Kind
 		if !columnKinds[c.Kind] {
 			return defErr("unknown column kind "+c.Kind, at("kind")...)
+		}
+		label := strings.TrimSpace(c.Label)
+		if label == "" {
+			return defErr("a column needs a label", at("label")...)
+		}
+		if utf8.RuneCountInString(label) > 120 {
+			return defErr("a column label is at most 120 characters", at("label")...)
+		}
+		// columnSchema reads maxLength on a text column only and drops it elsewhere.
+		if c.Kind == "text" && c.MaxLength != nil && (*c.MaxLength < 1 || *c.MaxLength > 10000) {
+			return defErr("maxLength is 1 to 10000", at("maxLength")...)
 		}
 		if c.Kind == "select" {
 			if len(c.Options) == 0 {
