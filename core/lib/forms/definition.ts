@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { FormHostDef } from './host'
+import { keySchema } from './key'
 
 export const FIELD_WIDTHS = ['full', 'half', 'third', 'quarter'] as const
 export type FieldWidth = (typeof FIELD_WIDTHS)[number]
@@ -21,9 +22,7 @@ export type CustomKind = (typeof CUSTOM_KINDS)[number]
 export const FIELD_KINDS = [...CUSTOM_KINDS, 'builtin'] as const
 export type FieldKind = (typeof FIELD_KINDS)[number]
 
-export const keySchema = z
-    .string()
-    .regex(/^[a-z][a-z0-9_]{0,39}$/, 'Use lowercase letters, digits and underscores')
+export { keySchema }
 
 export const CONDITION_OPS = [
     'eq',
