@@ -1,5 +1,6 @@
 import { trace } from '@tinycld/core/lib/debug-trace'
-import { Link, useGlobalSearchParams, usePathname } from 'expo-router'
+import { useUrl } from '@tinycld/core/lib/use-url'
+import { Link } from 'expo-router'
 import { Text, View } from 'react-native'
 
 // Custom not-found route. Replaces expo-router's built-in Unmatched screen (which
@@ -10,8 +11,7 @@ import { Text, View } from 'react-native'
 // TEMPORARY diagnostic + a safer fallback than the default. Keep the route; strip
 // the trace() once the routing bug is fixed.
 export default function NotFound() {
-    const pathname = usePathname()
-    const params = useGlobalSearchParams()
+    const { pathname, params } = useUrl()
 
     trace('NOT-FOUND', { pathname, params: JSON.stringify(params) })
 

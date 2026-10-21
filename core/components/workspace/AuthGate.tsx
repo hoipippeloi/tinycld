@@ -1,7 +1,8 @@
 import { appHref } from '@tinycld/core/lib/org-routes'
 import { setPendingRoute } from '@tinycld/core/lib/pending-route'
 import { useNeedsSetup } from '@tinycld/core/lib/setup/use-needs-setup'
-import { Redirect, useUnstableGlobalHref } from 'expo-router'
+import { useUrl } from '@tinycld/core/lib/use-url'
+import { Redirect } from 'expo-router'
 import { useEffect } from 'react'
 import { LoginModal } from './LoginModal'
 
@@ -16,9 +17,9 @@ export function AuthGate() {
     // The two can't fight: setPendingRoute rejects the app root, so the '/a' this
     // sees on a collapsed deep link is discarded and the entry snapshot stands.
     //
-    // useUnstableGlobalHref, not usePathname — mail/drive/boards encode view
-    // state in the query string.
-    const href = useUnstableGlobalHref()
+    // The href, not the pathname — mail/drive/boards encode view state in the
+    // query string.
+    const { href } = useUrl()
 
     useEffect(() => {
         setPendingRoute(href)

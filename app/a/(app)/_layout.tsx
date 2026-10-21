@@ -19,7 +19,8 @@ import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import { useExpoPushRegistration } from '@tinycld/core/lib/use-expo-push-registration'
 import { useNativeNotificationHandler } from '@tinycld/core/lib/use-native-notification-handler'
 import { useOrgInfo } from '@tinycld/core/lib/use-org-info'
-import { Redirect, usePathname, useUnstableGlobalHref } from 'expo-router'
+import { useUrl } from '@tinycld/core/lib/use-url'
+import { Redirect } from 'expo-router'
 import { useEffect } from 'react'
 
 export default function OrgLayout() {
@@ -76,10 +77,9 @@ export default function OrgLayout() {
 const NON_RESTORABLE_SLUGS = new Set(['settings', 'help'])
 
 function ActivePkgSync() {
-    const pathname = usePathname()
-    // Full href incl. query (?folder=sent, ?label=…) — pathname alone drops
-    // those, and mail/drive encode inner view state in query params.
-    const href = useUnstableGlobalHref()
+    // The href includes the query (?folder=sent, ?label=…) — the pathname alone
+    // drops those, and mail/drive encode inner view state in query params.
+    const { pathname, href } = useUrl()
 
     useEffect(() => {
         const slug = activeSlugFromPathname(pathname)

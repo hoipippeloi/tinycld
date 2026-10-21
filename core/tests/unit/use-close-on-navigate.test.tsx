@@ -2,11 +2,12 @@
 import { renderHook } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
-// Drive usePathname from a mutable module-level value so each test can simulate
-// navigation by changing it between renders. This local mock overrides the
-// constant '/' usePathname from unit-setup.ts for this file only.
+// Drive useUrl's pathname from a mutable module-level value so each test can
+// simulate navigation by changing it between renders.
 let pathname = '/cogs'
-vi.mock('expo-router', () => ({ usePathname: () => pathname }))
+vi.mock('@tinycld/core/lib/use-url', () => ({
+    useUrl: () => ({ pathname, params: {}, href: pathname }),
+}))
 
 import { useCloseOnNavigate } from '../../ui/drawer/use-close-on-navigate'
 
