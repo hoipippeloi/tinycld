@@ -148,6 +148,19 @@ func TestTickSkipsBlockedSet(t *testing.T) {
 	}
 }
 
+// The last attempt of a window ends after the window's last tick, so a tick
+// outside the window must still tell the owners it failed.
+func TestTickReportsFailedJobOutsideWindow(t *testing.T) {
+	s, applied, sent := testScheduler(t, time.Date(2026, 10, 1, 12, 0, 0, 0, time.Local), infos([3]string{"mail", "0.5.0", "0.6.0"}), okSolve)
+	failedAutoJob(t, s.app, "0.6.0", "pnpm install: exit status 1", inWindow)
+	if got := s.tick(context.Background()); got != "waiting for window" {
+		t.Fatalf("result %q", got)
+	}
+	if len(*sent) != 1 || len(*applied) != 0 {
+		t.Fatalf("sent %+v, applied %+v", *sent, *applied)
+	}
+}
+
 func TestTickDisabled(t *testing.T) {
 	s, applied, _ := testScheduler(t, inWindow, infos([3]string{"mail", "0.5.0", "0.6.0"}), okSolve)
 	s.disabled = "development build"

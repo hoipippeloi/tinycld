@@ -1,6 +1,11 @@
 package coreserver
 
-import "testing"
+import (
+	"slices"
+	"testing"
+
+	"github.com/pocketbase/pocketbase/core"
+)
 
 func TestAutoUpgradeMigration(t *testing.T) {
 	app := adminConsoleTestApp(t)
@@ -23,6 +28,11 @@ func TestAutoUpgradeMigration(t *testing.T) {
 	}
 	if col.CreateRule != nil || col.DeleteRule != nil {
 		t.Error("create/delete must be server-only (nil rule)")
+	}
+
+	kind, ok := col.Fields.GetByName("kind").(*core.SelectField)
+	if !ok || !slices.Equal(kind.Values, []string{"pause", "blocked", "failed"}) {
+		t.Errorf("autoupgrade_state.kind = %+v, want pause, blocked, failed", col.Fields.GetByName("kind"))
 	}
 
 	log, err := app.FindCollectionByNameOrId("pkg_install_log")
