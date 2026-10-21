@@ -54,7 +54,7 @@ func TestCreateOwnerOperator(t *testing.T) {
 	}
 	t.Cleanup(func() { app.Cleanup() })
 
-	operator, err := createOwnerOperator(app, "operator@example.com", "", "BootstrapPass1234!")
+	operator, err := createOwnerOperator(app, "operator@example.com", "", "", "BootstrapPass1234!")
 	if err != nil {
 		t.Fatalf("createOwnerOperator returned error: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestCreateOwnerOperator_IsOwner(t *testing.T) {
 	}
 	t.Cleanup(func() { app.Cleanup() })
 
-	operator, err := createOwnerOperator(app, "operator@example.com", "", "BootstrapPass1234!")
+	operator, err := createOwnerOperator(app, "operator@example.com", "", "", "BootstrapPass1234!")
 	if err != nil {
 		t.Fatalf("createOwnerOperator returned error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestCreateOwnerAccountWithHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	operator, err := CreateOwnerAccountWithHash(app, "owner@example.com", "Ada Lovelace", string(hash))
+	operator, err := CreateOwnerAccountWithHash(app, "owner@example.com", "Ada Lovelace", "", string(hash))
 	if err != nil {
 		t.Fatalf("CreateOwnerAccountWithHash: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestCreateOwnerAccountWithHash_DefaultName(t *testing.T) {
 	}
 	t.Cleanup(func() { app.Cleanup() })
 	hash, _ := bcrypt.GenerateFromPassword([]byte("pw-1234567890"), bcrypt.MinCost)
-	operator, err := CreateOwnerAccountWithHash(app, "grace@example.com", "", string(hash))
+	operator, err := CreateOwnerAccountWithHash(app, "grace@example.com", "", "", string(hash))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestCreateOwnerAccountWithHash_RejectsPlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { app.Cleanup() })
-	if _, err := CreateOwnerAccountWithHash(app, "x@example.com", "X", "not-a-hash"); err == nil {
+	if _, err := CreateOwnerAccountWithHash(app, "x@example.com", "X", "", "not-a-hash"); err == nil {
 		t.Fatal("expected an error for a non-bcrypt value")
 	}
 }
@@ -199,19 +199,22 @@ func TestSetupInitCreatesOwnerAndStartsWizard(t *testing.T) {
 	}
 
 	req := setupInitRequest{
-		Code: formatSetupCode(announced[0]), Name: "Dana Reyes",
+		Code: formatSetupCode(announced[0]), Name: "Dana Reyes", Username: "dreyes",
 		Email: "dana@example.com", Password: "OwnerPass1234!", AppURL: "https://cloud.example.com",
 	}
 	res, status := runSetupInit(app, guard, "1.1.1.1", req)
 	if status != http.StatusOK {
 		t.Fatalf("status = %d (%v)", status, res)
 	}
+	if body, _ := res.(map[string]string); body["username"] != "dreyes" {
+		t.Fatalf("response username = %q, want dreyes", body["username"])
+	}
 	owner, err := app.FindAuthRecordByEmail("users", "dana@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if owner.GetString("name") != "Dana Reyes" || owner.GetString("role") != "owner" {
-		t.Fatalf("owner = name %q role %q", owner.GetString("name"), owner.GetString("role"))
+	if owner.GetString("name") != "Dana Reyes" || owner.GetString("role") != "owner" || owner.GetString("username") != "dreyes" {
+		t.Fatalf("owner = name %q role %q username %q", owner.GetString("name"), owner.GetString("role"), owner.GetString("username"))
 	}
 	if _, err := app.FindFirstRecordByFilter("system_settings", "key = {:k}", map[string]any{"k": setupWizardKey}); err != nil {
 		t.Fatal("wizard state row missing")
@@ -268,6 +271,38 @@ func TestSetupInitFailedOwnerLeavesServerClaimable(t *testing.T) {
 	req.Name = "Dana Reyes"
 	if res, status := runSetupInit(app, guard, "1.1.1.1", req); status != http.StatusOK {
 		t.Fatalf("retry with the same code: status = %d (%v)", status, res)
+	}
+}
+
+// An invalid username is refused on the field, and nothing is kept.
+func TestSetupInitRefusesAnInvalidUsername(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	createSystemSettingsCollection(t, app)
+	ensureUsersRoleAndNameFields(t, app)
+
+	var announced []string
+	guard := newSetupGuard(time.Now, func(c string) { announced = append(announced, c) })
+	if err := guard.Issue(); err != nil {
+		t.Fatal(err)
+	}
+	req := setupInitRequest{
+		Code: formatSetupCode(announced[0]), Name: "Dana Reyes", Username: "Dana Reyes",
+		Email: "dana@example.com", Password: "OwnerPass1234!",
+	}
+	res, status := runSetupInit(app, guard, "1.1.1.1", req)
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d (%v), want 400", status, res)
+	}
+	body, _ := res.(map[string]string)
+	if !strings.HasPrefix(body["error"], "username: ") {
+		t.Fatalf("error = %q, want the username message", body["error"])
+	}
+	if su, _ := app.FindAuthRecordByEmail(core.CollectionNameSuperusers, "dana@example.com"); su != nil {
+		t.Fatal("a superuser was kept after the owner failed")
 	}
 }
 

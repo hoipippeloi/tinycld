@@ -1,6 +1,5 @@
 import { SectionCard } from '@tinycld/core/components/settings/SectionCard'
 import { changeMyPassword } from '@tinycld/core/lib/account-password'
-import { useAuth } from '@tinycld/core/lib/auth'
 import { handleMutationErrorsWithForm } from '@tinycld/core/lib/errors'
 import { useMutation } from '@tinycld/core/lib/mutations'
 import { notify } from '@tinycld/core/lib/notify'
@@ -39,7 +38,6 @@ export function ChangePasswordSection() {
 }
 
 function ChangePasswordForm({ onDone }: { onDone: () => void }) {
-    const { user } = useAuth()
     const primaryFg = useThemeColor('primary-foreground')
 
     const {
@@ -57,7 +55,6 @@ function ChangePasswordForm({ onDone }: { onDone: () => void }) {
     const change = useMutation({
         mutationFn: (data: z.infer<typeof passwordSchema>) =>
             changeMyPassword({
-                email: user.email,
                 oldPassword: data.oldPassword,
                 newPassword: data.password,
                 passwordConfirm: data.passwordConfirm,

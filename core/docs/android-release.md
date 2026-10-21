@@ -88,7 +88,7 @@ in 1Password, entry "App Review demo password"). Provide these instructions verb
     to their own PocketBase server. For review, use the hosted demo server and pre-seeded account:
 
         Demo server URL: https://tinycld.org
-        Email:           appreview@tinycld.org
+        Username:        appreview
         Password:        <FILL IN FROM 1PASSWORD>
 
     On the first screen, tap "Use tinycld.org" to connect to the demo server, then sign in with

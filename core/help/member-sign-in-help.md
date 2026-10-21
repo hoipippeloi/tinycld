@@ -19,7 +19,7 @@ Select **Reset two-step verification**, then **Reset**. This removes their authe
 
 You have two choices:
 
-- **Email a reset link.** Select **Email a reset link**. The address is their recovery email; change it to another address they gave you if they cannot read that mailbox. The link lets whoever opens it choose a new password, and it expires in 30 minutes.
+- **Email a reset link.** Select **Email a reset link**. The address is their recovery email; change it to another address they gave you if they cannot read that mailbox. The link lets whoever opens it choose a new password, and it expires in 30 minutes. The email also states their username, which they sign in with.
 - **Set a temporary password.** Select **Set a temporary password**, type it twice and select **Set password**. Give it to them in person or by phone. At their next sign-in they must choose a new password before they continue.
 
 Both end the member's other sessions and revoke their app passwords. A temporary password does not work in mail, calendar or file apps.

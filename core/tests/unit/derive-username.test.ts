@@ -2,7 +2,7 @@ import { deriveUsername } from '@tinycld/core/lib/derive-username'
 import { describe, expect, it } from 'vitest'
 
 describe('deriveUsername', () => {
-    // Cases mirror coreserver/users_username_migration_test.go::TestDeriveUsername
+    // Cases mirror core/server/usernames/usernames_test.go::TestDerive
     // — the three implementations (Go, JS migration, this TS helper) share that
     // contract, so changes here should propagate to all three.
     it.each([

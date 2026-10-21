@@ -182,12 +182,13 @@ func sendInviteEmailTo(app core.App, toEmail string, user *core.Record, role, to
 		userName = user.GetString("email")
 	}
 
+	usernameHTML, usernameText := signInNameSentence(user.GetString("username"))
 	subject := "You've been invited"
 	htmlBody, text := mailer.RenderTransactionalEmail(mailer.TransactionalEmail{
 		Eyebrow:  "Invitation",
 		Greeting: mailer.Greeting(userName),
-		BodyHTML: fmt.Sprintf("You've been invited to join as a <strong>%s</strong>. To get started, set a password for your account.", mailer.EscapeHTML(role)),
-		BodyText: fmt.Sprintf("You've been invited to join as a %s. To get started, set a password for your account. The link expires in 7 days.", role),
+		BodyHTML: fmt.Sprintf("You've been invited to join as a <strong>%s</strong>. To get started, set a password for your account.", mailer.EscapeHTML(role)) + usernameHTML,
+		BodyText: fmt.Sprintf("You've been invited to join as a %s. To get started, set a password for your account. The link expires in 7 days.", role) + usernameText,
 		CTALabel: "Set your password",
 		CTALink:  link,
 		Footer:   "If you weren't expecting this invitation, you can safely ignore this email. The link expires in 7 days.",

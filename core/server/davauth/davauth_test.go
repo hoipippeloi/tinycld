@@ -3,6 +3,7 @@ package davauth
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,7 +13,8 @@ import (
 )
 
 // newAuthApp builds a test app whose users collection carries the `disabled`
-// flag the real schema has (NewTestApp ships the stock collection without it).
+// flag and the `username` the real schema has (NewTestApp ships the stock
+// collection without them).
 func newAuthApp(t testing.TB) *tests.TestApp {
 	t.Helper()
 	app, err := tests.NewTestApp()
@@ -26,8 +28,9 @@ func newAuthApp(t testing.TB) *tests.TestApp {
 		t.Fatalf("find users: %v", err)
 	}
 	users.Fields.Add(&core.BoolField{Name: "disabled"})
+	users.Fields.Add(&core.TextField{Name: "username"})
 	if err := app.Save(users); err != nil {
-		t.Fatalf("add disabled field: %v", err)
+		t.Fatalf("add disabled and username fields: %v", err)
 	}
 	return app
 }
@@ -40,6 +43,7 @@ func newAuthUser(t testing.TB, app core.App, email, password string, disabled bo
 	}
 	u := core.NewRecord(users)
 	u.Set("email", email)
+	u.Set("username", strings.SplitN(email, "@", 2)[0])
 	u.Set("password", password)
 	u.Set("disabled", disabled)
 	if err := app.Save(u); err != nil {
@@ -62,7 +66,7 @@ func TestAuthenticate_EnabledUserSucceeds(t *testing.T) {
 	app := newAuthApp(t)
 	u := newAuthUser(t, app, "alice@example.com", "Password123!", false)
 
-	got, err := Authenticate(app, basicAuthRequest(t, "alice@example.com", "Password123!"))
+	got, err := Authenticate(app, basicAuthRequest(t, "alice", "Password123!"))
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
@@ -78,7 +82,7 @@ func TestAuthenticate_DisabledUserIsRefused(t *testing.T) {
 	// DAV is Basic-per-request: there is no token to revoke, so the disabled
 	// flag is the ONLY thing standing between a suspended account and its
 	// CardDAV/CalDAV/WebDAV data.
-	got, err := Authenticate(app, basicAuthRequest(t, "mallory@example.com", "Password123!"))
+	got, err := Authenticate(app, basicAuthRequest(t, "mallory", "Password123!"))
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("disabled user authenticated (record=%v, err=%v), want ErrUnauthorized", got, err)
 	}
@@ -88,7 +92,7 @@ func TestAuthenticate_WrongPasswordIsRefused(t *testing.T) {
 	app := newAuthApp(t)
 	newAuthUser(t, app, "alice@example.com", "Password123!", false)
 
-	if _, err := Authenticate(app, basicAuthRequest(t, "alice@example.com", "wrong-password")); !errors.Is(err, ErrUnauthorized) {
+	if _, err := Authenticate(app, basicAuthRequest(t, "alice", "wrong-password")); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("wrong password accepted, err=%v, want ErrUnauthorized", err)
 	}
 }
@@ -119,9 +123,9 @@ func TestAuthenticate_MissAndHitCostTheSame(t *testing.T) {
 	}
 
 	// Wrong password on a real account: pays for bcrypt.
-	hit := measure("real@example.com", "wrong-password")
+	hit := measure("real", "wrong-password")
 	// No such account: must also pay for bcrypt, or the difference is an oracle.
-	miss := measure("nosuchuser@example.com", "wrong-password")
+	miss := measure("nosuchuser", "wrong-password")
 
 	if hit <= 0 {
 		t.Skip("timer resolution too coarse to measure")
@@ -157,8 +161,8 @@ func TestAuthenticate_DisabledCostsTheSameAsWrongPassword(t *testing.T) {
 		return total / rounds
 	}
 
-	wrongPass := measure("enabled@example.com", "wrong-password")
-	disabled := measure("suspended@example.com", "Password123!")
+	wrongPass := measure("enabled", "wrong-password")
+	disabled := measure("suspended", "Password123!")
 
 	if wrongPass <= 0 || disabled <= 0 {
 		t.Skip("timer resolution too coarse to measure")
@@ -197,7 +201,7 @@ func TestWithRequestCache_VerifiesOncePerRequest(t *testing.T) {
 
 	const n = 8
 
-	uncachedReq := basicAuthRequest(t, "alice@example.com", "Password123!")
+	uncachedReq := basicAuthRequest(t, "alice", "Password123!")
 	for i := 0; i < n; i++ {
 		if _, err := Authenticate(app, uncachedReq); err != nil {
 			t.Fatal(err)
@@ -208,7 +212,7 @@ func TestWithRequestCache_VerifiesOncePerRequest(t *testing.T) {
 	}
 
 	calls.Store(0)
-	cachedReq := WithRequestCache(basicAuthRequest(t, "alice@example.com", "Password123!"))
+	cachedReq := WithRequestCache(basicAuthRequest(t, "alice", "Password123!"))
 	for i := 0; i < n; i++ {
 		if _, err := Authenticate(app, cachedReq); err != nil {
 			t.Fatal(err)
@@ -227,7 +231,7 @@ func TestWithRequestCache_CachesFailuresToo(t *testing.T) {
 	calls := countVerifications(t)
 
 	const n = 8
-	req := WithRequestCache(basicAuthRequest(t, "alice@example.com", "wrong-password"))
+	req := WithRequestCache(basicAuthRequest(t, "alice", "wrong-password"))
 	for i := range n {
 		if _, err := Authenticate(app, req); !errors.Is(err, ErrUnauthorized) {
 			t.Fatalf("cached call %d: err = %v, want ErrUnauthorized", i, err)
@@ -244,7 +248,7 @@ func TestWithRequestCache_DoesNotLeakAcrossRequests(t *testing.T) {
 	app := newAuthApp(t)
 	user := newAuthUser(t, app, "alice@example.com", "Password123!", false)
 
-	first := WithRequestCache(basicAuthRequest(t, "alice@example.com", "Password123!"))
+	first := WithRequestCache(basicAuthRequest(t, "alice", "Password123!"))
 	if _, err := Authenticate(app, first); err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +263,7 @@ func TestWithRequestCache_DoesNotLeakAcrossRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second := WithRequestCache(basicAuthRequest(t, "alice@example.com", "Password123!"))
+	second := WithRequestCache(basicAuthRequest(t, "alice", "Password123!"))
 	if _, err := Authenticate(app, second); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("a new request reused a stale cached success: err = %v", err)
 	}

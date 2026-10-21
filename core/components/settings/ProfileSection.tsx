@@ -54,7 +54,7 @@ export function ProfileSection() {
                     control={control}
                     name="email"
                     label="Recovery Email"
-                    hint="Used to reach you if you're locked out. You can also sign in with it — here and in mail or calendar apps — but it is not a mailbox address TinyCld hosts."
+                    hint="Where invitations and password reset links go. You do not sign in with it: sign in with your username or an email address this server hosts for you."
                     onBlur={saveIfValid}
                 />
             </View>

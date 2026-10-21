@@ -69,7 +69,7 @@ var hostHookCounts = map[string]int{
 	"OnRecordAfterUpdateError":            1,
 	"OnRecordAfterUpdateSuccess":          3,
 	"OnRecordAuthRequest":                 2, // the disabled-user guard and the MFA gate
-	"OnRecordAuthWithPasswordRequest":     1,
+	"OnRecordAuthWithPasswordRequest":     2,
 	"OnRecordConfirmPasswordResetRequest": 1, // a reset ends an admin-set temporary password
 	"OnRecordCreate":                      3,
 	"OnRecordCreateExecute":               2,

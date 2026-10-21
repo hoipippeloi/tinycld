@@ -43,8 +43,14 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 // tests/e2e/helpers.ts for the same reason they are literals here: nothing in
 // this path loads .env, so the seed and every consumer must agree on a shared
 // constant or authentication fails with no obvious cause.
-const OWNER = { email: 'user@tinycld.org', password: 'TestUser1234!' }
-const COLLAB = { email: 'collaborator@tinycld.org', password: 'TestUser1234!' }
+// The seeded fixture users (scripts/seed-db.ts). They sign in with the
+// username; the email is what `status` reports.
+const OWNER = { email: 'user@tinycld.org', username: 'tester', password: 'TestUser1234!' }
+const COLLAB = {
+    email: 'collaborator@tinycld.org',
+    username: 'collaborator',
+    password: 'TestUser1234!',
+}
 
 // The seeded first-party client (pb_migrations/1985000001). Its `scopes` field
 // is a hard CEILING enforced by ValidateClientScopes, so a scope missing there
@@ -285,7 +291,7 @@ async function waitForFixtureUser(origin: string, timeoutMs: number): Promise<vo
             const res = await fetch(`${origin}/api/collections/users/auth-with-password`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ identity: OWNER.email, password: OWNER.password }),
+                body: JSON.stringify({ identity: OWNER.username, password: OWNER.password }),
             })
             if (res.ok) return
             lastStatus = res.status
@@ -295,7 +301,7 @@ async function waitForFixtureUser(origin: string, timeoutMs: number): Promise<vo
         await sleep(1000)
     }
     throw new Error(
-        `cli-smoke: ${OWNER.email} was not authenticable within ${timeoutMs}ms ` +
+        `cli-smoke: ${OWNER.username} was not authenticable within ${timeoutMs}ms ` +
             `(last HTTP ${lastStatus}) — did the seed finish?`
     )
 }
@@ -403,7 +409,7 @@ function stopServer(): void {
  */
 async function mintGrant(
     origin: string,
-    user: { email: string; password: string },
+    user: { email: string; username: string; password: string },
     label: string
 ): Promise<{ access_token: string; refresh_token: string; scope: string; expires_in: number }> {
     // 1. Ask for a device code. The scope string is the CLI's own request set,
@@ -425,11 +431,11 @@ async function mintGrant(
     const authRes = await fetch(`${origin}/api/collections/users/auth-with-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: user.email, password: user.password }),
+        body: JSON.stringify({ identity: user.username, password: user.password }),
     })
     if (!authRes.ok) {
         throw new Error(
-            `auth-with-password for ${user.email} → HTTP ${authRes.status}: ${await authRes.text()}`
+            `auth-with-password for ${user.username} → HTTP ${authRes.status}: ${await authRes.text()}`
         )
     }
     const session = (await authRes.json()) as { token: string }

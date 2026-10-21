@@ -36,13 +36,14 @@ func TestHandlerFor_BadCredentialIs401WithChallenge(t *testing.T) {
 	app, backend, _ := setupPutAuthzApp(t)
 	handler := HandlerFor(app, backend.sources)
 
-	cases := map[string]struct{ email, password string }{
-		"wrong password": {"alice@example.com", "not-the-password"},
-		"unknown user":   {"nobody@example.com", "Password123!"},
+	cases := map[string]struct{ username, password string }{
+		"wrong password": {"alice", "not-the-password"},
+		"unknown user":   {"nobody", "Password123!"},
+		"account email":  {"alice@example.com", "Password123!"},
 		"no credentials": {"", ""},
 	}
 	for name, c := range cases {
-		rec := davRequest(handler, c.email, c.password)
+		rec := davRequest(handler, c.username, c.password)
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s: status = %d, want 401", name, rec.Code)
 		}
@@ -58,7 +59,7 @@ func TestHandlerFor_GoodCredentialIsServed(t *testing.T) {
 
 	// Positive control for the denials above: the same request with the right
 	// password must reach the protocol handler, not the challenge.
-	rec := davRequest(handler, "alice@example.com", "Password123!")
+	rec := davRequest(handler, "alice", "Password123!")
 	if rec.Code == http.StatusUnauthorized || rec.Code >= 500 {
 		t.Fatalf("authenticated REPORT = %d, body:\n%s", rec.Code, rec.Body.String())
 	}

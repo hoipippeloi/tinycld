@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { appShell, login, TEST_USER_EMAIL, TEST_USER_PASSWORD } from './helpers'
+import { appShell, login, TEST_USER_PASSWORD, TEST_USER_USERNAME } from './helpers'
 
 // The saved-server switcher, exercised through the web build.
 //
@@ -47,7 +47,7 @@ async function loginAt(page: Page, origin: string) {
     ])
     if (landed === 'shell') return
 
-    await identifier.fill(TEST_USER_EMAIL)
+    await identifier.fill(TEST_USER_USERNAME)
     await page.getByPlaceholder('Password').fill(TEST_USER_PASSWORD)
     await page.getByText('Sign in', { exact: true }).last().click()
     await expect(shell).toBeVisible({ timeout: 20_000 })

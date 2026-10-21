@@ -27,8 +27,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
 	"tinycld.org/core/authfactor"
-	"tinycld.org/core/coreserver"
 	"tinycld.org/core/mailer"
+	"tinycld.org/core/usernames"
 )
 
 // CodeLength is the number of digits in an emailed OTP.
@@ -96,7 +96,7 @@ func FindOrCreateUser(app core.App, email string) (*core.Record, error) {
 		displayName = email[:idx]
 	}
 
-	username, err := PickAvailableUsername(app, coreserver.DeriveUsername(email))
+	username, err := PickAvailableUsername(app, usernames.Derive(email))
 	if err != nil {
 		return nil, fmt.Errorf("derive username: %w", err)
 	}

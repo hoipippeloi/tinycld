@@ -4,7 +4,6 @@ import { signInStepFromError } from '@tinycld/core/lib/sign-in-step'
 import { useSignInStepStore } from '@tinycld/core/lib/stores/sign-in-step-store'
 
 interface ChangePasswordArgs {
-    email: string
     oldPassword: string
     newPassword: string
     passwordConfirm: string
@@ -18,8 +17,11 @@ interface ChangePasswordArgs {
 // server-side users field guard (users_guard.go) explicitly allows a self
 // `password` change; PB's own form validation enforces oldPassword correctness.
 export async function changeMyPassword(args: ChangePasswordArgs): Promise<void> {
-    const userId = pb.authStore.record?.id
-    if (!userId) throw new Error('Not authenticated')
+    const record = pb.authStore.record
+    if (!record) throw new Error('Not authenticated')
+    const userId = record.id
+    // The username, not the account email: the email is not a sign-in name.
+    const username: string = record.username
 
     await pb.collection('users').update(userId, {
         oldPassword: args.oldPassword,
@@ -32,7 +34,7 @@ export async function changeMyPassword(args: ChangePasswordArgs): Promise<void> 
     // With MFA on, the re-auth stops at the second step. The old session is
     // already dead, so drop it: the login overlay then opens on the code step.
     try {
-        await pb.collection('users').authWithPassword(args.email, args.newPassword)
+        await pb.collection('users').authWithPassword(username, args.newPassword)
     } catch (err) {
         const step = signInStepFromError(err)
         if (step) {

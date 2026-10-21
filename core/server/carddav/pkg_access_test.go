@@ -42,7 +42,7 @@ func TestPutAddressObject_ReadonlyGrantRefused(t *testing.T) {
 	app, backend, user := setupPutAuthzApp(t)
 	setContactRules(t, app, `owner = @request.auth.id`, `owner = @request.auth.id`)
 	giveReadonly(t, app, user, "contacts")
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:ro.vcf",
 		newCard("urn:uuid:ro", "Refused"), nil)
@@ -59,7 +59,7 @@ func TestDeleteAddressObject_ReadonlyGrantRefused(t *testing.T) {
 	setContactRules(t, app, `owner = @request.auth.id`, `owner = @request.auth.id`)
 	rec := seedContact(t, app, user.Id, "urn:uuid:keep", "Kept")
 	giveReadonly(t, app, user, "contacts")
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	if err := backend.DeleteAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:keep.vcf"); err == nil {
 		t.Fatal("readonly user's DELETE succeeded")

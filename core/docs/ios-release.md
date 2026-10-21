@@ -62,7 +62,7 @@ Copy this verbatim into App Store Connect → App Review Information → Notes w
     server and a pre-seeded demo account:
 
         Demo server URL: https://tinycld.org
-        Email:           appreview@tinycld.org
+        Username:        appreview
         Password:        <FILL IN FROM 1PASSWORD>
 
     On the first screen, tap "Use tinycld.org" to connect to the demo

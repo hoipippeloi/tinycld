@@ -44,7 +44,7 @@ func registerPasswordResetMailerCore(app core.App) {
 		toEmail := e.Record.Email()
 		toName := e.Record.GetString("name")
 		settings := app.Settings().Meta
-		subject, htmlBody, text := buildPasswordResetMessage(settings.AppURL, settings.AppName, toName, token)
+		subject, htmlBody, text := buildPasswordResetMessage(settings.AppURL, settings.AppName, toName, e.Record.GetString("username"), token)
 
 		send(app, toName, toEmail, subject, htmlBody, text)
 
@@ -57,8 +57,9 @@ func registerPasswordResetMailerCore(app core.App) {
 // reset email via the shared transactional-email template. Pulled out of the
 // hook so it's unit-testable without PocketBase's trigger machinery. toName may
 // be empty (falls back to a generic greeting); the link always points at the
-// app's own reset screen.
-func buildPasswordResetMessage(appURL, appName, toName, token string) (subject, html, text string) {
+// app's own reset screen. The email goes to the account email, which is not a
+// sign-in name, so it states the username the person signs in with.
+func buildPasswordResetMessage(appURL, appName, toName, username, token string) (subject, html, text string) {
 	base := strings.TrimRight(appURL, "/")
 	link := fmt.Sprintf("%s%s/%s", base, approutes.Href("reset-password"), token)
 
@@ -67,15 +68,27 @@ func buildPasswordResetMessage(appURL, appName, toName, token string) (subject, 
 		eyebrow = "Password reset · " + appName
 	}
 
+	usernameHTML, usernameText := signInNameSentence(username)
 	subject = "Reset your password"
 	html, text = mailer.RenderTransactionalEmail(mailer.TransactionalEmail{
 		Eyebrow:  eyebrow,
 		Greeting: mailer.Greeting(toName),
-		BodyHTML: "We received a request to reset your password. Click the button below to choose a new one. This link will expire soon.",
-		BodyText: "We received a request to reset your password. Open the link below to choose a new one. If you didn't request this, you can safely ignore this email.",
+		BodyHTML: "We received a request to reset your password. Click the button below to choose a new one. This link will expire soon." + usernameHTML,
+		BodyText: "We received a request to reset your password. Open the link below to choose a new one. If you didn't request this, you can safely ignore this email." + usernameText,
 		CTALabel: "Reset password",
 		CTALink:  link,
 		Footer:   "If you didn't request a password reset, no action is needed — your password stays the same.",
 	})
 	return subject, html, text
+}
+
+// signInNameSentence tells a person the username they sign in with, for an
+// email sent to their account email (which is not a sign-in name). Empty for
+// an account without a username.
+func signInNameSentence(username string) (html, text string) {
+	if username == "" {
+		return "", ""
+	}
+	return fmt.Sprintf(" Sign in with your username, <strong>%s</strong>.", mailer.EscapeHTML(username)),
+		fmt.Sprintf(" Sign in with your username, %s.", username)
 }

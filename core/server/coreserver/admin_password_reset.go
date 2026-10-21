@@ -81,7 +81,7 @@ func handleAdminPasswordReset(app core.App, re *core.RequestEvent) error {
 	}
 	settings := app.Settings().Meta
 	name := target.GetString("name")
-	subject, htmlBody, text := buildPasswordResetMessage(settings.AppURL, settings.AppName, name, token)
+	subject, htmlBody, text := buildPasswordResetMessage(settings.AppURL, settings.AppName, name, target.GetString("username"), token)
 	if err := sendContext(re.Request.Context(), app, name, addr.Address, subject, htmlBody, text); err != nil {
 		return re.InternalServerError("Could not send the email", err)
 	}

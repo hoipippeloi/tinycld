@@ -361,7 +361,7 @@ func TestPasskeyAsSecondStep(t *testing.T) {
 	h.register(key, h.session(ada), nil)
 
 	first := h.do("/api/collections/users/auth-with-password",
-		map[string]any{"identity": "ada@test.local", "password": testPassword}, "")
+		map[string]any{"identity": "ada", "password": testPassword}, "")
 	mfaToken := first.str("mfaToken")
 	if first.status != http.StatusUnauthorized || mfaToken == "" {
 		t.Fatalf("password alone signed in with a passkey on file: %d %v", first.status, first.body)
@@ -400,7 +400,7 @@ func TestRequiredEnrollmentWithPasskey(t *testing.T) {
 	}
 
 	first := h.do("/api/collections/users/auth-with-password",
-		map[string]any{"identity": "ada@test.local", "password": testPassword}, "")
+		map[string]any{"identity": "ada", "password": testPassword}, "")
 	enroll := first.str("mfaEnrollToken")
 	if enroll == "" {
 		t.Fatalf("no enroll step: %d %v", first.status, first.body)

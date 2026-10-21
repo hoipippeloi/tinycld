@@ -61,9 +61,11 @@ test.describe('password reset', () => {
         // user sees, and it doesn't depend on how the router spells the route.
         await expect(inviteePage.getByTestId('identifier')).toBeVisible({ timeout: 15_000 })
 
-        // Confirm the reset password actually authenticates.
+        // Confirm the reset password actually authenticates, with the username
+        // the email states: the account email is not a sign-in name.
+        expect(email.text ?? '').toContain(`Sign in with your username, ${invited.username}.`)
         await inviteePage.goto('/')
-        await inviteePage.getByTestId('identifier').fill(invited.email)
+        await inviteePage.getByTestId('identifier').fill(invited.username)
         await inviteePage.getByPlaceholder('Password').fill(NEW_PASSWORD)
         await inviteePage.getByText('Sign in', { exact: true }).last().click()
         await appShell(inviteePage).waitFor({ state: 'visible', timeout: 15_000 })

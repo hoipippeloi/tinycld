@@ -103,9 +103,9 @@ func (h *harness) session(u *core.Record) string {
 	return token
 }
 
-func (h *harness) passwordLogin(email string) response {
+func (h *harness) passwordLogin(username string) response {
 	return h.do(http.MethodPost, "/api/collections/users/auth-with-password",
-		map[string]any{"identity": email, "password": testPassword}, "")
+		map[string]any{"identity": username, "password": testPassword}, "")
 }
 
 // enroll turns on TOTP for u through the routes and returns the secret and
@@ -175,7 +175,7 @@ func TestGate_NoFactorSignsInWithPassword(t *testing.T) {
 	h := newHarness(t)
 	h.user("ada@test.local", "member")
 
-	res := h.passwordLogin("ada@test.local")
+	res := h.passwordLogin("ada")
 	if res.status != http.StatusOK || res.str("token") == "" {
 		t.Fatalf("password sign-in without MFA: %d %v", res.status, res.body)
 	}
@@ -186,7 +186,7 @@ func TestGate_TOTPRequiresSecondStep(t *testing.T) {
 	ada := h.user("ada@test.local", "member")
 	secret, _ := h.enroll(ada)
 
-	first := h.passwordLogin("ada@test.local")
+	first := h.passwordLogin("ada")
 	if first.status != http.StatusUnauthorized || first.str("token") != "" {
 		t.Fatalf("password alone must not sign in: %d %v", first.status, first.body)
 	}
@@ -233,7 +233,7 @@ func TestVerify_RecoveryCodeIsSingleUse(t *testing.T) {
 		t.Fatalf("got %d recovery codes", len(codes))
 	}
 
-	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+	mfaToken := h.passwordLogin("ada").str("mfaToken")
 	typed := strings.ToUpper(strings.ReplaceAll(codes[3], "-", ""))
 	ok := h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "recoveryCode": typed}, "")
 	if ok.status != http.StatusOK || ok.str("token") == "" {
@@ -257,7 +257,7 @@ func TestVerify_PendingTokenDiesWithTokenKey(t *testing.T) {
 	h := newHarness(t)
 	ada := h.user("ada@test.local", "member")
 	secret, _ := h.enroll(ada)
-	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+	mfaToken := h.passwordLogin("ada").str("mfaToken")
 
 	fresh, err := h.app.FindRecordById("users", ada.Id)
 	if err != nil {
@@ -279,7 +279,7 @@ func TestVerify_RateLimited(t *testing.T) {
 	ada := h.user("ada@test.local", "member")
 	secret, _ := h.enroll(ada)
 	codeLimiter.Reset()
-	mfaToken := h.passwordLogin("ada@test.local").str("mfaToken")
+	mfaToken := h.passwordLogin("ada").str("mfaToken")
 
 	for i := 0; i < 10; i++ {
 		h.do(http.MethodPost, "/api/auth/mfa/verify", map[string]any{"mfaToken": mfaToken, "code": "000000"}, "")
@@ -295,7 +295,7 @@ func TestRequireMFA_EnrollsDuringSignIn(t *testing.T) {
 	ada := h.user("ada@test.local", "member")
 	setRequireMFA(t, h.app, "true")
 
-	first := h.passwordLogin("ada@test.local")
+	first := h.passwordLogin("ada")
 	enrollToken := first.str("mfaEnrollToken")
 	if first.status != http.StatusUnauthorized || enrollToken == "" || first.str("token") != "" {
 		t.Fatalf("expected an enroll step: %d %v", first.status, first.body)
@@ -359,7 +359,7 @@ func TestDisable_NeedsAValidCode(t *testing.T) {
 	if authfactor.HasSecondFactor(h.app, ada.Id) {
 		t.Fatal("factor still present")
 	}
-	if res := h.passwordLogin("ada@test.local"); res.status != http.StatusOK {
+	if res := h.passwordLogin("ada"); res.status != http.StatusOK {
 		t.Fatalf("password sign-in after disable: %d", res.status)
 	}
 }
@@ -413,7 +413,7 @@ func TestGate_TemporaryPasswordMustBeChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := h.passwordLogin("ada@test.local")
+	first := h.passwordLogin("ada")
 	token := first.str("passwordResetToken")
 	if first.status != http.StatusUnauthorized || token == "" || first.str("token") != "" {
 		t.Fatalf("temporary password signed in: %d %v", first.status, first.body)
@@ -431,7 +431,7 @@ func TestGate_TemporaryPasswordMustBeChanged(t *testing.T) {
 		t.Fatal("the flag survived the member's own password")
 	}
 	login := h.do(http.MethodPost, "/api/collections/users/auth-with-password",
-		map[string]any{"identity": "ada@test.local", "password": "ChosenByAda123!"}, "")
+		map[string]any{"identity": "ada", "password": "ChosenByAda123!"}, "")
 	if login.status != http.StatusOK || login.str("token") == "" {
 		t.Fatalf("sign in with the new password: %d %v", login.status, login.body)
 	}
@@ -449,7 +449,7 @@ func TestGate_TemporaryPasswordAfterTheSecondStep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := h.passwordLogin("ada@test.local")
+	first := h.passwordLogin("ada")
 	if first.str("passwordResetToken") != "" || first.str("mfaToken") == "" {
 		t.Fatalf("password step skipped the second factor: %v", first.body)
 	}
@@ -509,7 +509,7 @@ func TestVerify_SameCodeRacingSignsInOnce(t *testing.T) {
 		results := make(chan int, racers)
 		var tokens []string
 		for i := 0; i < racers; i++ {
-			tokens = append(tokens, h.passwordLogin("ada@test.local").str("mfaToken"))
+			tokens = append(tokens, h.passwordLogin("ada").str("mfaToken"))
 		}
 		var wg sync.WaitGroup
 		for i := 0; i < racers; i++ {
@@ -542,7 +542,7 @@ func TestEnrollToken_RefusedOnceAFactorExists(t *testing.T) {
 	h := newHarness(t)
 	h.user("ada@test.local", "member")
 	setRequireMFA(t, h.app, "true")
-	enroll := h.passwordLogin("ada@test.local").str("mfaEnrollToken")
+	enroll := h.passwordLogin("ada").str("mfaEnrollToken")
 
 	begin := h.do(http.MethodPost, "/api/account/mfa/totp/begin", map[string]any{"mfaEnrollToken": enroll}, "")
 	confirm := h.do(http.MethodPost, "/api/account/mfa/totp/confirm", map[string]any{
@@ -561,7 +561,7 @@ func TestRequireMFA_GuestsAreNotAskedToEnroll(t *testing.T) {
 	h := newHarness(t)
 	h.user("guest@test.local", "guest")
 	setRequireMFA(t, h.app, "true")
-	if res := h.passwordLogin("guest@test.local"); res.status != http.StatusOK {
+	if res := h.passwordLogin("guest"); res.status != http.StatusOK {
 		t.Fatalf("guest asked to enroll: %d %v", res.status, res.body)
 	}
 }

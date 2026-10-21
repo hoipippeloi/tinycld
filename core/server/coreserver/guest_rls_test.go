@@ -8,6 +8,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 	"tinycld.org/core/rlstest"
+	"tinycld.org/core/usernames"
 )
 
 // guest_rls_test.go proves the collection access rules tightened by
@@ -80,7 +81,7 @@ func guestRLSUser(t *testing.T, app core.App, email, role string) *core.Record {
 	}
 	r := core.NewRecord(col)
 	r.SetEmail(email)
-	r.Set("username", DeriveUsername(email))
+	r.Set("username", usernames.Derive(email))
 	r.Set("name", "Test")
 	r.Set("role", role)
 	r.SetVerified(true)

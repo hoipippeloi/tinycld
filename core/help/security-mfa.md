@@ -19,7 +19,7 @@ The authenticator app labels the entry with this server's address (`{{server-hos
 
 ## Sign in with two-step verification
 
-1. Type your username or email and your password, as usual.
+1. Type your username (or an email address this server hosts for you) and your password, as usual.
 2. Type the 6-digit code from your authenticator app and select **Verify**.
 
 Each code works one time. If a code is refused, wait for the next one.

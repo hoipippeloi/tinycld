@@ -106,7 +106,8 @@ function ResetForm({ token }: { token: string }) {
                     className="text-center text-[13px] text-muted-foreground"
                     style={{ lineHeight: 18 }}
                 >
-                    Enter a new password for your account.
+                    Enter a new password for your account. Then sign in with your username, which
+                    the reset email shows.
                 </Text>
             </View>
 

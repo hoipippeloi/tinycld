@@ -75,12 +75,13 @@ func sendExistingMemberEmail(ctx context.Context, app core.App, user *core.Recor
 		userName = userEmail
 	}
 
+	usernameHTML, usernameText := signInNameSentence(user.GetString("username"))
 	subject := "You've been added"
 	htmlBody, text := mailer.RenderTransactionalEmail(mailer.TransactionalEmail{
 		Eyebrow:  "Invitation",
 		Greeting: mailer.Greeting(userName),
-		BodyHTML: fmt.Sprintf("You've been added as a <strong>%s</strong>. Sign in with your existing account to get started.", mailer.EscapeHTML(role)),
-		BodyText: fmt.Sprintf("You've been added as a %s. Sign in with your existing account to get started.", role),
+		BodyHTML: fmt.Sprintf("You've been added as a <strong>%s</strong>. Sign in with your existing account to get started.", mailer.EscapeHTML(role)) + usernameHTML,
+		BodyText: fmt.Sprintf("You've been added as a %s. Sign in with your existing account to get started.", role) + usernameText,
 		CTALabel: "Open the app",
 		CTALink:  appURL,
 		Footer:   "If you didn't expect to join, please contact your admin.",

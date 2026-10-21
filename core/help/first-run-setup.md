@@ -9,7 +9,7 @@ To claim a new server, open it in your browser. The server prints a setup code i
 
 If the code is not in the log, restart the server. A new code prints at each start. After too many wrong codes, the server prints a new code.
 
-Next, create the owner account. The owner can change every setting, manage apps and people, and hand the owner role to someone else later in Settings → Organization.
+Next, create the owner account. The owner can change every setting, manage apps and people, and hand the owner role to someone else later in Settings → Organization. Choose the owner's username here: you sign in with it. The email is where invitations and password reset links go.
 
 The setup steps then help you:
 

@@ -188,7 +188,7 @@ function LoginForm({
 
             <View className="mb-4">
                 <Text className="mb-1.5 text-sm font-semibold text-foreground">
-                    Username or email
+                    Username or email address
                 </Text>
                 <Controller
                     control={control}

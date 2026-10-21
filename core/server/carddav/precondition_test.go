@@ -62,7 +62,7 @@ func wantPrecondFailed(t *testing.T, err error) {
 func TestPutAddressObject_IfNoneMatchRefusesOverwrite(t *testing.T) {
 	app, backend, user := setupPrecondApp(t)
 	rec := seedContact(t, app, user.Id, "urn:uuid:pc1", "Original")
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:pc1.vcf",
 		newCard("urn:uuid:pc1", "Clobbered"),
@@ -78,7 +78,7 @@ func TestPutAddressObject_IfNoneMatchRefusesOverwrite(t *testing.T) {
 func TestPutAddressObject_IfMatchStaleRefused(t *testing.T) {
 	app, backend, user := setupPrecondApp(t)
 	rec := seedContact(t, app, user.Id, "urn:uuid:pc2", "Original")
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:pc2.vcf",
 		newCard("urn:uuid:pc2", "Based on stale copy"),
@@ -94,7 +94,7 @@ func TestPutAddressObject_IfMatchStaleRefused(t *testing.T) {
 func TestPutAddressObject_IfMatchCurrentSucceeds(t *testing.T) {
 	app, backend, user := setupPrecondApp(t)
 	rec := seedContact(t, app, user.Id, "urn:uuid:pc3", "Original")
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	etag := fmt.Sprintf("%q", rec.GetString("updated"))
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:pc3.vcf",
@@ -112,7 +112,7 @@ func TestPutAddressObject_IfMatchCurrentSucceeds(t *testing.T) {
 
 func TestPutAddressObject_IfMatchOnMissingRefused(t *testing.T) {
 	_, backend, _ := setupPrecondApp(t)
-	ctx := authedCtx(t, "alice@example.com", "Password123!")
+	ctx := authedCtx(t, "alice", "Password123!")
 
 	_, err := backend.PutAddressObject(ctx, "/contacts/u/ab/default/urn:uuid:ghost.vcf",
 		newCard("urn:uuid:ghost", "Never created"),

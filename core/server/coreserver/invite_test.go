@@ -138,7 +138,7 @@ func TestInviteMember_RejectsDuplicateUsername(t *testing.T) {
 	owner := mustCreateUser(t, app, "owner-dup@test.local", false)
 	setUserRole(t, app, owner, "owner")
 	// Existing verified member with username "newhire" who already has a role.
-	existing := mustCreateUser(t, app, "newhire@x.com", false) // DeriveUsername → "newhire"
+	existing := mustCreateUser(t, app, "newhire@x.com", false) // usernames.Derive → "newhire"
 	setUserRole(t, app, existing, "member")
 
 	registerInviteEndpointCore(app)

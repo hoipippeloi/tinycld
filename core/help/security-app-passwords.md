@@ -14,7 +14,7 @@ When [two-step verification](help://core:security-mfa) is on, or your organizati
 1. Open **Settings → Security**.
 2. In **App passwords**, select **Create an app password**.
 3. Type a name for the app or device, such as "Thunderbird on my laptop", and select **Create**.
-4. Copy the password and type it into the app where it asks for your password. Use your usual username or email as the user name.
+4. Copy the password and type it into the app where it asks for your password. As the user name, use your username or an email address this server hosts for you.
 
 You see the password one time only. If you lose it, revoke it and create a new one.
 
