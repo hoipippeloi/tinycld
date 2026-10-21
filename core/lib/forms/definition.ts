@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { type ComputeField, computedIssues } from './computed-validation'
 import { computeExprSchema } from './expression'
-import type { FormHostDef } from './host'
+import type { FormHostBuiltin, FormHostDef } from './host'
 import { keySchema } from './key'
 
 export const FIELD_WIDTHS = ['full', 'half', 'third', 'quarter'] as const
@@ -451,7 +451,28 @@ export function validateDefinitionForHost(
             }
         })
     })
+    issues.push(
+        ...computedIssues(
+            def.fields.map(f => computeFieldOf(f, builtins)),
+            ['fields']
+        )
+    )
     return issues
+}
+
+function computeFieldOf(f: FormField, builtins: Map<string, FormHostBuiltin>): ComputeField {
+    if (f.kind === 'builtin') {
+        const b = builtins.get(f.key)
+        return {
+            key: f.key,
+            kind: b?.kind ?? 'custom',
+            expression: b?.expression,
+            columns: b?.columns,
+        }
+    }
+    if (f.kind === 'computed') return { key: f.key, kind: f.kind, expression: f.expression }
+    if (f.kind === 'table') return { key: f.key, kind: f.kind, columns: f.columns }
+    return { key: f.key, kind: f.kind }
 }
 
 /** A rule may not hide a built-in the host requires, nor a page that holds one. Mirrored in Go (actionError). */

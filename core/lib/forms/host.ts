@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { CUSTOM_KINDS, type FormDefinition, keySchema } from './definition'
+import { computedIssues } from './computed-validation'
+import { CUSTOM_KINDS, columnSchema, type FormDefinition, keySchema } from './definition'
+import { computeExprSchema } from './expression'
 
 export const BUILTIN_KINDS = [...CUSTOM_KINDS, 'custom', 'section'] as const
 export type BuiltinKind = (typeof BUILTIN_KINDS)[number]
@@ -23,6 +25,11 @@ const builtinSchema = z
          * still draws the labelled cell.
          */
         chrome: z.enum(['cell', 'bare']).default('cell'),
+        /** A computed built-in: the formula the engine and the server evaluate. */
+        expression: computeExprSchema.optional(),
+        decimals: z.number().int().min(0).max(6).default(0),
+        /** A table built-in: its columns. Rows live in the host's own collection. */
+        columns: z.array(columnSchema).min(1).optional(),
     })
     .superRefine((b, ctx) => {
         if (b.kind === 'section' && b.storage !== 'none')
@@ -45,6 +52,46 @@ const builtinSchema = z
                 path: ['collaborative'],
                 message: 'only markdown and richtext can be collaborative',
             })
+        if (b.kind === 'computed') {
+            if (!b.expression)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['expression'],
+                    message: 'a computed built-in needs an expression',
+                })
+            if (b.storage !== 'column')
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['storage'],
+                    message: 'a computed built-in is stored in a column',
+                })
+        } else if (b.expression) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['expression'],
+                message: 'only a computed built-in has an expression',
+            })
+        }
+        if (b.kind === 'table') {
+            if (!b.columns)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['columns'],
+                    message: 'a table built-in needs columns',
+                })
+            if (b.storage !== 'rows')
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['storage'],
+                    message: 'a table built-in keeps its rows in the host table',
+                })
+        } else if (b.columns) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['columns'],
+                message: 'only a table built-in has columns',
+            })
+        }
     })
 
 export const hostDefSchema = z
@@ -97,6 +144,14 @@ export const hostDefSchema = z
                     message: 'collaborative builtins need a collaborative fragment template',
                 })
         })
+        const computeFields = host.builtin.map(b => ({
+            key: b.key,
+            kind: b.kind,
+            expression: b.expression,
+            columns: b.columns,
+        }))
+        for (const issue of computedIssues(computeFields, ['builtin']))
+            ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message })
         if (host.insertCustomBefore && !keys.has(host.insertCustomBefore))
             ctx.addIssue({
                 code: 'custom',
