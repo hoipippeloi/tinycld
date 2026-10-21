@@ -24,5 +24,60 @@
         "defaults": {},
         "submit": { "required": [] }
     },
-    "cases": []
+    "cases": [
+        {
+            "name": "empty invoice is all zeros",
+            "values": { "lines": [], "tax_pct": 8.5, "units": 0 },
+            "expect": { "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0, "lines": [] }, "absent": [] }
+        },
+        {
+            "name": "two lines, one taxable",
+            "values": {
+                "lines": [
+                    { "id": "1", "qty": 2, "rate": 1999, "taxable": true },
+                    { "id": "2", "qty": 1.5, "rate": 1000, "taxable": false }
+                ],
+                "tax_pct": 8.25,
+                "units": 3
+            },
+            "expect": {
+                "values": {
+                    "lines": [
+                        { "id": "1", "qty": 2, "rate": 1999, "taxable": true, "amount": 3998, "taxable_amount": 3998 },
+                        { "id": "2", "qty": 1.5, "rate": 1000, "taxable": false, "amount": 1500, "taxable_amount": 0 }
+                    ],
+                    "subtotal": 5498,
+                    "tax": 330,
+                    "total": 5828,
+                    "per_unit": 1832.67
+                },
+                "absent": []
+            }
+        },
+        {
+            "name": "a positive half rounds up",
+            "values": { "lines": [{ "id": "1", "qty": 1, "rate": 5, "taxable": true }], "tax_pct": 10, "units": 0 },
+            "expect": { "values": { "subtotal": 5, "tax": 1, "total": 6, "per_unit": 0 }, "absent": [] }
+        },
+        {
+            "name": "a negative half rounds away from zero",
+            "values": { "lines": [{ "id": "1", "qty": 1, "rate": -5, "taxable": true }], "tax_pct": 10, "units": 0 },
+            "expect": { "values": { "subtotal": -5, "tax": -1, "total": -6, "per_unit": 0 }, "absent": [] }
+        },
+        {
+            "name": "a missing toggle and a missing percent read as zero",
+            "values": { "lines": [{ "id": "1", "qty": 3, "rate": 100 }], "units": 2 },
+            "expect": { "values": { "subtotal": 300, "tax": 0, "total": 300, "per_unit": 150 }, "absent": [] }
+        },
+        {
+            "name": "an absent table skips everything that reads it",
+            "values": { "tax_pct": 5, "units": 2 },
+            "expect": { "values": {}, "absent": ["subtotal", "tax", "total", "per_unit"] }
+        },
+        {
+            "name": "client-sent computed values are overwritten",
+            "values": { "lines": [], "tax_pct": 0, "units": 0, "subtotal": 999, "total": 999 },
+            "expect": { "values": { "subtotal": 0, "total": 0 }, "absent": [] }
+        }
+    ]
 }
