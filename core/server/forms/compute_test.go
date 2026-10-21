@@ -2,6 +2,7 @@ package forms
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -83,6 +84,18 @@ func TestRoundHalfAway(t *testing.T) {
 	}
 	if got := roundHalfAway(-0.2, 0); 1/got < 0 {
 		t.Errorf("negative zero returned")
+	}
+}
+
+func TestRoundHalfAway_NonFiniteIsZero(t *testing.T) {
+	cases := []struct {
+		x        float64
+		decimals int
+	}{{math.Inf(1), 0}, {math.Inf(-1), 2}, {math.NaN(), 0}, {1e307, 6}, {-1e307, 6}}
+	for _, c := range cases {
+		if got := roundHalfAway(c.x, c.decimals); got != 0 {
+			t.Errorf("round(%v,%d) = %v, want 0", c.x, c.decimals, got)
+		}
 	}
 }
 

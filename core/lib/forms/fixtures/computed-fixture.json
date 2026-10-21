@@ -193,9 +193,58 @@
             }
         },
         {
-            "name": "an absent table skips everything that reads it",
+            "name": "an absent custom table reads as no rows",
             "values": { "tax_pct": 5, "units": 2 },
-            "expect": { "values": {}, "absent": ["subtotal", "tax", "total", "per_unit"] }
+            "expect": {
+                "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a custom table that is not a list reads as no rows",
+            "values": { "lines": "junk", "tax_pct": 5, "units": 2, "subtotal": 999, "tax": 5 },
+            "expect": {
+                "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a result too large for a number is stored as zero",
+            "values": {
+                "lines": [
+                    { "id": "1", "qty": 1e200, "rate": 1e200, "taxable": true },
+                    { "id": "2", "qty": 2, "rate": 3, "taxable": true }
+                ],
+                "tax_pct": 10,
+                "units": 2
+            },
+            "expect": {
+                "values": {
+                    "lines": [
+                        {
+                            "id": "1",
+                            "qty": 1e200,
+                            "rate": 1e200,
+                            "taxable": true,
+                            "amount": 0,
+                            "taxable_amount": 0
+                        },
+                        {
+                            "id": "2",
+                            "qty": 2,
+                            "rate": 3,
+                            "taxable": true,
+                            "amount": 6,
+                            "taxable_amount": 6
+                        }
+                    ],
+                    "subtotal": 6,
+                    "tax": 1,
+                    "total": 7,
+                    "per_unit": 3
+                },
+                "absent": []
+            }
         },
         {
             "name": "client-sent computed values are overwritten",

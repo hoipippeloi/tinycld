@@ -43,6 +43,11 @@ describe('host computed and table built-ins', () => {
         expect(hostDefSchema.safeParse(host([title, lines, subtotal])).success).toBe(true)
     })
 
+    it('accepts a constant-0 computed built-in', () => {
+        const zero = { ...subtotal, expression: 0 }
+        expect(hostDefSchema.safeParse(host([title, zero])).success).toBe(true)
+    })
+
     it('requires an expression on a computed built-in and columns on a table', () => {
         const noExpr = { ...subtotal, expression: undefined }
         expect(hostDefSchema.safeParse(host([title, noExpr])).success).toBe(false)

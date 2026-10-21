@@ -36,7 +36,7 @@ function columnIssues(field: ComputeField, path: (string | number)[]): ComputeIs
     })
     const deps = new Map<string, string[]>()
     columns.forEach((c, i) => {
-        if (c.kind !== 'computed' || !c.expression) return
+        if (c.kind !== 'computed' || c.expression === undefined) return
         const at = [...path, 'columns', i, 'expression']
         const refs = exprRefs(c.expression)
         if (refs.aggregates.length > 0)
@@ -75,7 +75,7 @@ export function computedIssues(fields: ComputeField[], base: (string | number)[]
     const deps = new Map<string, string[]>()
     fields.forEach((f, i) => {
         if (f.kind === 'table') issues.push(...columnIssues(f, [...base, i]))
-        if (f.kind !== 'computed' || !f.expression) return
+        if (f.kind !== 'computed' || f.expression === undefined) return
         const at = [...base, i, 'expression']
         const refs = exprRefs(f.expression)
         for (const v of refs.vars) {

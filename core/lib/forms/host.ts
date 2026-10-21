@@ -53,7 +53,7 @@ const builtinSchema = z
                 message: 'only markdown and richtext can be collaborative',
             })
         if (b.kind === 'computed') {
-            if (!b.expression)
+            if (b.expression === undefined)
                 ctx.addIssue({
                     code: 'custom',
                     path: ['expression'],
@@ -65,7 +65,7 @@ const builtinSchema = z
                     path: ['storage'],
                     message: 'a computed built-in is stored in a column',
                 })
-        } else if (b.expression) {
+        } else if (b.expression !== undefined) {
             ctx.addIssue({
                 code: 'custom',
                 path: ['expression'],

@@ -77,11 +77,16 @@ function rowsOf(v: unknown): Record<string, unknown>[] {
     )
 }
 
-/** Rounds half away from zero at `decimals` places. Never returns -0. */
+/**
+ * Rounds half away from zero at `decimals` places. Never returns -0. A value
+ * that is not finite, or overflows when scaled, becomes 0: every computed
+ * value passes through here, and Infinity or NaN cannot be stored as JSON.
+ */
 export function roundHalfAway(x: number, decimals: number): number {
+    if (!Number.isFinite(x)) return 0
     const p = 10 ** decimals
     const r = Math.round(Math.abs(x) * p) / p
-    if (r === 0) return 0
+    if (r === 0 || !Number.isFinite(r)) return 0
     return x < 0 ? -r : r
 }
 

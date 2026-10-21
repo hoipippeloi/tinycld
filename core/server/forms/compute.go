@@ -40,10 +40,16 @@ func rowsOf(v any) []map[string]any {
 }
 
 // roundHalfAway rounds half away from zero at the given decimals. Never -0.
+// A value that is not finite, or overflows when scaled, becomes 0: every
+// computed value passes through here, and JSON cannot hold Inf or NaN (a
+// record whose JSON column fails to marshal is stored as null).
 func roundHalfAway(x float64, decimals int) float64 {
+	if math.IsNaN(x) || math.IsInf(x, 0) {
+		return 0
+	}
 	p := math.Pow10(decimals)
 	r := math.Round(math.Abs(x)*p) / p
-	if r == 0 {
+	if r == 0 || math.IsInf(r, 0) {
 		return 0
 	}
 	if x < 0 {
@@ -145,9 +151,12 @@ type computeNode struct {
 	decimals int
 }
 
-func collectComputed(def *Definition, host *Host) (map[string]computeNode, map[string][]Column) {
+// collectComputed returns the form's formulas, its tables, and which of those
+// tables are host tables whose rows live in another collection.
+func collectComputed(def *Definition, host *Host) (map[string]computeNode, map[string][]Column, map[string]bool) {
 	nodes := map[string]computeNode{}
 	tables := map[string][]Column{}
+	hostTables := map[string]bool{}
 	for _, f := range def.Fields {
 		switch f.Kind {
 		case "computed":
@@ -166,10 +175,11 @@ func collectComputed(def *Definition, host *Host) (map[string]computeNode, map[s
 				nodes[f.Key] = computeNode{b.Expression, b.Decimals}
 			} else if b.Kind == "table" {
 				tables[f.Key] = b.Columns
+				hostTables[f.Key] = true
 			}
 		}
 	}
-	return nodes, tables
+	return nodes, tables, hostTables
 }
 
 func fillRow(cols []Column, row any) any {
@@ -204,12 +214,21 @@ func fillRow(cols []Column, row any) any {
 }
 
 // ApplyComputed fills every table row's computed columns, then every computed
-// field in dependency order. It returns a new map. A computed value that reads
-// a table whose key is not in values, or reads another value skipped for that
-// reason, is left as it was: the rows live elsewhere and their owner computes
-// it. values must hold JSON-decoded types (float64, []any, map[string]any).
+// field in dependency order. It returns a new map. A custom table lives in the
+// record's own JSON, so when its value is absent or not a list it has no rows.
+// A host table's rows live in another collection: a computed value that reads
+// a host table missing from values, or reads another value skipped for that
+// reason, is left as it was, because the host computes it. values must hold
+// JSON-decoded types (float64, []any, map[string]any).
 func ApplyComputed(def *Definition, host *Host, values map[string]any) map[string]any {
-	nodes, tables := collectComputed(def, host)
+	out, _ := applyComputed(def, host, values)
+	return out
+}
+
+// applyComputed is ApplyComputed that also returns the keys it left as they
+// were, which only the host's own code may set.
+func applyComputed(def *Definition, host *Host, values map[string]any) (map[string]any, map[string]bool) {
+	nodes, tables, hostTables := collectComputed(def, host)
 	out := make(map[string]any, len(values))
 	for k, v := range values {
 		out[k] = v
@@ -231,16 +250,16 @@ func ApplyComputed(def *Definition, host *Host, values map[string]any) map[strin
 		refsOf[key] = refs
 		deps[key] = refs.vars
 	}
+	skipped := map[string]bool{}
 	order, cycle := orderKeys(deps)
 	if cycle != nil {
-		return out
+		return out, skipped
 	}
-	skipped := map[string]bool{}
 	for _, key := range order {
 		refs := refsOf[key]
 		blocked := false
 		for _, a := range refs.aggs {
-			if _, ok := out[a.table].([]any); !ok {
+			if _, ok := out[a.table].([]any); hostTables[a.table] && !ok {
 				blocked = true
 			}
 		}
@@ -255,7 +274,7 @@ func ApplyComputed(def *Definition, host *Host, values map[string]any) map[strin
 		}
 		out[key] = roundHalfAway(evalCompute(nodes[key].expr, out), nodes[key].decimals)
 	}
-	return out
+	return out, skipped
 }
 
 // storeComputed writes recomputed values back onto the record: custom

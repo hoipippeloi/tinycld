@@ -75,6 +75,17 @@ describe('roundHalfAway', () => {
     it('never returns negative zero', () => {
         expect(Object.is(roundHalfAway(-0.2, 0), 0)).toBe(true)
     })
+
+    it('returns 0 for a value that is not a finite number', () => {
+        expect(roundHalfAway(Number.POSITIVE_INFINITY, 0)).toBe(0)
+        expect(roundHalfAway(Number.NEGATIVE_INFINITY, 2)).toBe(0)
+        expect(roundHalfAway(Number.NaN, 0)).toBe(0)
+    })
+
+    it('returns 0 when scaling to the decimals overflows', () => {
+        expect(roundHalfAway(1e307, 6)).toBe(0)
+        expect(roundHalfAway(-1e307, 6)).toBe(0)
+    })
 })
 
 describe('evalCompute', () => {

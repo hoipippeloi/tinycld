@@ -91,4 +91,13 @@ describe('applyComputed with host built-ins', () => {
         const out = applyComputed(hostDef, host, { title: 'x', subtotal: 5 })
         expect(out.subtotal).toBe(5)
     })
+
+    it('computes a constant-0 built-in', () => {
+        const zeroHost = {
+            ...host,
+            builtin: host.builtin.map(b => (b.key === 'subtotal' ? { ...b, expression: 0 } : b)),
+        }
+        const out = applyComputed(hostDef, zeroHost, { title: 'x', subtotal: 5 })
+        expect(out.subtotal).toBe(0)
+    })
 })
