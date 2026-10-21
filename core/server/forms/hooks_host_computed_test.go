@@ -3,6 +3,8 @@ package forms
 import (
 	"strings"
 	"testing"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 const invoiceFieldsJSON = `{"key":"tax_pct","kind":"number","page":"main","label":"Tax","width":"full","required":false,"hidden":false},
@@ -61,18 +63,89 @@ func TestHostHook_RejectsBadTableRows(t *testing.T) {
 	e := newTestEnv(t)
 	e.newForm(t, "widget", widgetDefault, true)
 	form := e.newForm(t, "invoice", invoiceDef, false)
-	cases := map[string]string{
-		"no id":           `{"lines":[{"qty":1}]}`,
-		"unknown column":  `{"lines":[{"id":"a","ghost":1}]}`,
-		"text for number": `{"lines":[{"id":"a","qty":"two"}]}`,
-		"not a list":      `{"lines":"x"}`,
-		"row not object":  `{"lines":["x"]}`,
+	cases := []struct{ name, fields, msg string }{
+		{"no id", `{"lines":[{"qty":1}]}`, "Lines has a row without an id"},
+		{"non-string id", `{"lines":[{"id":1}]}`, "Lines has a row without an id"},
+		{"unknown column", `{"lines":[{"id":"a","ghost":1}]}`, "Lines has an unknown column ghost"},
+		{"text for number", `{"lines":[{"id":"a","qty":"two"}]}`, "Lines: Qty must be a number"},
+		{"not a list", `{"lines":"x"}`, "Lines must be a list of rows"},
+		{"row not object", `{"lines":["x"]}`, "Lines has a bad row"},
 	}
-	for name, fields := range cases {
-		t.Run(name, func(t *testing.T) {
-			if _, err := e.widget(t, form.Id, fields); err == nil || !strings.Contains(err.Error(), "lines") {
-				t.Fatalf("got %v", err)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := e.widget(t, form.Id, c.fields)
+			if err == nil || !strings.Contains(err.Error(), "lines") || !strings.Contains(err.Error(), c.msg) {
+				t.Fatalf("got %v, want message %q", err, c.msg)
 			}
 		})
+	}
+}
+
+const gizmoInvoiceDef = `{"version":1,"pages":[{"key":"main","title":"Invoice"}],"fields":[` +
+	`{"key":"name","kind":"builtin","page":"main","label":"Name","width":"full","required":false,"hidden":false},` +
+	`{"key":"qty","kind":"builtin","page":"main","label":"Qty","width":"full","required":false,"hidden":false},` +
+	`{"key":"doubled","kind":"builtin","page":"main","label":"Doubled","width":"full","required":false,"hidden":false},` +
+	`{"key":"lines","kind":"builtin","page":"main","label":"Lines","width":"full","required":false,"hidden":false},` +
+	`{"key":"total","kind":"builtin","page":"main","label":"Total","width":"full","required":false,"hidden":false}],` +
+	`"rules":[],"defaults":{},"submit":{"required":[]}}`
+
+// invoiceEnv adds the fictional gizmos_invoices collection, whose lines live
+// in another collection (storage "rows") and are therefore never in a write.
+func invoiceEnv(t *testing.T) (*env, *core.Record) {
+	t.Helper()
+	e := newTestEnv(t)
+	forms, err := e.app.FindCollectionByNameOrId("forms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invoices := core.NewBaseCollection("gizmos_invoices")
+	invoices.Fields.Add(
+		&core.TextField{Name: "name"},
+		&core.NumberField{Name: "qty"},
+		&core.NumberField{Name: "doubled"},
+		&core.NumberField{Name: "total"},
+		&core.RelationField{Name: "form", CollectionId: forms.Id, MaxSelect: 1},
+		&core.JSONField{Name: "fields", MaxSize: 100000},
+	)
+	if err := e.app.Save(invoices); err != nil {
+		t.Fatal(err)
+	}
+	e.host = e.defs.Host("gizmos:invoice")
+	form := e.newForm(t, "invoice", gizmoInvoiceDef, true)
+	rec := core.NewRecord(invoices)
+	rec.Set("name", "first")
+	rec.Set("qty", 4)
+	rec.Set("total", 777)
+	rec.Set("form", form.Id)
+	rec.Set("fields", []byte(`{}`))
+	if err := e.app.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	return e, rec
+}
+
+func TestHostHook_RecomputesHostComputedColumn(t *testing.T) {
+	_, rec := invoiceEnv(t)
+	if got := rec.GetFloat("doubled"); got != 8 {
+		t.Errorf("doubled = %v, want 8", got)
+	}
+}
+
+func TestHostHook_KeepsHostComputedOverRowsTableOutsideWrite(t *testing.T) {
+	e, rec := invoiceEnv(t)
+	rec.Set("name", "renamed")
+	rec.Set("qty", 5)
+	if err := e.app.Save(rec); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := e.app.FindRecordById("gizmos_invoices", rec.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.Get("total"); got != 777.0 {
+		t.Errorf("total = %#v, want 777.0 untouched", got)
+	}
+	if got := stored.GetFloat("doubled"); got != 10 {
+		t.Errorf("doubled = %v, want 10", got)
 	}
 }
