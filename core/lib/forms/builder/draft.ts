@@ -65,6 +65,16 @@ export function newCustomField(
             return { ...base, kind, time: false }
         case 'file':
             return { ...base, kind, multiple: false, accept: [] }
+        case 'computed':
+            return { ...base, kind, expression: 0, decimals: 0 }
+        case 'table':
+            return {
+                ...base,
+                kind,
+                columns: [
+                    { key: 'item', kind: 'text', label: 'Item', required: false, hidden: false },
+                ],
+            }
         case 'richtext':
         case 'markdown':
             return { ...base, kind, collaborative: false }

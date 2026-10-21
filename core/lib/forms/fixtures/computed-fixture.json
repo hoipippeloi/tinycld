@@ -1,0 +1,28 @@
+{
+    "definition": {
+        "version": 1,
+        "pages": [{ "key": "main", "title": "Main" }],
+        "fields": [
+            { "key": "total", "kind": "computed", "page": "main", "label": "Total", "width": "full", "required": false, "hidden": false, "decimals": 0, "expression": { "add": [{ "var": "subtotal" }, { "var": "tax" }] } },
+            { "key": "tax", "kind": "computed", "page": "main", "label": "Tax", "width": "full", "required": false, "hidden": false, "decimals": 0, "expression": { "round": [{ "div": [{ "mul": [{ "sumOf": [{ "var": "lines" }, "taxable_amount"] }, { "var": "tax_pct" }] }, 100] }, 0] } },
+            { "key": "subtotal", "kind": "computed", "page": "main", "label": "Subtotal", "width": "full", "required": false, "hidden": false, "decimals": 0, "expression": { "sumOf": [{ "var": "lines" }, "amount"] } },
+            { "key": "per_unit", "kind": "computed", "page": "main", "label": "Per unit", "width": "full", "required": false, "hidden": false, "decimals": 2, "expression": { "div": [{ "var": "subtotal" }, { "var": "units" }] } },
+            {
+                "key": "lines", "kind": "table", "page": "main", "label": "Lines", "width": "full", "required": false, "hidden": false,
+                "columns": [
+                    { "key": "qty", "kind": "number", "label": "Qty" },
+                    { "key": "rate", "kind": "number", "label": "Rate" },
+                    { "key": "taxable", "kind": "toggle", "label": "Taxable" },
+                    { "key": "amount", "kind": "computed", "label": "Amount", "decimals": 0, "expression": { "mul": [{ "var": "qty" }, { "var": "rate" }] } },
+                    { "key": "taxable_amount", "kind": "computed", "label": "Taxable amount", "decimals": 0, "expression": { "mul": [{ "var": "amount" }, { "var": "taxable" }] } }
+                ]
+            },
+            { "key": "tax_pct", "kind": "number", "page": "main", "label": "Tax %", "width": "full", "required": false, "hidden": false },
+            { "key": "units", "kind": "number", "page": "main", "label": "Units", "width": "full", "required": false, "hidden": false }
+        ],
+        "rules": [],
+        "defaults": {},
+        "submit": { "required": [] }
+    },
+    "cases": []
+}
