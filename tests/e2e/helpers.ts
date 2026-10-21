@@ -72,6 +72,21 @@ export function skipWithoutShortcutStub(): boolean {
     return true
 }
 
+// The forms builder spec drives the form host declared by the forms-host-stub
+// package (tests/scripts/scaffold-forms-host-stub.ts), a sibling of tinycld/.
+// Same rule as skipWithoutShortcutStub: skip in a dev workspace without it,
+// fail loudly on CI, where the scaffold step is mandatory.
+export function skipWithoutFormsStub(): boolean {
+    const stubDir = path.resolve(import.meta.dirname, '..', '..', '..', 'forms-host-stub')
+    if (fs.existsSync(stubDir)) return false
+    if (process.env.CI) {
+        throw new Error(
+            'forms-host-stub is not scaffolded but CI is set — the forms-host stub scaffold step must run before e2e.'
+        )
+    }
+    return true
+}
+
 // The sign-in POST occasionally returns a transient 400 under parallel CI
 // load (PocketBase auto-cancels an overlapping auth request, or the expand
 // query races), surfacing as an inline "Failed to authenticate." with the

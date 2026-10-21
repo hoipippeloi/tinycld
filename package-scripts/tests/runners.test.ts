@@ -46,7 +46,11 @@ describe('buildLintCommand', () => {
 
 describe('buildCheckCommands', () => {
     it('is lint then typecheck then test (NOT e2e)', () => {
-        const cmds = buildCheckCommands(featurePkg, appDir)
+        const cmds = buildCheckCommands(featurePkg, appDir, true)
         expect(cmds.map(c => c.bin)).toEqual(['biome', 'tsc', 'vitest'])
+    })
+    it('skips the unit tests of a member without a vitest.config.ts', () => {
+        const cmds = buildCheckCommands(featurePkg, appDir, false)
+        expect(cmds.map(c => c.bin)).toEqual(['biome', 'tsc'])
     })
 })
