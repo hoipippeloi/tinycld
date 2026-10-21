@@ -82,3 +82,44 @@ describe('mergeFormHosts', () => {
         ).toThrow(/duplicate/)
     })
 })
+
+describe('mergeFormHosts with computed and table built-ins', () => {
+    it('keeps expression, decimals and columns on the emitted host', () => {
+        const merged = mergeFormHosts([
+            {
+                slug: 'gizmos',
+                hosts: [
+                    {
+                        key: 'gizmos:invoice',
+                        label: 'Invoice',
+                        collection: 'gizmos_invoices',
+                        formColumn: 'form',
+                        fieldsColumn: 'fields',
+                        columns: ['subtotal', 'form', 'fields'],
+                        builtin: [
+                            {
+                                key: 'lines',
+                                label: 'Lines',
+                                kind: 'table',
+                                storage: 'rows',
+                                columns: [{ key: 'qty', kind: 'number', label: 'Qty' }],
+                            },
+                            {
+                                key: 'subtotal',
+                                label: 'Subtotal',
+                                kind: 'computed',
+                                storage: 'column',
+                                decimals: 2,
+                                expression: { sumOf: [{ var: 'lines' }, 'qty'] },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ])
+        const builtins = merged.hosts[0].builtin
+        expect(builtins[0].columns?.[0].key).toBe('qty')
+        expect(builtins[1].expression).toEqual({ sumOf: [{ var: 'lines' }, 'qty'] })
+        expect(builtins[1].decimals).toBe(2)
+    })
+})
