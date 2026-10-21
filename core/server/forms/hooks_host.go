@@ -121,6 +121,40 @@ func otherFormField(ctx context.Context, app core.App, host *Host, key string) *
 	return nil
 }
 
+func checkTable(f *Field, v any) string {
+	rows, ok := v.([]any)
+	if !ok {
+		return f.Label + " must be a list of rows"
+	}
+	cols := map[string]Column{}
+	for _, c := range f.Columns {
+		cols[c.Key] = c
+	}
+	for _, r := range rows {
+		m, ok := r.(map[string]any)
+		if !ok {
+			return f.Label + " has a bad row"
+		}
+		if id, ok := m["id"].(string); !ok || id == "" {
+			return f.Label + " has a row without an id"
+		}
+		for k, cv := range m {
+			if k == "id" {
+				continue
+			}
+			c, known := cols[k]
+			if !known {
+				return f.Label + " has an unknown column " + k
+			}
+			cf := Field{Key: c.Key, Kind: c.Kind, Label: c.Label, Options: c.Options, Min: c.Min, Max: c.Max, MaxLength: c.MaxLength}
+			if msg := checkKind(&cf, cv); msg != "" {
+				return f.Label + ": " + msg
+			}
+		}
+	}
+	return ""
+}
+
 func checkKind(f *Field, v any) string {
 	if v == nil {
 		return ""
@@ -181,6 +215,12 @@ func checkKind(f *Field, v any) string {
 		} else if _, ok := v.(string); !ok {
 			return f.Label + " must be an id"
 		}
+	case "computed":
+		if _, ok := v.(float64); !ok {
+			return f.Label + " must be a number"
+		}
+	case "table":
+		return checkTable(f, v)
 	case "checklist":
 		arr, ok := v.([]any)
 		if !ok {
@@ -257,6 +297,9 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 	if err != nil {
 		return rulesFailed
 	}
+	computed := ApplyComputed(def, host, values)
+	storeComputed(host, def, e.Record, fields, computed)
+	values = computed
 	state, err := evaluateAt(def, values, today)
 	if err != nil {
 		return rulesFailed

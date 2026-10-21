@@ -1,6 +1,11 @@
 package forms
 
-import "math"
+import (
+	"math"
+	"reflect"
+
+	"github.com/pocketbase/pocketbase/core"
+)
 
 // Mirror of core/lib/forms/expression.ts (evaluation) and compute.ts. The
 // shared fixture core/lib/forms/fixtures/computed-fixture.json pins both.
@@ -251,4 +256,32 @@ func ApplyComputed(def *Definition, host *Host, values map[string]any) map[strin
 		out[key] = roundHalfAway(evalCompute(nodes[key].expr, out), nodes[key].decimals)
 	}
 	return out
+}
+
+// storeComputed writes recomputed values back onto the record: custom
+// computed fields and tables go into the JSON column, host computed built-ins
+// into their own column. fields is the JSON column's decoded map, edited in
+// place.
+func storeComputed(host *Host, def *Definition, record *core.Record, fields map[string]any, computed map[string]any) {
+	changed := false
+	for _, f := range def.Fields {
+		v, ok := computed[f.Key]
+		if !ok {
+			continue
+		}
+		switch f.Kind {
+		case "computed", "table":
+			if !reflect.DeepEqual(fields[f.Key], v) {
+				fields[f.Key] = v
+				changed = true
+			}
+		case "builtin":
+			if b := host.Builtin(f.Key); b != nil && b.Kind == "computed" && b.Storage == "column" {
+				record.Set(f.Key, v)
+			}
+		}
+	}
+	if changed {
+		record.Set(host.FieldsColumn, fields)
+	}
 }
