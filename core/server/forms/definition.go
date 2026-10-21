@@ -31,6 +31,25 @@ type Field struct {
 	Min           *float64 `json:"min,omitempty"`
 	Max           *float64 `json:"max,omitempty"`
 	MaxLength     *int     `json:"maxLength,omitempty"`
+	Expression    any      `json:"expression,omitempty"`
+	Decimals      int      `json:"decimals,omitempty"`
+	Columns       []Column `json:"columns,omitempty"`
+}
+
+// Column is a table field's column; a mirror of columnSchema in
+// core/lib/forms/definition.ts.
+type Column struct {
+	Key        string   `json:"key"`
+	Kind       string   `json:"kind"`
+	Label      string   `json:"label"`
+	Required   bool     `json:"required"`
+	Hidden     bool     `json:"hidden"`
+	Options    []Option `json:"options,omitempty"`
+	Expression any      `json:"expression,omitempty"`
+	Decimals   int      `json:"decimals,omitempty"`
+	Min        *float64 `json:"min,omitempty"`
+	Max        *float64 `json:"max,omitempty"`
+	MaxLength  *int     `json:"maxLength,omitempty"`
 }
 
 type Page struct {
@@ -108,6 +127,8 @@ var operatorsByKind = map[string][]string{
 	"checklist": {"all_done", "any_open", "is_empty"},
 	"file":      {"is_empty", "not_empty"},
 	"custom":    {"is_empty", "not_empty"},
+	"computed":  {"eq", "neq", "gt", "lt", "gte", "lte", "is_empty", "not_empty"},
+	"table":     {"is_empty", "not_empty"},
 	"section":   {},
 }
 
@@ -208,12 +229,18 @@ func ValidateDefinition(def *Definition, host *Host) validation.Errors {
 		if f.Collaborative && host.Collab == nil {
 			return defErr(host.Label+" does not support collaborative fields", "fields", i, "collaborative")
 		}
+		if errs := fieldComputeErrors(f, i); errs != nil {
+			return errs
+		}
 		kinds[f.Key] = f.Kind
 	}
 	for _, b := range host.Builtins {
 		if !seenBuiltin[b.Key] {
 			return defErr("missing built-in field "+b.Key, "fields")
 		}
+	}
+	if errs := computeCrossErrors(def, host); errs != nil {
+		return errs
 	}
 	ruleKeys := map[string]bool{}
 	for ri, r := range def.Rules {
