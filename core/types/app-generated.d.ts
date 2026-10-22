@@ -22,6 +22,8 @@ declare module '@tinycld/app-generated/package-icons' {
 }
 
 declare module '@tinycld/app-generated/package-help' {
+    import type { HelpImageRegistry } from '@tinycld/core/lib/help/images'
+
     export interface HelpTopicEntry {
         id: string
         pkgSlug: string
@@ -37,4 +39,5 @@ declare module '@tinycld/app-generated/package-help' {
         topics: HelpTopicEntry[]
     }
     export const packageHelp: HelpGroup[]
+    export const helpImages: HelpImageRegistry
 }
