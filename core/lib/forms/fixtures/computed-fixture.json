@@ -1,0 +1,255 @@
+{
+    "definition": {
+        "version": 1,
+        "pages": [{ "key": "main", "title": "Main" }],
+        "fields": [
+            {
+                "key": "total",
+                "kind": "computed",
+                "page": "main",
+                "label": "Total",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "decimals": 0,
+                "expression": { "add": [{ "var": "subtotal" }, { "var": "tax" }] }
+            },
+            {
+                "key": "tax",
+                "kind": "computed",
+                "page": "main",
+                "label": "Tax",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "decimals": 0,
+                "expression": {
+                    "round": [
+                        {
+                            "div": [
+                                {
+                                    "mul": [
+                                        { "sumOf": [{ "var": "lines" }, "taxable_amount"] },
+                                        { "var": "tax_pct" }
+                                    ]
+                                },
+                                100
+                            ]
+                        },
+                        0
+                    ]
+                }
+            },
+            {
+                "key": "subtotal",
+                "kind": "computed",
+                "page": "main",
+                "label": "Subtotal",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "decimals": 0,
+                "expression": { "sumOf": [{ "var": "lines" }, "amount"] }
+            },
+            {
+                "key": "per_unit",
+                "kind": "computed",
+                "page": "main",
+                "label": "Per unit",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "decimals": 2,
+                "expression": { "div": [{ "var": "subtotal" }, { "var": "units" }] }
+            },
+            {
+                "key": "lines",
+                "kind": "table",
+                "page": "main",
+                "label": "Lines",
+                "width": "full",
+                "required": false,
+                "hidden": false,
+                "columns": [
+                    { "key": "qty", "kind": "number", "label": "Qty" },
+                    { "key": "rate", "kind": "number", "label": "Rate" },
+                    { "key": "taxable", "kind": "toggle", "label": "Taxable" },
+                    {
+                        "key": "amount",
+                        "kind": "computed",
+                        "label": "Amount",
+                        "decimals": 0,
+                        "expression": { "mul": [{ "var": "qty" }, { "var": "rate" }] }
+                    },
+                    {
+                        "key": "taxable_amount",
+                        "kind": "computed",
+                        "label": "Taxable amount",
+                        "decimals": 0,
+                        "expression": { "mul": [{ "var": "amount" }, { "var": "taxable" }] }
+                    }
+                ]
+            },
+            {
+                "key": "tax_pct",
+                "kind": "number",
+                "page": "main",
+                "label": "Tax %",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            },
+            {
+                "key": "units",
+                "kind": "number",
+                "page": "main",
+                "label": "Units",
+                "width": "full",
+                "required": false,
+                "hidden": false
+            }
+        ],
+        "rules": [],
+        "defaults": {},
+        "submit": { "required": [] }
+    },
+    "cases": [
+        {
+            "name": "empty invoice is all zeros",
+            "values": { "lines": [], "tax_pct": 8.5, "units": 0 },
+            "expect": {
+                "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0, "lines": [] },
+                "absent": []
+            }
+        },
+        {
+            "name": "two lines, one taxable",
+            "values": {
+                "lines": [
+                    { "id": "1", "qty": 2, "rate": 1999, "taxable": true },
+                    { "id": "2", "qty": 1.5, "rate": 1000, "taxable": false }
+                ],
+                "tax_pct": 8.25,
+                "units": 3
+            },
+            "expect": {
+                "values": {
+                    "lines": [
+                        {
+                            "id": "1",
+                            "qty": 2,
+                            "rate": 1999,
+                            "taxable": true,
+                            "amount": 3998,
+                            "taxable_amount": 3998
+                        },
+                        {
+                            "id": "2",
+                            "qty": 1.5,
+                            "rate": 1000,
+                            "taxable": false,
+                            "amount": 1500,
+                            "taxable_amount": 0
+                        }
+                    ],
+                    "subtotal": 5498,
+                    "tax": 330,
+                    "total": 5828,
+                    "per_unit": 1832.67
+                },
+                "absent": []
+            }
+        },
+        {
+            "name": "a positive half rounds up",
+            "values": {
+                "lines": [{ "id": "1", "qty": 1, "rate": 5, "taxable": true }],
+                "tax_pct": 10,
+                "units": 0
+            },
+            "expect": {
+                "values": { "subtotal": 5, "tax": 1, "total": 6, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a negative half rounds away from zero",
+            "values": {
+                "lines": [{ "id": "1", "qty": 1, "rate": -5, "taxable": true }],
+                "tax_pct": 10,
+                "units": 0
+            },
+            "expect": {
+                "values": { "subtotal": -5, "tax": -1, "total": -6, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a missing toggle and a missing percent read as zero",
+            "values": { "lines": [{ "id": "1", "qty": 3, "rate": 100 }], "units": 2 },
+            "expect": {
+                "values": { "subtotal": 300, "tax": 0, "total": 300, "per_unit": 150 },
+                "absent": []
+            }
+        },
+        {
+            "name": "an absent custom table reads as no rows",
+            "values": { "tax_pct": 5, "units": 2 },
+            "expect": {
+                "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a custom table that is not a list reads as no rows",
+            "values": { "lines": "junk", "tax_pct": 5, "units": 2, "subtotal": 999, "tax": 5 },
+            "expect": {
+                "values": { "subtotal": 0, "tax": 0, "total": 0, "per_unit": 0 },
+                "absent": []
+            }
+        },
+        {
+            "name": "a result too large for a number is stored as zero",
+            "values": {
+                "lines": [
+                    { "id": "1", "qty": 1e200, "rate": 1e200, "taxable": true },
+                    { "id": "2", "qty": 2, "rate": 3, "taxable": true }
+                ],
+                "tax_pct": 10,
+                "units": 2
+            },
+            "expect": {
+                "values": {
+                    "lines": [
+                        {
+                            "id": "1",
+                            "qty": 1e200,
+                            "rate": 1e200,
+                            "taxable": true,
+                            "amount": 0,
+                            "taxable_amount": 0
+                        },
+                        {
+                            "id": "2",
+                            "qty": 2,
+                            "rate": 3,
+                            "taxable": true,
+                            "amount": 6,
+                            "taxable_amount": 6
+                        }
+                    ],
+                    "subtotal": 6,
+                    "tax": 1,
+                    "total": 7,
+                    "per_unit": 3
+                },
+                "absent": []
+            }
+        },
+        {
+            "name": "client-sent computed values are overwritten",
+            "values": { "lines": [], "tax_pct": 0, "units": 0, "subtotal": 999, "total": 999 },
+            "expect": { "values": { "subtotal": 0, "total": 0 }, "absent": [] }
+        }
+    ]
+}

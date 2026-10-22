@@ -7,16 +7,61 @@
             "collection": "gizmos_widgets",
             "formColumn": "form",
             "fieldsColumn": "fields",
-            "columns": ["name", "notes", "due", "owner", "position", "form", "fields"],
-            "builtin": [
-                { "key": "name", "label": "Name", "kind": "text", "storage": "column", "required": true },
-                { "key": "notes", "label": "Notes", "kind": "markdown", "storage": "column", "collaborative": true, "component": "NotesField", "chrome": "bare" },
-                { "key": "due", "label": "Due", "kind": "date", "storage": "column" },
-                { "key": "owner", "label": "Owner", "kind": "user", "storage": "column" },
-                { "key": "tasks", "label": "Tasks", "kind": "checklist", "storage": "rows" },
-                { "key": "comments", "label": "Comments", "kind": "section", "storage": "none", "component": "CommentsSection" }
+            "columns": [
+                "name",
+                "notes",
+                "due",
+                "owner",
+                "position",
+                "form",
+                "fields"
             ],
-            "collaborative": { "fragment": "widget:{record}:{format}:{key}" },
+            "builtin": [
+                {
+                    "key": "name",
+                    "label": "Name",
+                    "kind": "text",
+                    "storage": "column",
+                    "required": true
+                },
+                {
+                    "key": "notes",
+                    "label": "Notes",
+                    "kind": "markdown",
+                    "storage": "column",
+                    "collaborative": true,
+                    "component": "NotesField",
+                    "chrome": "bare"
+                },
+                {
+                    "key": "due",
+                    "label": "Due",
+                    "kind": "date",
+                    "storage": "column"
+                },
+                {
+                    "key": "owner",
+                    "label": "Owner",
+                    "kind": "user",
+                    "storage": "column"
+                },
+                {
+                    "key": "tasks",
+                    "label": "Tasks",
+                    "kind": "checklist",
+                    "storage": "rows"
+                },
+                {
+                    "key": "comments",
+                    "label": "Comments",
+                    "kind": "section",
+                    "storage": "none",
+                    "component": "CommentsSection"
+                }
+            ],
+            "collaborative": {
+                "fragment": "widget:{record}:{format}:{key}"
+            },
             "insertCustomBefore": "notes"
         },
         {
@@ -26,9 +71,92 @@
             "collection": "gizmos_others",
             "formColumn": "form",
             "fieldsColumn": "fields",
-            "columns": ["name", "form", "fields"],
+            "columns": [
+                "name",
+                "form",
+                "fields"
+            ],
             "builtin": [
-                { "key": "name", "label": "Name", "kind": "text", "storage": "column", "required": true }
+                {
+                    "key": "name",
+                    "label": "Name",
+                    "kind": "text",
+                    "storage": "column",
+                    "required": true
+                }
+            ]
+        },
+        {
+            "pkgSlug": "gizmos",
+            "key": "gizmos:invoice",
+            "label": "Invoice",
+            "collection": "gizmos_invoices",
+            "formColumn": "form",
+            "fieldsColumn": "fields",
+            "columns": [
+                "name",
+                "qty",
+                "doubled",
+                "total",
+                "form",
+                "fields"
+            ],
+            "builtin": [
+                {
+                    "key": "name",
+                    "label": "Name",
+                    "kind": "text",
+                    "storage": "column"
+                },
+                {
+                    "key": "qty",
+                    "label": "Qty",
+                    "kind": "number",
+                    "storage": "column"
+                },
+                {
+                    "key": "doubled",
+                    "label": "Doubled",
+                    "kind": "computed",
+                    "storage": "column",
+                    "decimals": 0,
+                    "expression": {
+                        "mul": [
+                            {
+                                "var": "qty"
+                            },
+                            2
+                        ]
+                    }
+                },
+                {
+                    "key": "lines",
+                    "label": "Lines",
+                    "kind": "table",
+                    "storage": "rows",
+                    "columns": [
+                        {
+                            "key": "amount",
+                            "kind": "number",
+                            "label": "Amount"
+                        }
+                    ]
+                },
+                {
+                    "key": "total",
+                    "label": "Total",
+                    "kind": "computed",
+                    "storage": "column",
+                    "decimals": 0,
+                    "expression": {
+                        "sumOf": [
+                            {
+                                "var": "lines"
+                            },
+                            "amount"
+                        ]
+                    }
+                }
             ]
         }
     ]

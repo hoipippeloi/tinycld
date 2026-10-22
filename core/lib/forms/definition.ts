@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import type { FormHostDef } from './host'
+import { type ComputeField, computedIssues } from './computed-validation'
+import { computeExprSchema } from './expression'
+import type { FormHostBuiltin, FormHostDef } from './host'
+import { keySchema } from './key'
 
 export const FIELD_WIDTHS = ['full', 'half', 'third', 'quarter'] as const
 export type FieldWidth = (typeof FIELD_WIDTHS)[number]
@@ -16,14 +19,14 @@ export const CUSTOM_KINDS = [
     'richtext',
     'markdown',
     'file',
+    'computed',
+    'table',
 ] as const
 export type CustomKind = (typeof CUSTOM_KINDS)[number]
 export const FIELD_KINDS = [...CUSTOM_KINDS, 'builtin'] as const
 export type FieldKind = (typeof FIELD_KINDS)[number]
 
-export const keySchema = z
-    .string()
-    .regex(/^[a-z][a-z0-9_]{0,39}$/, 'Use lowercase letters, digits and underscores')
+export { keySchema }
 
 export const CONDITION_OPS = [
     'eq',
@@ -61,6 +64,8 @@ export const OPERATORS_BY_KIND: Record<string, readonly ConditionOp[]> = {
     user: ['is', 'is_not', 'is_any_of', 'is_empty', 'not_empty'],
     checklist: ['all_done', 'any_open', 'is_empty'],
     file: ['is_empty', 'not_empty'],
+    computed: ['eq', 'neq', 'gt', 'lt', 'gte', 'lte', 'is_empty', 'not_empty'],
+    table: ['is_empty', 'not_empty'],
     custom: ['is_empty', 'not_empty'],
     section: [],
 }
@@ -81,6 +86,50 @@ const base = {
     hidden: z.boolean().default(false),
     placeholder: z.string().max(200).optional(),
 }
+
+export const TABLE_COLUMN_KINDS = [
+    'text',
+    'number',
+    'toggle',
+    'date',
+    'select',
+    'computed',
+] as const
+
+const columnBase = {
+    key: keySchema,
+    label: z.string().trim().min(1).max(120),
+    required: z.boolean().default(false),
+    hidden: z.boolean().default(false),
+}
+
+export const columnSchema = z.discriminatedUnion('kind', [
+    z.object({
+        ...columnBase,
+        kind: z.literal('text'),
+        maxLength: z.number().int().positive().max(10000).optional(),
+    }),
+    z.object({
+        ...columnBase,
+        kind: z.literal('number'),
+        min: z.number().optional(),
+        max: z.number().optional(),
+    }),
+    z.object({ ...columnBase, kind: z.literal('toggle') }),
+    z.object({ ...columnBase, kind: z.literal('date') }),
+    z.object({
+        ...columnBase,
+        kind: z.literal('select'),
+        options: z.array(optionSchema).min(1),
+    }),
+    z.object({
+        ...columnBase,
+        kind: z.literal('computed'),
+        expression: computeExprSchema,
+        decimals: z.number().int().min(0).max(6).default(0),
+    }),
+])
+export type TableColumn = z.infer<typeof columnSchema>
 
 const customFieldSchema = z.discriminatedUnion('kind', [
     z.object({
@@ -119,6 +168,13 @@ const customFieldSchema = z.discriminatedUnion('kind', [
         multiple: z.boolean().default(false),
         accept: z.array(z.string()).default([]),
     }),
+    z.object({
+        ...base,
+        kind: z.literal('computed'),
+        expression: computeExprSchema,
+        decimals: z.number().int().min(0).max(6).default(0),
+    }),
+    z.object({ ...base, kind: z.literal('table'), columns: z.array(columnSchema).min(1) }),
 ])
 export type CustomField = z.infer<typeof customFieldSchema>
 
@@ -250,6 +306,11 @@ export const definitionSchema = z
                 })
             kinds.set(f.key, f.kind)
             if (f.kind === 'select') duplicateOptions(f.options, ['fields', i, 'options'])
+            if (f.kind === 'table')
+                f.columns.forEach((c, j) => {
+                    if (c.kind === 'select')
+                        duplicateOptions(c.options, ['fields', i, 'columns', j, 'options'])
+                })
             if (f.kind === 'number' && f.min !== undefined && f.max !== undefined && f.min > f.max)
                 ctx.addIssue({
                     code: 'custom',
@@ -263,6 +324,13 @@ export const definitionSchema = z
                     message: `unknown page ${f.page}`,
                 })
         })
+        const computeFields: ComputeField[] = def.fields.map(f => {
+            if (f.kind === 'computed') return { key: f.key, kind: f.kind, expression: f.expression }
+            if (f.kind === 'table') return { key: f.key, kind: f.kind, columns: f.columns }
+            return { key: f.key, kind: f.kind }
+        })
+        for (const issue of computedIssues(computeFields, ['fields']))
+            ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message })
         const requireField = (key: string, path: (string | number)[]) => {
             if (!kinds.has(key))
                 ctx.addIssue({ code: 'custom', path, message: `unknown field ${key}` })
@@ -388,7 +456,28 @@ export function validateDefinitionForHost(
             }
         })
     })
+    issues.push(
+        ...computedIssues(
+            def.fields.map(f => computeFieldOf(f, builtins)),
+            ['fields']
+        )
+    )
     return issues
+}
+
+function computeFieldOf(f: FormField, builtins: Map<string, FormHostBuiltin>): ComputeField {
+    if (f.kind === 'builtin') {
+        const b = builtins.get(f.key)
+        return {
+            key: f.key,
+            kind: b?.kind ?? 'custom',
+            expression: b?.expression,
+            columns: b?.columns,
+        }
+    }
+    if (f.kind === 'computed') return { key: f.key, kind: f.kind, expression: f.expression }
+    if (f.kind === 'table') return { key: f.key, kind: f.kind, columns: f.columns }
+    return { key: f.key, kind: f.kind }
 }
 
 /** A rule may not hide a built-in the host requires, nor a page that holds one. Mirrored in Go (actionError). */

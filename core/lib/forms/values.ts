@@ -4,6 +4,7 @@ import {
     dateValueSchema,
     type FormDefinition,
     type FormField,
+    type TableColumn,
 } from './definition'
 import { type FormHostBuiltin, type FormHostDef, findBuiltin } from './host'
 import type { FormState, FormValues } from './logic'
@@ -13,6 +14,7 @@ export interface ChecklistItem {
     text: string
     done: boolean
 }
+export type TableRow = { id: string } & Record<string, unknown>
 export const checklistItemSchema = z.object({
     id: z.string().min(1),
     text: z.string(),
@@ -112,6 +114,43 @@ function anySchema({ required, missing }: KindSchemaInput): ZodTypeAny {
     return z.unknown().refine(v => v !== null && v !== undefined && v !== '', missing)
 }
 
+function columnSchemaFor(c: TableColumn): ZodTypeAny {
+    const needed = c.required && !c.hidden
+    const missing = `${c.label} is required`
+    const optional = (s: ZodTypeAny) => s.nullable().optional()
+    switch (c.kind) {
+        case 'text': {
+            const t = c.maxLength ? z.string().max(c.maxLength) : z.string()
+            return needed ? t.trim().min(1, missing) : optional(t)
+        }
+        case 'number': {
+            let n = z.number()
+            if (c.min !== undefined) n = n.min(c.min)
+            if (c.max !== undefined) n = n.max(c.max)
+            return needed ? n : optional(n)
+        }
+        case 'toggle':
+            return optional(z.boolean())
+        case 'date':
+            return needed ? dateValueSchema : optional(dateValueSchema)
+        case 'select': {
+            const one = z.enum(c.options.map(o => o.value) as [string, ...string[]])
+            return needed ? one : optional(one)
+        }
+        case 'computed':
+            // The engine overwrites it; whatever the client held is not validated.
+            return z.unknown().optional()
+    }
+}
+
+function tableSchema({ custom, required, missing }: KindSchemaInput): ZodTypeAny {
+    const columns = custom?.kind === 'table' ? custom.columns : []
+    const shape: Record<string, ZodTypeAny> = { id: z.string().min(1) }
+    for (const c of columns) shape[c.key] = columnSchemaFor(c)
+    const rows = z.array(z.object(shape).passthrough(), absent(missing))
+    return required ? rows.min(1, missing) : rows.nullable()
+}
+
 const SCHEMA_BY_KIND: Record<string, (input: KindSchemaInput) => ZodTypeAny> = {
     text: textSchema,
     textarea: textSchema,
@@ -125,6 +164,7 @@ const SCHEMA_BY_KIND: Record<string, (input: KindSchemaInput) => ZodTypeAny> = {
     user: idSchema,
     file: idSchema,
     checklist: listSchema,
+    table: tableSchema,
 }
 
 function schemaFor(
@@ -153,6 +193,7 @@ export function buildSchema(def: FormDefinition, host: FormHostDef, state: FormS
     const shape: Record<string, ZodTypeAny> = {}
     for (const f of def.fields) {
         if (!isSubmittedKind(host, f)) continue
+        if (resolveKind(host, f).kind === 'computed') continue
         const st = state.fields[f.key]
         if (!st?.visible) continue
         shape[f.key] = schemaFor(host, f, st.required, st.options)
@@ -166,6 +207,8 @@ export interface SplitValues {
     columns: Record<string, unknown>
     fields: Record<string, unknown>
     rows: Record<string, ChecklistItem[]>
+    /** Rows of a host `table` built-in, which live in the host's own collection. */
+    tables: Record<string, TableRow[]>
 }
 
 /** Routes each value to the record column, the custom-field JSON column, or its own rows table. */
@@ -174,15 +217,16 @@ export function splitValues(
     def: FormDefinition,
     values: FormValues
 ): SplitValues {
-    const out: SplitValues = { columns: {}, fields: {}, rows: {} }
+    const out: SplitValues = { columns: {}, fields: {}, rows: {}, tables: {} }
     for (const f of def.fields) {
         const v = values[f.key]
         if (v === undefined) continue
         const { kind, builtin } = resolveKind(host, f)
         if (kind === 'section') continue
-        if (builtin?.storage === 'rows')
-            out.rows[f.key] = Array.isArray(v) ? (v as ChecklistItem[]) : []
-        else if (builtin) out.columns[f.key] = v
+        if (builtin?.storage === 'rows') {
+            if (kind === 'table') out.tables[f.key] = Array.isArray(v) ? (v as TableRow[]) : []
+            else out.rows[f.key] = Array.isArray(v) ? (v as ChecklistItem[]) : []
+        } else if (builtin) out.columns[f.key] = v
         else out.fields[f.key] = v
     }
     return out
@@ -193,14 +237,16 @@ export function mergeValues(
     host: FormHostDef,
     def: FormDefinition,
     record: Record<string, unknown>,
-    rows: Record<string, ChecklistItem[]> = {}
+    rows: Record<string, ChecklistItem[]> = {},
+    tables: Record<string, TableRow[]> = {}
 ): FormValues {
     const json = (record[host.fieldsColumn] ?? {}) as Record<string, unknown>
     const out: FormValues = {}
     for (const f of def.fields) {
         const { kind, builtin } = resolveKind(host, f)
         if (kind === 'section') continue
-        if (builtin?.storage === 'rows') out[f.key] = rows[f.key] ?? []
+        if (builtin?.storage === 'rows')
+            out[f.key] = kind === 'table' ? (tables[f.key] ?? []) : (rows[f.key] ?? [])
         else if (builtin) out[f.key] = record[f.key]
         else out[f.key] = json[f.key]
     }

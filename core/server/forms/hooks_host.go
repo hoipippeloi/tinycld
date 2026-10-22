@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -121,6 +122,81 @@ func otherFormField(ctx context.Context, app core.App, host *Host, key string) *
 	return nil
 }
 
+// checkTable checks a table's rows. prev is the stored value (nil on
+// create): like a field, a cell a write leaves as it was in the stored row
+// with the same id is not checked again, so editing the columns (removing
+// one, making one required) never blocks later writes. Computed cells are the
+// server's, never the client's, so they are not checked.
+func checkTable(f *Field, v, prev any) string {
+	rows, ok := v.([]any)
+	if !ok {
+		return f.Label + " must be a list of rows"
+	}
+	cols := map[string]Column{}
+	for _, c := range f.Columns {
+		cols[c.Key] = c
+	}
+	storedRows := map[string]map[string]any{}
+	for _, r := range rowsOf(prev) {
+		if id, ok := r["id"].(string); ok {
+			storedRows[id] = r
+		}
+	}
+	for _, r := range rows {
+		m, ok := r.(map[string]any)
+		if !ok {
+			return f.Label + " has a bad row"
+		}
+		id, ok := m["id"].(string)
+		if !ok || id == "" {
+			return f.Label + " has a row without an id"
+		}
+		old, isOld := storedRows[id]
+		unchanged := func(key string) bool {
+			if !isOld {
+				return false
+			}
+			ov, had := old[key]
+			nv, has := m[key]
+			return had == has && reflect.DeepEqual(ov, nv)
+		}
+		for k, cv := range m {
+			if k == "id" || unchanged(k) {
+				continue
+			}
+			c, known := cols[k]
+			if !known {
+				return f.Label + " has an unknown column " + k
+			}
+			if c.Kind == "computed" {
+				continue
+			}
+			cf := Field{Key: c.Key, Kind: c.Kind, Label: c.Label, Options: c.Options, Min: c.Min, Max: c.Max, MaxLength: c.MaxLength}
+			if msg := checkKind(&cf, cv); msg != "" {
+				return f.Label + ": " + msg
+			}
+		}
+		for _, c := range f.Columns {
+			if !c.Required || c.Hidden || c.Kind == "computed" || c.Kind == "toggle" || unchanged(c.Key) {
+				continue
+			}
+			if blankCell(m[c.Key]) {
+				return f.Label + ": " + c.Label + " is required"
+			}
+		}
+	}
+	return ""
+}
+
+// blankCell mirrors a required column in values.ts: text is trimmed first,
+// and a toggle is never required (off is a value).
+func blankCell(v any) bool {
+	if s, ok := v.(string); ok {
+		return strings.TrimSpace(s) == ""
+	}
+	return v == nil
+}
+
 func checkKind(f *Field, v any) string {
 	if v == nil {
 		return ""
@@ -180,6 +256,10 @@ func checkKind(f *Field, v any) string {
 			}
 		} else if _, ok := v.(string); !ok {
 			return f.Label + " must be an id"
+		}
+	case "computed":
+		if _, ok := v.(float64); !ok {
+			return f.Label + " must be a number"
 		}
 	case "checklist":
 		arr, ok := v.([]any)
@@ -257,6 +337,9 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 	if err != nil {
 		return rulesFailed
 	}
+	computed := ApplyComputed(def, host, values)
+	storeComputed(host, def, e.Record, fields, computed)
+	values = computed
 	state, err := evaluateAt(def, values, today)
 	if err != nil {
 		return rulesFailed
@@ -306,7 +389,13 @@ func validateHostRecord(app core.App, host *Host, e *core.RecordEvent, isCreate 
 			errs[host.FieldsColumn+"."+key] = validation.NewError("validation_builtin_in_json", key+" is a built-in field and is not stored here")
 			continue
 		}
-		if msg := checkKind(f, v); msg != "" {
+		var msg string
+		if f.Kind == "table" {
+			msg = checkTable(f, v, prev[key])
+		} else {
+			msg = checkKind(f, v)
+		}
+		if msg != "" {
 			errs[host.FieldsColumn+"."+key] = validation.NewError("validation_wrong_kind", msg)
 		}
 	}
@@ -394,11 +483,90 @@ func keepRoomOwnedValues(e *core.RecordRequestEvent, host *Host) error {
 	return nil
 }
 
+// keepHostOwnedValues undoes a request's write to every computed value the
+// server cannot compute because it reads rows of a host table (directly or
+// through another such value). The host's own code owns those values and sets
+// them with app.Save, which never reaches this request hook. On create they
+// start empty; on update they keep the stored value.
+func keepHostOwnedValues(e *core.RecordRequestEvent, host *Host, isCreate bool) error {
+	formID := e.Record.GetString(host.FormColumn)
+	if formID == "" {
+		id, err := DefaultFormID(e.App, host.Key)
+		if err != nil {
+			return err
+		}
+		formID = id
+	}
+	if formID == "" {
+		return nil
+	}
+	_, def, err := loadForm(e.App, host, formID)
+	if err != nil {
+		// validateHostRecord rejects a form that does not load.
+		return nil
+	}
+	invalidJSON := fieldErr(host.FieldsColumn, "validation_invalid_json", "Custom fields are not valid JSON.")
+	values, err := recordValues(host, def, e.Record)
+	if err != nil {
+		return invalidJSON
+	}
+	_, skipped := applyComputed(def, host, values)
+	if len(skipped) == 0 {
+		return nil
+	}
+	incoming, err := fieldsOf(e.Record, host.FieldsColumn)
+	if err != nil {
+		return invalidJSON
+	}
+	stored := e.Record.Original()
+	prev := map[string]any{}
+	if !isCreate {
+		if prev, err = fieldsOf(stored, host.FieldsColumn); err != nil {
+			return fmt.Errorf("forms: read stored record: %w", err)
+		}
+	}
+	changed := false
+	for key := range skipped {
+		if def.Field(key).Kind == "builtin" {
+			if isCreate {
+				e.Record.Set(key, nil)
+			} else {
+				e.Record.Set(key, stored.Get(key))
+			}
+			continue
+		}
+		old, had := prev[key]
+		now, has := incoming[key]
+		if had == has && reflect.DeepEqual(old, now) {
+			continue
+		}
+		changed = true
+		if had {
+			incoming[key] = old
+		} else {
+			delete(incoming, key)
+		}
+	}
+	if changed {
+		e.Record.Set(host.FieldsColumn, incoming)
+	}
+	return nil
+}
+
 func bindHostHooks(app core.App, defs *Defs) {
 	for i := range defs.Hosts {
 		host := &defs.Hosts[i]
+		app.OnRecordCreateRequest(host.Collection).BindFunc(func(e *core.RecordRequestEvent) error {
+			if err := keepHostOwnedValues(e, host, true); err != nil {
+				return err
+			}
+			return e.Next()
+		})
 		app.OnRecordUpdateRequest(host.Collection).BindFunc(func(e *core.RecordRequestEvent) error {
 			if err := keepRoomOwnedValues(e, host); err != nil {
+				return err
+			}
+			if err := keepHostOwnedValues(e, host, false); err != nil {
 				return err
 			}
 			return e.Next()

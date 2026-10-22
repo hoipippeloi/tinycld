@@ -21,6 +21,11 @@ type Builtin struct {
 	// Chrome is presentation only ("cell" or "bare"); the server decodes it
 	// so the host file round-trips, and never reads it.
 	Chrome string `json:"chrome,omitempty"`
+	// Expression, Decimals and Columns mirror the computed and table built-ins
+	// of core/lib/forms/host.ts.
+	Expression any      `json:"expression,omitempty"`
+	Decimals   int      `json:"decimals,omitempty"`
+	Columns    []Column `json:"columns,omitempty"`
 }
 
 type Files struct {
