@@ -1,8 +1,10 @@
-import type { DraftDefinition } from '@tinycld/core/lib/forms/builder'
+import { coerceLiteral, type DraftDefinition } from '@tinycld/core/lib/forms/builder'
 import type { SelectOption } from '@tinycld/core/lib/forms/definition'
 import { type FormHostDef, findBuiltin } from '@tinycld/core/lib/forms/host'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { PlainInput } from '@tinycld/core/ui/PlainInput'
 import { X } from 'lucide-react-native'
+import { useState } from 'react'
 import { type Control, get, useFormState } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { firstMessage } from './editor-errors'
@@ -81,7 +83,13 @@ export function RemoveButton({
 }) {
     const fg = useThemeColor('foreground')
     return (
-        <Pressable onPress={onPress} accessibilityLabel={label} testID={testID} className="p-1">
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            testID={testID}
+            className="p-1"
+        >
             <X size={14} color={fg} />
         </Pressable>
     )
@@ -103,5 +111,37 @@ export function InlineError({ control, name, testID }: InlineErrorProps) {
         <Text className="w-full text-xs text-danger" accessibilityRole="alert" testID={testID}>
             {message}
         </Text>
+    )
+}
+
+interface NumberTextProps {
+    value: number | null
+    onChange: (value: number | null) => void
+    label: string
+    placeholder?: string
+    testID: string
+}
+
+/** A typed number; anything that is not one yet ('', '-') is null. */
+export function NumberText({ value, onChange, label, placeholder, testID }: NumberTextProps) {
+    const placeholderColor = useThemeColor('field-placeholder')
+    // The typed text is local, so "-" and "1." can pass on their way to a number.
+    const [text, setText] = useState(value === null ? '' : String(value))
+    const change = (next: string) => {
+        setText(next)
+        const n = coerceLiteral('number', next)
+        onChange(next.trim() !== '' && typeof n === 'number' ? n : null)
+    }
+    return (
+        <PlainInput
+            value={text}
+            onChangeText={change}
+            keyboardType="numeric"
+            placeholder={placeholder}
+            placeholderTextColor={placeholderColor}
+            className={RULE_INPUT_CLASS}
+            accessibilityLabel={label}
+            testID={testID}
+        />
     )
 }
