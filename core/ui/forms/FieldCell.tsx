@@ -53,10 +53,12 @@ const DROP_TARGET_CLASS = 'bg-primary/10'
  * clips; the box's edges stay inside the column, so its outline and drop bars
  * are never cut off.
  */
-function boxClassFor(isSelected: boolean, isDropTarget: boolean) {
+function boxClassFor(isSelected: boolean, isDropTarget: boolean, isSelectable: boolean) {
     const border = isSelected ? SELECTED_CLASS : UNSELECTED_CLASS
     const tint = isDropTarget ? DROP_TARGET_CLASS : ''
-    return `relative rounded-md border-2 ${border} ${tint}`
+    // Room inside the outline, always there, so the outline never touches the content and selecting never shifts it.
+    const room = isSelectable ? 'p-2' : ''
+    return `relative rounded-md border-2 ${border} ${room} ${tint}`
 }
 
 /** The root is the row's flex item and the measured hit area, gaps included. */
@@ -169,7 +171,7 @@ export function FieldCell({
     }
     const body = (
         <View
-            className={boxClassFor(isSelected, Boolean(dropIndicator))}
+            className={boxClassFor(isSelected, Boolean(dropIndicator), Boolean(onPress))}
             testID={`${cellTestID}-box`}
         >
             <View className="flex-row items-center mb-1">

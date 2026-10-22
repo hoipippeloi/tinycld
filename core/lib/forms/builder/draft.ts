@@ -4,8 +4,9 @@ import type {
     FormDefinition,
     FormDefinitionInput,
     FormField,
+    TableColumn,
 } from '../definition'
-import { definitionSchema } from '../definition'
+import { definitionSchema, type TABLE_COLUMN_KINDS } from '../definition'
 import { keyFromLabel, uniqueKey } from './key'
 
 /** The editor's working shape: a definition whose rules may still be empty. */
@@ -213,4 +214,31 @@ export function addRule(def: DraftDefinition): DraftDefinition {
 
 export function removeRule(def: DraftDefinition, key: string): DraftDefinition {
     return { ...def, rules: (def.rules ?? []).filter(r => r.key !== key) }
+}
+
+export type TableColumnKind = (typeof TABLE_COLUMN_KINDS)[number]
+
+/**
+ * A new column of a custom table. Its key comes from its label, unique among
+ * its siblings and never `id`, which is the row's own; it never changes after.
+ */
+export function newTableColumn(
+    kind: TableColumnKind,
+    label: string,
+    taken: Set<string>
+): TableColumn {
+    const base = {
+        key: uniqueKey(keyFromLabel(label), new Set([...taken, 'id'])),
+        label: label.trim() || 'Column',
+        required: false,
+        hidden: false,
+    }
+    switch (kind) {
+        case 'select':
+            return { ...base, kind, options: [{ value: 'option_1', label: 'Option 1' }] }
+        case 'computed':
+            return { ...base, kind, expression: 0, decimals: 0 }
+        default:
+            return { ...base, kind }
+    }
 }

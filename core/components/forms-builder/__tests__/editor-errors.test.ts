@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
-import { newCustomField } from '../../../lib/forms/builder'
+import { type DraftDefinition, newCustomField } from '../../../lib/forms/builder'
 import { defaultDefinitionFor } from '../../../lib/forms/host'
 import { describePath, errorLeaves, firstMessage } from '../editor-errors'
 
@@ -56,5 +56,60 @@ describe('errorLeaves', () => {
         ])
         expect(firstMessage(errors.fields)).toBe('empty')
         expect(firstMessage(undefined)).toBeUndefined()
+    })
+})
+
+describe('describePath for tables and formulas', () => {
+    const tableDraft: DraftDefinition = {
+        ...base,
+        fields: [
+            ...base.fields,
+            {
+                key: 'parts',
+                kind: 'table',
+                page: 'main',
+                label: 'Parts',
+                width: 'full',
+                required: false,
+                hidden: false,
+                columns: [
+                    { key: 'qty', kind: 'number', label: 'Qty', required: false, hidden: false },
+                    {
+                        key: 'total',
+                        kind: 'computed',
+                        label: 'Total',
+                        required: false,
+                        hidden: false,
+                        decimals: 0,
+                        expression: 0,
+                    },
+                ],
+            },
+            newCustomField('computed', 'Grand total', 'main', new Set()),
+        ],
+    }
+
+    it('names a column by its label, then the property at fault', () => {
+        expect(describePath('fields.6.columns.0.label', tableDraft)).toBe(
+            "Field 'Parts', column 'Qty', label"
+        )
+        expect(describePath('fields.6.columns.1.expression', tableDraft)).toBe(
+            "Field 'Parts', column 'Total', formula"
+        )
+        expect(describePath('fields.6.columns.0.options.1.value', tableDraft)).toBe(
+            "Field 'Parts', column 'Qty', options"
+        )
+        expect(describePath('fields.6.columns.0', tableDraft)).toBe("Field 'Parts', column 'Qty'")
+        expect(describePath('fields.6.columns.5.key', tableDraft)).toBe(
+            "Field 'Parts', column 6, key"
+        )
+        expect(describePath('fields.6.columns', tableDraft)).toBe("Field 'Parts', columns")
+    })
+
+    it("names a calculated value's formula and decimal places", () => {
+        expect(describePath('fields.7.expression', tableDraft)).toBe("Field 'Grand total', formula")
+        expect(describePath('fields.7.decimals', tableDraft)).toBe(
+            "Field 'Grand total', decimal places"
+        )
     })
 })

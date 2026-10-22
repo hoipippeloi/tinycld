@@ -1,4 +1,6 @@
 import {
+    type FormulaOperands,
+    fieldOperands,
     kindOf,
     moveField,
     type Removed,
@@ -12,7 +14,9 @@ import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { NumberInput, RadioInput, TextInput, Toggle, useWatch } from '@tinycld/core/ui/form'
 import { useState } from 'react'
 import { Text, View } from 'react-native'
+import { ColumnsEditor } from './ColumnsEditor'
 import { DefaultPicker } from './DefaultPicker'
+import { FormulaSettings } from './FormulaSettings'
 import { OptionsEditor } from './OptionsEditor'
 import { PickMenu } from './rule-parts'
 import { orderOf, positionOf } from './use-canvas-drag'
@@ -32,6 +36,8 @@ const KIND_LABELS: Record<string, string> = {
     richtext: 'Rich text',
     markdown: 'Markdown',
     file: 'File',
+    computed: 'Calculated value',
+    table: 'Table',
     custom: 'Built-in',
     section: 'Section',
 }
@@ -47,36 +53,34 @@ const DISPLAY_OPTIONS = [
     { value: 'radio', label: 'Radio buttons' },
     { value: 'checkbox', label: 'Checkboxes' },
 ]
+/** A table draws rows and a calculated value its result: neither shows a placeholder. */
+const NO_PLACEHOLDER = new Set(['table', 'computed'])
+/** A calculated value is never typed in, so the record cannot require it. */
+const NO_REQUIRED = new Set(['computed'])
+const NO_OPERANDS: FormulaOperands = { values: [], tables: [] }
 
 export interface FieldPropertiesProps {
     editor: Editor
     fieldKey: string
 }
 
-function ReadOnlyRow({ label, value, testID }: { label: string; value: string; testID: string }) {
-    return (
-        <View className="mb-3" testID={testID}>
-            <Text className="text-sm font-semibold text-foreground">{label}</Text>
-            <Text className="text-muted-foreground">{value}</Text>
-        </View>
-    )
-}
-
 interface KindSectionProps {
     editor: Editor
     index: number
+    fieldKey: string
     kind: string
+    operands: FormulaOperands
     isVisible: boolean
 }
 
-function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
+function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: KindSectionProps) {
     const { control } = editor.form
     if (!isVisible) return null
     switch (kind) {
         case 'select':
             return (
                 <>
-                    <OptionsEditor control={control} fieldIndex={index} />
+                    <OptionsEditor control={control} name={`fields.${index}.options`} />
                     <RadioInput
                         control={control}
                         name={`fields.${index}.display`}
@@ -92,27 +96,33 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
             )
         case 'number':
             return (
-                <>
+                <View className="flex-row flex-wrap gap-x-4">
                     <NumberInput
                         control={control}
                         name={`fields.${index}.min`}
                         label="Minimum"
+                        placeholder="No min"
+                        isCompact
                         allowDecimal
                     />
                     <NumberInput
                         control={control}
                         name={`fields.${index}.max`}
                         label="Maximum"
+                        placeholder="No max"
+                        isCompact
                         allowDecimal
                     />
                     <NumberInput
                         control={control}
                         name={`fields.${index}.step`}
                         label="Step"
+                        placeholder="Any"
+                        isCompact
                         min={0}
                         allowDecimal
                     />
-                </>
+                </View>
             )
         case 'date':
             return <Toggle control={control} name={`fields.${index}.time`} label="Include a time" />
@@ -122,6 +132,8 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
                     control={control}
                     name={`fields.${index}.maxLength`}
                     label="Maximum length"
+                    placeholder="No limit"
+                    isCompact
                     min={1}
                 />
             )
@@ -131,6 +143,7 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
                     control={control}
                     name={`fields.${index}.rows`}
                     label="Rows"
+                    isCompact
                     min={1}
                     max={40}
                 />
@@ -170,9 +183,32 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
                     disabled={!editor.host?.collaborative}
                 />
             )
+        case 'computed':
+            return (
+                <FormulaSettings
+                    key={fieldKey}
+                    editor={editor}
+                    name={`fields.${index}.expression`}
+                    decimalsName={`fields.${index}.decimals`}
+                    operands={operands}
+                    valueNoun="Field"
+                    testID="form-formula"
+                />
+            )
+        case 'table':
+            return <ColumnsEditor key={fieldKey} editor={editor} fieldIndex={index} />
         default:
             return null
     }
+}
+
+function HostTableNote({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <Text className="text-xs text-muted-foreground mb-3" testID="form-prop-host-table">
+            Columns for this table come from the app and cannot be changed here.
+        </Text>
+    )
 }
 
 function collaborativeHint(isSupported: boolean) {
@@ -196,6 +232,9 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
     const builtin = host && field?.kind === 'builtin' ? findBuiltin(host, fieldKey) : undefined
     const draft = { ...editor.form.getValues(), fields }
     const kind = host ? (kindOf(draft, host, fieldKey) ?? 'text') : 'text'
+    // Only a calculated value has a formula; other kinds skip the operand scan.
+    const operands =
+        host && kind === 'computed' ? fieldOperands(draft, host, fieldKey) : NO_OPERANDS
     // The delete confirm is local UI state.
     const [isConfirming, setIsConfirming] = useState(false)
     const message = removalMessage(isConfirming ? referencesOf(draft, fieldKey) : null)
@@ -203,7 +242,17 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
         setIsConfirming(false)
         editor.applyRemoval(def => removeField(def, fieldKey))
     }
-    return { index, field, builtin, kind, isConfirming, setIsConfirming, message, remove }
+    return {
+        index,
+        field,
+        builtin,
+        kind,
+        operands,
+        isConfirming,
+        setIsConfirming,
+        message,
+        remove,
+    }
 }
 
 /**
@@ -320,6 +369,45 @@ function DeleteSection({
     )
 }
 
+function PlaceholderInput({
+    editor,
+    index,
+    isVisible,
+}: {
+    editor: Editor
+    index: number
+    isVisible: boolean
+}) {
+    if (!isVisible) return null
+    return (
+        <TextInput
+            control={editor.form.control}
+            name={`fields.${index}.placeholder`}
+            label="Placeholder"
+        />
+    )
+}
+
+interface RequiredToggleProps {
+    editor: Editor
+    index: number
+    isHostRequired: boolean
+    isVisible: boolean
+}
+
+function RequiredToggle({ editor, index, isHostRequired, isVisible }: RequiredToggleProps) {
+    if (!isVisible) return null
+    return (
+        <Toggle
+            control={editor.form.control}
+            name={`fields.${index}.required`}
+            label="Required"
+            disabled={isHostRequired}
+            hint={isHostRequired ? 'The record always needs it' : undefined}
+        />
+    )
+}
+
 export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
     const p = useFieldProperties(editor, fieldKey)
     const { control } = editor.form
@@ -327,30 +415,43 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
     const i = p.index
     const isCustom = p.field.kind !== 'builtin'
     const isHostRequired = Boolean(p.builtin?.required)
+    // A table's columns are what a person edits it for, so they come first.
+    const isTable = p.kind === 'table'
     return (
         <View testID="form-properties">
             <TextInput control={control} name={`fields.${i}.label`} label="Label" />
-            <ReadOnlyRow label="Key" value={fieldKey} testID="form-prop-key" />
-            <ReadOnlyRow
-                label="Kind"
-                value={KIND_LABELS[p.kind] ?? p.kind}
-                testID="form-prop-kind"
+            <View className="flex-row gap-3 -mt-2 mb-3">
+                <Text className="text-xs text-muted-foreground" testID="form-prop-kind">
+                    {KIND_LABELS[p.kind] ?? p.kind}
+                </Text>
+                <Text className="text-xs text-muted-foreground" testID="form-prop-key">
+                    {`Key: ${fieldKey}`}
+                </Text>
+            </View>
+            <KindSection
+                editor={editor}
+                index={i}
+                fieldKey={fieldKey}
+                kind={p.kind}
+                operands={p.operands}
+                isVisible={isCustom && isTable}
             />
+            <HostTableNote isVisible={!isCustom && isTable} />
             <TextInput control={control} name={`fields.${i}.description`} label="Description" />
-            <TextInput control={control} name={`fields.${i}.placeholder`} label="Placeholder" />
+            <PlaceholderInput editor={editor} index={i} isVisible={!NO_PLACEHOLDER.has(p.kind)} />
             <PlacementSection editor={editor} fieldKey={fieldKey} />
             <RadioInput
                 control={control}
                 name={`fields.${i}.width`}
                 label="Width"
                 options={WIDTH_OPTIONS}
+                layout="segmented"
             />
-            <Toggle
-                control={control}
-                name={`fields.${i}.required`}
-                label="Required"
-                disabled={isHostRequired}
-                hint={isHostRequired ? 'The record always needs it' : undefined}
+            <RequiredToggle
+                editor={editor}
+                index={i}
+                isHostRequired={isHostRequired}
+                isVisible={!NO_REQUIRED.has(p.kind)}
             />
             <Toggle
                 control={control}
@@ -360,7 +461,14 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 hint={isHostRequired ? 'Required by the record' : undefined}
             />
             <DefaultPicker editor={editor} fieldKey={fieldKey} kind={p.kind} />
-            <KindSection editor={editor} index={i} kind={p.kind} isVisible={isCustom} />
+            <KindSection
+                editor={editor}
+                index={i}
+                fieldKey={fieldKey}
+                kind={p.kind}
+                operands={p.operands}
+                isVisible={isCustom && !isTable}
+            />
             <DeleteSection
                 isVisible={isCustom}
                 isConfirming={p.isConfirming}

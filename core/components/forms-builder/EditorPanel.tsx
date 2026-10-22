@@ -25,7 +25,7 @@ export function EditorPanel({ isOpen, onClose, title, children }: EditorPanelPro
     }
     if (!isOpen) return null
     return (
-        <View className="w-[320px] border-l border-border pl-4" testID="form-panel">
+        <View className="w-[400px] border-l border-border px-4" testID="form-panel">
             <View className="flex-row items-center justify-between mb-2">
                 <Text className="text-base font-semibold text-foreground">{title}</Text>
                 <Pressable

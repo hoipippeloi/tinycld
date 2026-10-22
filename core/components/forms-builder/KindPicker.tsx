@@ -34,6 +34,13 @@ const GROUPS: KindGroup[] = [
             { kind: 'file', label: 'File' },
         ],
     },
+    {
+        label: 'Tables and totals',
+        kinds: [
+            { kind: 'table', label: 'Table' },
+            { kind: 'computed', label: 'Calculated value' },
+        ],
+    },
 ]
 
 export interface KindPickerProps {

@@ -11,6 +11,9 @@ import { login, skipWithoutFormsStub } from './helpers'
  *   host "Widget" (forms-stub:widget); other packages may declare hosts too, in
  *   which case the host picker shows first and the spec picks this one;
  *   built-in fields `name` (required), `notes`, `due`.
+ *
+ * The table and formula tests add custom fields `parts` (a table) and
+ * `grand_total` (a calculated value); the Widget host has no column of those names.
  */
 
 const HOST_LABEL = 'Widget'
@@ -174,6 +177,41 @@ function propControl(page: Page, suffix: string): Locator {
     return properties(page).locator(`[data-testid$=".${suffix}"]`)
 }
 
+const COLUMN_NOUNS: Record<string, string> = { select: 'choice list', computed: 'calculated' }
+
+/** Adds a column to the selected table: its kind from the menu, then its label. */
+async function addColumn(page: Page, kind: string, label: string) {
+    await properties(page).getByTestId('form-column-add').click()
+    await page.getByTestId(`form-column-kind-${kind}`).click()
+    await answerPrompt(page, `Name the ${COLUMN_NOUNS[kind] ?? kind} column`, label)
+    await expect(properties(page).getByTestId('form-column-settings')).toBeVisible()
+}
+
+/** Column keys of the selected table, in order. */
+async function columnOrder(page: Page): Promise<string[]> {
+    const ids = await properties(page)
+        .locator('[data-testid^="form-column-"][data-testid$="-edit"]')
+        .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''))
+    return ids.map(id => id.replace(/^form-column-/, '').replace(/-edit$/, ''))
+}
+
+/**
+ * Saves and waits for the server to store the definition. A disabled Save
+ * button alone does not show this: the button is also disabled while the
+ * write is pending, and a reload then would cancel it.
+ */
+async function saveForm(page: Page) {
+    const stored = page.waitForResponse(
+        response =>
+            response.url().includes('/api/collections/forms/records/') &&
+            response.request().method() === 'PATCH'
+    )
+    const save = page.getByTestId('form-save')
+    await save.click()
+    expect((await stored).ok()).toBe(true)
+    await expect(save).toBeDisabled()
+}
+
 test.describe('Forms builder', () => {
     test.skip(skipWithoutFormsStub(), 'forms-host-stub not scaffolded in this workspace')
 
@@ -271,9 +309,7 @@ test.describe('Forms builder', () => {
         await expect(affected.getByTestId('form-field-steps')).toContainText('Require')
 
         // Save, then reload: what was saved comes back.
-        const save = page.getByTestId('form-save')
-        await save.click()
-        await expect(save).toBeDisabled()
+        await saveForm(page)
         await page.reload()
         await expect(page.getByTestId('form-editor')).toBeVisible()
         await expect(canvas(page).getByTestId('form-field-severity')).toBeVisible()
@@ -309,6 +345,92 @@ test.describe('Forms builder', () => {
         await dialog.getByTestId('form-wizard-next').click()
         await expect(steps.getByRole('alert')).toBeVisible()
         await expect(dialog).toBeVisible()
+    })
+
+    test('builds a table with a calculated column and a calculated total, saves, reloads and previews it', async ({
+        page,
+    }) => {
+        await createForm(page, 'Quote')
+        const [firstPage] = await pageKeys(page)
+
+        // A table: it starts with an Item column; add Qty, Price and a calculated Total.
+        await addField(page, firstPage, 'table', 'Parts')
+        await expect(properties(page).getByTestId('form-column-item')).toBeVisible()
+        await addColumn(page, 'number', 'Qty')
+        await addColumn(page, 'number', 'Price')
+        await addColumn(page, 'computed', 'Total')
+
+        // Total = Qty × Price, picked from menus; nothing is typed but the decimal places.
+        const column = 'form-column-formula'
+        await pick(page, `${column}-root-part`, 'mul')
+        await pick(page, `${column}-0-part`, 'field')
+        await pick(page, `${column}-1-part`, 'field')
+        await pick(page, `${column}-1-field`, 'price')
+        await expect(page.getByTestId(`${column}-summary`)).toHaveText('= Qty × Price')
+        await propControl(page, 'columns.3.decimals').fill('2')
+        await expect(canvas(page).getByTestId('form-table-parts-head-total')).toBeVisible()
+
+        // Reorder with the keyboard: Price goes above Qty.
+        await page.getByTestId('form-column-price-up').focus()
+        await page.keyboard.press('Enter')
+        await expect.poll(() => columnOrder(page)).toEqual(['item', 'price', 'qty', 'total'])
+
+        // A calculated value that adds up the Total column.
+        await addField(page, firstPage, 'computed', 'Grand total')
+        await pick(page, 'form-formula-root-part', 'sumOf')
+        await pick(page, 'form-formula-root-column', 'total')
+        await expect(page.getByTestId('form-formula-summary')).toHaveText('= sum of Total in Parts')
+        await propControl(page, 'decimals').fill('2')
+
+        // Save: the server checks the definition again. Then reload: it comes back.
+        await saveForm(page)
+        await page.reload()
+        await expect(page.getByTestId('form-editor')).toBeVisible()
+        await canvas(page)
+            .getByTestId('form-field-grand_total')
+            .getByText('Grand total', { exact: true })
+            .click()
+        await expect(page.getByTestId('form-formula-summary')).toHaveText('= sum of Total in Parts')
+        await canvas(page)
+            .getByTestId('form-field-parts')
+            .getByText('Parts', { exact: true })
+            .click()
+        await expect.poll(() => columnOrder(page)).toEqual(['item', 'price', 'qty', 'total'])
+
+        // Preview: a row's Total and the Grand total follow what is typed.
+        await page.getByTestId('form-preview').click()
+        const dialog = page.getByTestId('form-preview-dialog')
+        await dialog.getByTestId('form-input-name').fill('Bracket')
+        await dialog.getByTestId('form-table-parts-add').click()
+        const rowTestId = await dialog
+            .locator('[data-testid^="form-table-parts-row-"]')
+            .first()
+            .getAttribute('data-testid')
+        const row = (rowTestId ?? '').replace('form-table-parts-row-', '')
+        await dialog.getByTestId(`form-table-parts-${row}-qty`).fill('3')
+        await dialog.getByTestId(`form-table-parts-${row}-price`).fill('2.5')
+        await expect(dialog.getByTestId(`form-table-parts-${row}-total`)).toHaveText('7.50')
+        await expect(dialog.getByTestId('form-input-grand_total')).toHaveText('7.50')
+    })
+
+    test('names a formula that reads a removed column and does not save', async ({ page }) => {
+        await createForm(page, 'Broken quote')
+        const [firstPage] = await pageKeys(page)
+        await addField(page, firstPage, 'table', 'Parts')
+        await addColumn(page, 'number', 'Qty')
+        await addColumn(page, 'computed', 'Total')
+        await pick(page, 'form-column-formula-root-part', 'field')
+        await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= Qty')
+
+        await properties(page).getByTestId('form-column-qty-remove').click()
+        await page.getByRole('button', { name: 'Remove', exact: true }).click()
+        await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= qty (missing)')
+        const save = page.getByTestId('form-save')
+        await save.click()
+        await expect(page.getByTestId('form-errors')).toContainText(
+            "Field 'Parts', column 'Total', formula: unknown column qty"
+        )
+        await expect(save).toBeEnabled()
     })
 
     test('shows where a sideways drag lands and keeps the outline inside the canvas', async ({

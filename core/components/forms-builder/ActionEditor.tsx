@@ -12,7 +12,6 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { type Control, TextInput } from '@tinycld/core/ui/form'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
-import { useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { View } from 'react-native'
 import { firstFreeNumber } from './OptionsEditor'
@@ -22,6 +21,7 @@ import {
     type DraftAction,
     InlineError,
     isMultipleField,
+    NumberText,
     optionsOf,
     PickMenu,
     RemoveButton,
@@ -93,35 +93,6 @@ export function buildAction(verb: ActionKind, target: Target, draft: DraftDefini
     }
 }
 
-interface NumberTextProps {
-    value: number | null
-    onChange: (value: number | null) => void
-    label: string
-    testID: string
-}
-
-function NumberText({ value, onChange, label, testID }: NumberTextProps) {
-    const placeholder = useThemeColor('field-placeholder')
-    // The typed text is local, so "-" and "1." can pass on their way to a number.
-    const [text, setText] = useState(value === null ? '' : String(value))
-    const change = (next: string) => {
-        setText(next)
-        const n = coerceLiteral('number', next)
-        onChange(next.trim() !== '' && typeof n === 'number' ? n : null)
-    }
-    return (
-        <PlainInput
-            value={text}
-            onChangeText={change}
-            keyboardType="numeric"
-            placeholderTextColor={placeholder}
-            className={RULE_INPUT_CLASS}
-            accessibilityLabel={label}
-            testID={testID}
-        />
-    )
-}
-
 const DATE_MODES: Choice[] = [
     { id: 'literal', label: 'A date' },
     { id: 'today', label: 'Today' },
@@ -178,6 +149,7 @@ function DaysText({
             value={days}
             onChange={write}
             label="Days from today"
+            emptyAs={0}
             testID={`${testID}-days`}
         />
     )

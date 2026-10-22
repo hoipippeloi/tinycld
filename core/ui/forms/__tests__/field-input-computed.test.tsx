@@ -88,9 +88,14 @@ describe('computed fields', () => {
         expect(textOf(empty.container, 'form-input-total_qty')).toBe('—')
     })
 
-    it('shows Calculated on the design canvas', () => {
+    it('shows Calculated on the design canvas, named by the field', () => {
         const { container } = render(<Harness host={gizmos} field={totalQty} mode="design" />)
         expect(textOf(container, 'form-input-total_qty')).toBe('Calculated')
+        expect(
+            container
+                .querySelector('[testID="form-input-total_qty"]')
+                ?.getAttribute('accessibilityLabel')
+        ).toBe('Total qty')
     })
 
     it('hands a host component the live computed value, read-only', () => {

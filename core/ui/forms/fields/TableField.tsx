@@ -338,7 +338,7 @@ function GridHeader({
         <Text
             key={c.key}
             testID={`${base.ids}-head-${c.key}`}
-            className="flex-1 text-xs font-semibold text-muted-foreground"
+            className="flex-1 px-1 text-xs font-semibold text-muted-foreground"
         >
             {headerText(c)}
         </Text>

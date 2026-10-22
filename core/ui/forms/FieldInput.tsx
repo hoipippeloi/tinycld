@@ -595,7 +595,7 @@ function ComputedKind({ field, control, resolved, computed, mode, testID, label 
     const decimals = computedDecimals(resolved)
     if (mode === 'design') {
         return (
-            <Text testID={testID} className="py-2 text-muted-foreground">
+            <Text testID={testID} accessibilityLabel={label} className="py-2 text-muted-foreground">
                 Calculated
             </Text>
         )
