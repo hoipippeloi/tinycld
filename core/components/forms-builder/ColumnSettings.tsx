@@ -1,9 +1,8 @@
 import { columnOperands, type TableColumnKind } from '@tinycld/core/lib/forms/builder'
 import { NumberInput, TextInput, Toggle, useWatch } from '@tinycld/core/ui/form'
-import { View } from 'react-native'
+import { Text, View } from 'react-native'
 import { FormulaSettings } from './FormulaSettings'
 import { OptionsEditor } from './OptionsEditor'
-import { ReadOnlyRow } from './rule-parts'
 import type { useEditorForm } from './use-editor-form'
 
 type Editor = ReturnType<typeof useEditorForm>
@@ -93,7 +92,7 @@ function ColumnKindSettings({ editor, at, kind, columnKey, siblings }: KindSetti
     }
 }
 
-/** One column's settings, bound to the draft. Its key and kind are set when it is added. */
+/** One column's settings, bound to the draft. Its key and kind are set when it is added, so they show as a footnote. */
 export function ColumnSettings({
     editor,
     fieldIndex,
@@ -108,14 +107,8 @@ export function ColumnSettings({
         []
     if (!isVisible || !column) return null
     return (
-        <View className="mt-2 p-3 rounded-md border border-border" testID="form-column-settings">
+        <View className="gap-1 px-2 pb-3 pt-3 border-t border-border" testID="form-column-settings">
             <TextInput control={control} name={`${at}.label`} label="Label" />
-            <ReadOnlyRow label="Key" value={column.key} testID="form-column-key" />
-            <ReadOnlyRow
-                label="Kind"
-                value={COLUMN_KIND_LABELS[column.kind]}
-                testID="form-column-kind"
-            />
             {/* A calculated cell is never typed in, so it cannot be required. */}
             <ColumnRequired
                 editor={editor}
@@ -130,6 +123,14 @@ export function ColumnSettings({
                 columnKey={column.key}
                 siblings={siblings}
             />
+            <View className="flex-row gap-3 pt-1">
+                <Text className="text-xs text-muted-foreground" testID="form-column-kind">
+                    {`${COLUMN_KIND_LABELS[column.kind]} column`}
+                </Text>
+                <Text className="text-xs text-muted-foreground" testID="form-column-key">
+                    {`Key: ${column.key}`}
+                </Text>
+            </View>
         </View>
     )
 }

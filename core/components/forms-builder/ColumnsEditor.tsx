@@ -1,10 +1,12 @@
 import { newTableColumn, type TableColumnKind } from '@tinycld/core/lib/forms/builder'
 import { TABLE_COLUMN_KINDS } from '@tinycld/core/lib/forms/definition'
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { useFieldArray, useWatch } from '@tinycld/core/ui/form'
 import { Menu } from '@tinycld/core/ui/menu'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
-import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
+import { ChevronDown, ChevronRight, ChevronUp, X } from 'lucide-react-native'
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
 import { COLUMN_KIND_LABELS, ColumnSettings } from './ColumnSettings'
@@ -41,6 +43,7 @@ function useColumns(editor: Editor, fieldIndex: number) {
         const isOpen = column.key === openKey
         return {
             id: row.id,
+            index,
             key: column.key,
             name: nameOf(column.label, index, labels),
             title: column.required ? `${column.label} *` : column.label,
@@ -66,7 +69,6 @@ function useColumns(editor: Editor, fieldIndex: number) {
     return {
         rows,
         openKey,
-        openIndex: columns.findIndex(c => c.key === openKey),
         add,
         ask: setPendingKind,
         isAsking: pendingKind !== null,
@@ -76,44 +78,51 @@ function useColumns(editor: Editor, fieldIndex: number) {
 
 type ColumnRowModel = ReturnType<typeof useColumns>['rows'][number]
 
-function ColumnRow({ row }: { row: ColumnRowModel }) {
+function ColumnRow({ row, children }: { row: ColumnRowModel; children: ReactNode }) {
+    const muted = useThemeColor('muted-foreground')
+    const Chevron = row.isOpen ? ChevronDown : ChevronRight
+    const frame = row.isOpen ? 'border-primary' : 'border-border'
     return (
-        <View className="flex-row items-center gap-2 py-1" testID={`form-column-${row.key}`}>
-            <Pressable
-                onPress={row.toggle}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit column ${row.name}`}
-                accessibilityState={{ expanded: row.isOpen }}
-                className="flex-1"
-                testID={`form-column-${row.key}-edit`}
-            >
-                <Text className="text-foreground">{row.title}</Text>
-                <Text className="text-xs text-muted-foreground">{row.kindLabel}</Text>
-            </Pressable>
-            <IconAction
-                icon={ChevronUp}
-                onPress={row.up}
-                isDisabled={!row.canUp}
-                label={`Move column ${row.name} up`}
-                testID={`form-column-${row.key}-up`}
-                className="p-1"
-            />
-            <IconAction
-                icon={ChevronDown}
-                onPress={row.down}
-                isDisabled={!row.canDown}
-                label={`Move column ${row.name} down`}
-                testID={`form-column-${row.key}-down`}
-                className="p-1"
-            />
-            <IconAction
-                icon={X}
-                onPress={row.remove}
-                isDisabled={!row.canRemove}
-                label={`Remove column ${row.name}`}
-                testID={`form-column-${row.key}-remove`}
-                className="p-1"
-            />
+        <View className={`rounded-md border mb-2 ${frame}`} testID={`form-column-${row.key}`}>
+            <View className="flex-row items-center gap-1 px-2 py-1">
+                <Pressable
+                    onPress={row.toggle}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit column ${row.name}`}
+                    accessibilityState={{ expanded: row.isOpen }}
+                    className="flex-1 flex-row items-center gap-2 py-1"
+                    testID={`form-column-${row.key}-edit`}
+                >
+                    <Chevron size={16} color={muted} />
+                    <Text className="text-foreground font-medium">{row.title}</Text>
+                    <Text className="text-xs text-muted-foreground">{row.kindLabel}</Text>
+                </Pressable>
+                <IconAction
+                    icon={ChevronUp}
+                    onPress={row.up}
+                    isDisabled={!row.canUp}
+                    label={`Move column ${row.name} up`}
+                    testID={`form-column-${row.key}-up`}
+                    className="p-1"
+                />
+                <IconAction
+                    icon={ChevronDown}
+                    onPress={row.down}
+                    isDisabled={!row.canDown}
+                    label={`Move column ${row.name} down`}
+                    testID={`form-column-${row.key}-down`}
+                    className="p-1"
+                />
+                <IconAction
+                    icon={X}
+                    onPress={row.remove}
+                    isDisabled={!row.canRemove}
+                    label={`Remove column ${row.name}`}
+                    testID={`form-column-${row.key}-remove`}
+                    className="p-1"
+                />
+            </View>
+            {children}
         </View>
     )
 }
@@ -139,22 +148,25 @@ function AddColumn({ onPick }: { onPick: (kind: TableColumnKind) => void }) {
     )
 }
 
-/** A custom table's columns: add, open, move and remove; the open one's settings below. */
+/** A custom table's columns: add, open, move and remove; the open one's settings unfold inside its own card. */
 export function ColumnsEditor({ editor, fieldIndex }: ColumnsEditorProps) {
     const c = useColumns(editor, fieldIndex)
-    const rows = c.rows.map(row => <ColumnRow key={row.id} row={row} />)
+    const rows = c.rows.map(row => (
+        <ColumnRow key={row.id} row={row}>
+            <ColumnSettings
+                key={row.key}
+                editor={editor}
+                fieldIndex={fieldIndex}
+                columnIndex={row.index}
+                isVisible={row.isOpen}
+            />
+        </ColumnRow>
+    ))
     return (
         <View className="mb-3" testID="form-columns">
             <Text className="text-sm font-semibold text-foreground mb-1">Columns</Text>
             {rows}
             <AddColumn onPick={c.ask} />
-            <ColumnSettings
-                key={c.openKey ?? 'none'}
-                editor={editor}
-                fieldIndex={fieldIndex}
-                columnIndex={c.openIndex}
-                isVisible={c.openIndex >= 0}
-            />
             <PromptDialog
                 isOpen={c.isAsking}
                 onClose={c.cancel}

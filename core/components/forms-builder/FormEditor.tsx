@@ -233,6 +233,7 @@ function LoadedEditor({ row, host }: { row: FormRow; host: FormHost }) {
             <View className="flex-1 flex-row px-5">
                 <ScrollView
                     className="flex-1"
+                    contentContainerClassName="pr-5"
                     onScroll={drag.onScroll}
                     scrollEventThrottle={16}
                     scrollEnabled={!drag.draggingKey}

@@ -30,7 +30,10 @@ function setUp(rows = [rowA, rowB]) {
             formRef={formRef}
         />
     )
-    const rowsNow = () => formRef.current?.getValues('parts')
+    const rowsNow = () => {
+        const rows = formRef.current?.getValues('parts')
+        return Array.isArray(rows) ? rows : []
+    }
     return { ...view, formRef, rowsNow }
 }
 
@@ -46,7 +49,7 @@ describe('TableField', () => {
         const { container, rowsNow } = setUp()
         fireEvent.click(byTestId(container, 'form-table-parts-add'))
         expect(rowIdsOf(container, 'parts')).toHaveLength(3)
-        expect(rowsNow()?.[2]).toEqual({
+        expect(rowsNow()[2]).toEqual({
             id: expect.any(String),
             label: null,
             qty: null,
@@ -61,7 +64,7 @@ describe('TableField', () => {
         fireEvent.input(byTestId(container, 'form-table-parts-a-label'), {
             target: { value: 'Axle' },
         })
-        expect(rowsNow()?.[0]).toMatchObject({ id: 'a', label: 'Axle' })
+        expect(rowsNow()[0]).toMatchObject({ id: 'a', label: 'Axle' })
     })
 
     it('shows computed cells and totals live', () => {
