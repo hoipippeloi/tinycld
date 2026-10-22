@@ -21,6 +21,7 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import type { UseFormGetValues } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
+import { NARROW_BELOW } from '../widths'
 import { DateField } from './DateField'
 import { formatComputed } from './format-computed'
 import { ADD_BUTTON, buttonKey, type TableFieldApi, useTableField } from './use-table-field'
@@ -368,18 +369,74 @@ function GridRow(props: RowProps) {
     )
 }
 
+/** A toggle and a choice list draw their own label, so a card does not repeat it. */
+const drawsOwnLabel = (c: HostTableColumn) => c.kind === 'toggle' || c.kind === 'select'
+
+function CardLabel({ text }: { text: string | null }) {
+    if (!text) return null
+    return <Text className="text-xs font-semibold text-muted-foreground mb-1">{text}</Text>
+}
+
+function CardCell(props: CellProps) {
+    const label = drawsOwnLabel(props.column) ? null : headerText(props.column)
+    return (
+        <View className="mb-2">
+            <CardLabel text={label} />
+            <CellInput {...props} />
+        </View>
+    )
+}
+
+function CardRow(props: RowProps) {
+    const { base, table, columns, row, index } = props
+    const cells = columns.map(column => (
+        <CardCell
+            key={column.key}
+            base={base}
+            table={table}
+            column={column}
+            row={row}
+            index={index}
+        />
+    ))
+    return (
+        <View
+            testID={`${base.ids}-row-${row.id}`}
+            accessibilityLabel={`Row ${index + 1}`}
+            className="rounded-md border border-border p-3 mb-2"
+        >
+            {cells}
+            <View className="flex-row justify-end">
+                <RowActions {...props} />
+            </View>
+        </View>
+    )
+}
+
+function PendingRows({ testID }: { testID: string }) {
+    return (
+        <Text testID={testID} className="text-sm text-muted-foreground py-2">
+            Loading rows…
+        </Text>
+    )
+}
+
 function Rows({
     base,
     table,
     columns,
+    isNarrow,
 }: {
     base: TableBase
     table: TableFieldApi
     columns: readonly HostTableColumn[]
+    isNarrow: boolean
 }) {
+    const Row = isNarrow ? CardRow : GridRow
+    const layoutID = isNarrow ? `${base.ids}-cards` : `${base.ids}-grid`
     const count = table.rows.length
     const items = table.rows.map((row, index) => (
-        <GridRow
+        <Row
             key={row.id}
             base={base}
             table={table}
@@ -389,7 +446,7 @@ function Rows({
             count={count}
         />
     ))
-    return <View testID={`${base.ids}-grid`}>{items}</View>
+    return <View testID={layoutID}>{items}</View>
 }
 
 function EmptyRows({ isVisible, testID }: { isVisible: boolean; testID: string }) {
@@ -450,10 +507,13 @@ export function TableField(props: TableFieldProps) {
         ids: `form-table-${name}`,
     }
     const columns = props.columns.filter(c => !c.hidden)
+    // 0 means not measured yet: lay out wide, as FieldCell does.
+    const isNarrow = props.containerWidth > 0 && props.containerWidth < NARROW_BELOW
+    if (table.isPending) return <PendingRows testID={`${base.ids}-pending`} />
     return (
         <View testID={props.testID} accessibilityLabel={props.label}>
-            <GridHeader base={base} columns={columns} isVisible />
-            <Rows base={base} table={table} columns={columns} />
+            <GridHeader base={base} columns={columns} isVisible={!isNarrow} />
+            <Rows base={base} table={table} columns={columns} isNarrow={isNarrow} />
             <EmptyRows isVisible={table.rows.length === 0} testID={`${base.ids}-empty`} />
             <AddRowButton
                 isVisible={isEditable}
