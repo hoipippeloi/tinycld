@@ -87,7 +87,7 @@ To change the columns of a table, select the table. Its panel shows **Columns**:
 
 - To add a column, select **Add column**, select its kind (Text, Number, Toggle, Date, Choice list or Calculated), then type its label in **Column label**.
 - To edit a column, select its name ("Edit column Qty"). Its settings open below the list: **Label**, **Required**, **Hidden**, and the settings of its kind, such as **Minimum** and **Maximum** for a number, **Maximum length** for text, or **Options** for a choice list. The key and the kind are set when you add the column, and do not change.
-- To move a column, select its up or down arrow button ("Move column Qty up"). To remove a column, select its remove button ("Remove column Qty"). A table always keeps one column.
+- To move a column, select its up or down arrow button ("Move column Qty up"). To remove a column, select its remove button ("Remove column Qty"). A table always keeps one column. When two columns have the same label, these buttons also give the column's place ("Remove column 3 (Price)").
 
 With a keyboard, press Tab to go to a button or a menu, then press Enter or Space.
 
@@ -95,7 +95,7 @@ A calculated value and a Calculated column have a **Formula**. You do not type a
 
 1. Select the part menu, then select the kind of part: **Number**, **Field** (**Column** in the formula of a column), **Add**, **Subtract**, **Multiply**, **Divide**, **Round**, **Smallest of**, **Largest of**, **Sum of a column** or **Number of rows**.
 2. For a Number, type the number. For a Field or a Column, select which one. For Sum of a column, select the table and its column. For Number of rows, select the table.
-3. Add, Multiply, Smallest of and Largest of hold two or more parts, shown below them. Select **Add part** to add a part, and the remove button ("Remove part") to remove one. Subtract and Divide hold two parts. Round holds one part; select its number of places.
+3. Add, Multiply, Smallest of and Largest of hold two or more parts, shown below them. Select **Add part** to add a part, and its remove button ("Remove part 2 of Add") to remove one. A screen reader reads the place of each part, for example "Number, part 2". Subtract and Divide hold two parts. Round holds one part; select its number of places.
 
 The line below **Formula** shows the formula as text, for example "= Qty × Price". **Decimal places** sets how the result is rounded. A formula can read numbers, toggles (on is 1) and other calculated values. The formula of a column can read only the other columns of the same row. Only a calculated value can add up a column of a table or count its rows.
 

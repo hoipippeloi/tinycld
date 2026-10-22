@@ -110,6 +110,18 @@ describe('ColumnsEditor', () => {
         )
     })
 
+    it('names columns that share a label by their place', async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await addColumn(container, 'number', 'Price')
+        const label = (id: string) => q(container, id)?.getAttribute('accessibilityLabel')
+        expect(label('form-column-price-edit')).toBe('Edit column 3 (Price)')
+        expect(label('form-column-price_2-edit')).toBe('Edit column 5 (Price)')
+        expect(label('form-column-price-up')).toBe('Move column 3 (Price) up')
+        expect(label('form-column-price_2-down')).toBe('Move column 5 (Price) down')
+        expect(label('form-column-price_2-remove')).toBe('Remove column 5 (Price)')
+        expect(label('form-column-qty-remove')).toBe('Remove column Qty')
+    })
+
     it('removes a column but always keeps one', async () => {
         const { container } = render(<Harness fieldKey="parts" />)
         await click(container, 'form-column-item-remove')

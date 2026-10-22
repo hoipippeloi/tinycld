@@ -119,22 +119,40 @@ interface NumberTextProps {
     onChange: (value: number | null) => void
     label: string
     placeholder?: string
+    /** What the owner stores for text that is not a number yet; null unless it stores 0. */
+    emptyAs?: number | null
     testID: string
 }
 
-/** A typed number; anything that is not one yet ('', '-') is null. */
-export function NumberText({ value, onChange, label, placeholder, testID }: NumberTextProps) {
+const textOf = (value: number | null) => (value === null ? '' : String(value))
+
+function readNumber(text: string, emptyAs: number | null): number | null {
+    const n = coerceLiteral('number', text)
+    return text.trim() !== '' && typeof n === 'number' ? n : emptyAs
+}
+
+/** A typed number; anything that is not one yet ('', '-') is `emptyAs`. */
+export function NumberText({
+    value,
+    onChange,
+    label,
+    placeholder,
+    emptyAs = null,
+    testID,
+}: NumberTextProps) {
     const placeholderColor = useThemeColor('field-placeholder')
     // The typed text is local, so "-" and "1." can pass on their way to a number.
-    const [text, setText] = useState(value === null ? '' : String(value))
+    const [text, setText] = useState(textOf(value))
+    // A reset or a reload replaces the value under the text: then show the value,
+    // so the input never shows a number the draft does not hold.
+    const shown = readNumber(text, emptyAs) === value ? text : textOf(value)
     const change = (next: string) => {
         setText(next)
-        const n = coerceLiteral('number', next)
-        onChange(next.trim() !== '' && typeof n === 'number' ? n : null)
+        onChange(readNumber(next, emptyAs))
     }
     return (
         <PlainInput
-            value={text}
+            value={shown}
             onChangeText={change}
             keyboardType="numeric"
             placeholder={placeholder}

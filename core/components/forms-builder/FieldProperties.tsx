@@ -214,7 +214,9 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
     const builtin = host && field?.kind === 'builtin' ? findBuiltin(host, fieldKey) : undefined
     const draft = { ...editor.form.getValues(), fields }
     const kind = host ? (kindOf(draft, host, fieldKey) ?? 'text') : 'text'
-    const operands = host ? fieldOperands(draft, host, fieldKey) : NO_OPERANDS
+    // Only a calculated value has a formula; other kinds skip the operand scan.
+    const operands =
+        host && kind === 'computed' ? fieldOperands(draft, host, fieldKey) : NO_OPERANDS
     // The delete confirm is local UI state.
     const [isConfirming, setIsConfirming] = useState(false)
     const message = removalMessage(isConfirming ? referencesOf(draft, fieldKey) : null)

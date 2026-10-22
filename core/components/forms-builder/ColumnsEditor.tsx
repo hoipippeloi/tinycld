@@ -18,6 +18,12 @@ export interface ColumnsEditorProps {
     fieldIndex: number
 }
 
+/** A screen reader's name for a column: its place too, when another column has its label. */
+function nameOf(label: string, index: number, labels: string[]) {
+    const isShared = labels.filter(l => l === label).length > 1
+    return isShared ? `${index + 1} (${label})` : label
+}
+
 function useColumns(editor: Editor, fieldIndex: number) {
     const { control } = editor.form
     // The path exists only on a table field; this editor mounts only for one.
@@ -29,13 +35,14 @@ function useColumns(editor: Editor, fieldIndex: number) {
     const [openKey, setOpenKey] = useState<string | null>(null)
     const [pendingKind, setPendingKind] = useState<TableColumnKind | null>(null)
     const count = array.fields.length
+    const labels = array.fields.map((row, index) => (columns[index] ?? row).label)
     const rows = array.fields.map((row, index) => {
         const column = columns[index] ?? row
         const isOpen = column.key === openKey
         return {
             id: row.id,
             key: column.key,
-            label: column.label,
+            name: nameOf(column.label, index, labels),
             title: column.required ? `${column.label} *` : column.label,
             kindLabel: COLUMN_KIND_LABELS[column.kind],
             isOpen,
@@ -75,7 +82,7 @@ function ColumnRow({ row }: { row: ColumnRowModel }) {
             <Pressable
                 onPress={row.toggle}
                 accessibilityRole="button"
-                accessibilityLabel={`Edit column ${row.label}`}
+                accessibilityLabel={`Edit column ${row.name}`}
                 accessibilityState={{ expanded: row.isOpen }}
                 className="flex-1"
                 testID={`form-column-${row.key}-edit`}
@@ -87,7 +94,7 @@ function ColumnRow({ row }: { row: ColumnRowModel }) {
                 icon={ChevronUp}
                 onPress={row.up}
                 isDisabled={!row.canUp}
-                label={`Move column ${row.label} up`}
+                label={`Move column ${row.name} up`}
                 testID={`form-column-${row.key}-up`}
                 className="p-1"
             />
@@ -95,7 +102,7 @@ function ColumnRow({ row }: { row: ColumnRowModel }) {
                 icon={ChevronDown}
                 onPress={row.down}
                 isDisabled={!row.canDown}
-                label={`Move column ${row.label} down`}
+                label={`Move column ${row.name} down`}
                 testID={`form-column-${row.key}-down`}
                 className="p-1"
             />
@@ -103,7 +110,7 @@ function ColumnRow({ row }: { row: ColumnRowModel }) {
                 icon={X}
                 onPress={row.remove}
                 isDisabled={!row.canRemove}
-                label={`Remove column ${row.label}`}
+                label={`Remove column ${row.name}`}
                 testID={`form-column-${row.key}-remove`}
                 className="p-1"
             />

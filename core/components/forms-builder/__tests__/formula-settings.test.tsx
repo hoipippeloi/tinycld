@@ -88,6 +88,17 @@ describe('FormulaEditor on a calculated value', () => {
         expect(inputValue(container, `${F}-root-number`)).toBe('-')
     })
 
+    it('shows the stored number after a reload drops a typed one', async () => {
+        const { container } = render(<Harness fieldKey="grand_total" />)
+        await typeInto(container, `${F}-root-number`, '7')
+        expect(inputValue(container, `${F}-root-number`)).toBe('7')
+        await act(async () => {
+            editor().reload()
+        })
+        expect(expressionOf()).toBe(0)
+        expect(inputValue(container, `${F}-root-number`)).toBe('0')
+    })
+
     it('adds parts to a sum and removes them down to two', async () => {
         const { container } = render(<Harness fieldKey="grand_total" />)
         await choose(container, `${F}-root-part`, 'add')
@@ -100,6 +111,25 @@ describe('FormulaEditor on a calculated value', () => {
         expect(expressionOf()).toEqual({ add: [7, 0] })
         expect(inputValue(container, `${F}-0-number`)).toBe('7')
         expect(q(container, `${F}-0-remove`)).toBeNull()
+    })
+
+    it('names each repeated part control by its place, for a screen reader', async () => {
+        const { container } = render(<Harness fieldKey="grand_total" />)
+        const label = (id: string) => q(container, id)?.getAttribute('accessibilityLabel')
+        await choose(container, `${F}-root-part`, 'add')
+        await click(container, `${F}-root-add`)
+        expect(label(`${F}-root-part`)).toBe('Formula part: Add')
+        expect(label(`${F}-root-add`)).toBe('Add part to Add')
+        expect(label(`${F}-0-number`)).toBe('Number, part 1')
+        expect(label(`${F}-1-number`)).toBe('Number, part 2')
+        expect(label(`${F}-1-part`)).toBe('Part 2: Number')
+        expect(label(`${F}-2-remove`)).toBe('Remove part 3 of Add')
+        await choose(container, `${F}-0-part`, 'mul')
+        expect(label(`${F}-0-add`)).toBe('Add part to Multiply, part 1')
+        expect(label(`${F}-0-1-number`)).toBe('Number, part 1.2')
+        expect(label(`${F}-0-1-part`)).toBe('Part 1.2: Number')
+        await choose(container, `${F}-1-part`, 'field')
+        expect(label(`${F}-1-field`)).toBe('Field, part 2: Qty')
     })
 
     it('sums a number column of a table, then counts its rows', async () => {
@@ -146,7 +176,7 @@ describe('FormulaEditor on a calculated value', () => {
         })
     })
 
-    it('opens the part menu from the keyboard-reachable chip', () => {
+    it('labels the part chip with its purpose and opens its menu on a press', () => {
         const { container } = render(<Harness fieldKey="grand_total" />)
         const chip = q(container, `${F}-root-part`)
         expect(chip?.getAttribute('accessibilityLabel')).toBe('Formula part: Number')

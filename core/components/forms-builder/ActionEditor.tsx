@@ -149,6 +149,7 @@ function DaysText({
             value={days}
             onChange={write}
             label="Days from today"
+            emptyAs={0}
             testID={`${testID}-days`}
         />
     )

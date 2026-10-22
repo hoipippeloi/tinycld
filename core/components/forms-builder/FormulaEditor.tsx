@@ -71,6 +71,12 @@ const idOf = (testID: string, path: FormulaPath) =>
 const partLabel = (part: FormulaPart, valueNoun: string) =>
     part === 'field' ? valueNoun : PART_LABELS[part]
 
+/** A part's place, for a screen reader: "2", or "1.2" for the second part of the first. */
+const placeOf = (path: FormulaPath) => path.map(i => i + 1).join('.')
+
+/** Repeated controls read the same; this suffix tells them apart. The whole formula has none. */
+const whereOf = (path: FormulaPath) => (path.length ? `, part ${placeOf(path)}` : '')
+
 interface PartProps {
     formula: Formula
     path: FormulaPath
@@ -86,8 +92,9 @@ function NumberPart({ formula, path, expr, id }: PartProps) {
         <NumberText
             value={expr}
             onChange={n => formula.set(path, n ?? 0)}
-            label="Number"
+            label={`Number${whereOf(path)}`}
             placeholder="0"
+            emptyAs={0}
             testID={`${id}-number`}
         />
     )
@@ -103,7 +110,14 @@ function ValuePick({ formula, path, expr, valueNoun, id }: PartProps) {
     }))
     const label =
         formula.operands.values.find(v => v.key === expr.var)?.label ?? `${expr.var} (missing)`
-    return <PickMenu label={label} purpose={valueNoun} items={items} testID={`${id}-field`} />
+    return (
+        <PickMenu
+            label={label}
+            purpose={`${valueNoun}${whereOf(path)}`}
+            items={items}
+            testID={`${id}-field`}
+        />
+    )
 }
 
 function PlacesPick({ formula, path, expr, id }: PartProps) {
@@ -118,7 +132,7 @@ function PlacesPick({ formula, path, expr, id }: PartProps) {
     return (
         <PickMenu
             label={`${places} places`}
-            purpose="Decimal places"
+            purpose={`Decimal places${whereOf(path)}`}
             items={items}
             testID={`${id}-places`}
         />
@@ -128,16 +142,18 @@ function PlacesPick({ formula, path, expr, id }: PartProps) {
 function ColumnPick({
     isVisible,
     label,
+    purpose,
     items,
     testID,
 }: {
     isVisible: boolean
     label: string
+    purpose: string
     items: PickItem[]
     testID: string
 }) {
     if (!isVisible) return null
-    return <PickMenu label={label} purpose="Column" items={items} testID={testID} />
+    return <PickMenu label={label} purpose={purpose} items={items} testID={testID} />
 }
 
 /** Sum of a column: its table and column. Number of rows: its table. */
@@ -167,13 +183,14 @@ function TotalPick({ formula, path, expr, id }: PartProps) {
         <>
             <PickMenu
                 label={table?.label ?? `${tableKey} (missing)`}
-                purpose="Table"
+                purpose={`Table${whereOf(path)}`}
                 items={tableItems}
                 testID={`${id}-table`}
             />
             <ColumnPick
                 isVisible={isSum}
                 label={columnLabel}
+                purpose={`Column${whereOf(path)}`}
                 items={columnItems}
                 testID={`${id}-column`}
             />
@@ -181,18 +198,26 @@ function TotalPick({ formula, path, expr, id }: PartProps) {
     )
 }
 
-function RemovePart({ onPress, testID }: { onPress: (() => void) | null; testID: string }) {
-    if (!onPress) return null
-    return <RemoveButton label="Remove part" onPress={onPress} testID={testID} />
+/** Removes a part from the one that holds it; `label` names both. */
+interface Removal {
+    onPress: () => void
+    label: string
+}
+
+function RemovePart({ removal, testID }: { removal: Removal | null; testID: string }) {
+    if (!removal) return null
+    return <RemoveButton label={removal.label} onPress={removal.onPress} testID={testID} />
 }
 
 function AddPart({
     isVisible,
     onPress,
+    label,
     testID,
 }: {
     isVisible: boolean
     onPress: () => void
+    label: string
     testID: string
 }) {
     if (!isVisible) return null
@@ -202,7 +227,7 @@ function AddPart({
             size="sm"
             onPress={onPress}
             className="self-start"
-            accessibilityLabel="Add part"
+            accessibilityLabel={label}
             testID={testID}
         >
             <ButtonText>Add part</ButtonText>
@@ -231,6 +256,14 @@ function Operands({ formula, path, expr, valueNoun, id, testID }: PartProps & { 
     const nodes = operandNodes(expr, path, testID)
     if (nodes.length === 0) return null
     const canRemove = canRemoveOperand(expr)
+    const holder = partLabel(partOf(expr), valueNoun)
+    const removalOf = (node: (typeof nodes)[number]): Removal | null => {
+        if (!canRemove) return null
+        return {
+            onPress: () => formula.removePart(path, node.index),
+            label: `Remove part ${placeOf(node.path)} of ${holder}`,
+        }
+    }
     const items = nodes.map(node => (
         <FormulaNode
             key={node.key}
@@ -238,7 +271,7 @@ function Operands({ formula, path, expr, valueNoun, id, testID }: PartProps & { 
             path={node.path}
             valueNoun={valueNoun}
             testID={testID}
-            onRemove={canRemove ? () => formula.removePart(path, node.index) : null}
+            removal={removalOf(node)}
         />
     ))
     return (
@@ -247,6 +280,7 @@ function Operands({ formula, path, expr, valueNoun, id, testID }: PartProps & { 
             <AddPart
                 isVisible={isVariadic(expr)}
                 onPress={() => formula.addPart(path)}
+                label={`Add part to ${holder}${whereOf(path)}`}
                 testID={`${id}-add`}
             />
         </View>
@@ -258,11 +292,11 @@ interface NodeProps {
     path: FormulaPath
     valueNoun: string
     testID: string
-    /** Removes this part from the one that holds it; null where it cannot go. */
-    onRemove: (() => void) | null
+    /** Null where this part cannot go. */
+    removal: Removal | null
 }
 
-function FormulaNode({ formula, path, valueNoun, testID, onRemove }: NodeProps) {
+function FormulaNode({ formula, path, valueNoun, testID, removal }: NodeProps) {
     const expr = formula.at(path)
     const part = partOf(expr)
     const id = idOf(testID, path)
@@ -278,7 +312,7 @@ function FormulaNode({ formula, path, valueNoun, testID, onRemove }: NodeProps) 
             <View className="flex-row flex-wrap items-center gap-1.5">
                 <PickMenu
                     label={partLabel(part, valueNoun)}
-                    purpose="Formula part"
+                    purpose={path.length ? `Part ${placeOf(path)}` : 'Formula part'}
                     items={partItems}
                     testID={`${id}-part`}
                 />
@@ -286,7 +320,7 @@ function FormulaNode({ formula, path, valueNoun, testID, onRemove }: NodeProps) 
                 <ValuePick {...props} />
                 <PlacesPick {...props} />
                 <TotalPick {...props} />
-                <RemovePart onPress={onRemove} testID={`${id}-remove`} />
+                <RemovePart removal={removal} testID={`${id}-remove`} />
             </View>
             <Operands {...props} testID={testID} />
         </View>
@@ -321,7 +355,7 @@ export function FormulaEditor({
                 path={[]}
                 valueNoun={valueNoun}
                 testID={testID}
-                onRemove={null}
+                removal={null}
             />
         </View>
     )
