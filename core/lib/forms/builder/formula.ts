@@ -1,4 +1,7 @@
 import { type ComputeExpr, computeExprSchema } from '../expression'
+import { type FormHostDef, findBuiltin } from '../host'
+import { kindOf } from './catalog'
+import type { DraftDefinition } from './draft'
 
 /**
  * The builder's structured formula editor works on these pure helpers: a
@@ -290,4 +293,57 @@ export function describeFormula(expr: ComputeExpr, operands: FormulaOperands): s
         return `rows in ${tableLabel(e.count[0].var)}`
     }
     return say(expr, false)
+}
+
+/** Mirrors computedIssues: what a formula may read, and what a total may add up. */
+const READABLE_KINDS = new Set(['number', 'computed', 'toggle'])
+const SUMMABLE_KINDS = new Set(['number', 'computed'])
+
+type DraftField = DraftDefinition['fields'][number]
+
+interface ColumnLike {
+    key: string
+    label: string
+    kind: string
+}
+
+const choiceOf = (c: { key: string; label: string }): FormulaChoice => ({
+    key: c.key,
+    label: c.label,
+})
+
+function columnsOf(field: DraftField, host: FormHostDef): readonly ColumnLike[] {
+    if (field.kind === 'table') return field.columns
+    if (field.kind === 'builtin') return findBuiltin(host, field.key)?.columns ?? []
+    return []
+}
+
+/** What a calculated value's formula can read: every other numeric field, and each table. */
+export function fieldOperands(
+    draft: DraftDefinition,
+    host: FormHostDef,
+    selfKey: string
+): FormulaOperands {
+    const values: FormulaChoice[] = []
+    const tables: FormulaTable[] = []
+    for (const field of draft.fields) {
+        if (field.key === selfKey) continue
+        const kind = kindOf(draft, host, field.key)
+        if (kind && READABLE_KINDS.has(kind)) values.push(choiceOf(field))
+        if (kind === 'table') {
+            const columns = columnsOf(field, host)
+                .filter(c => SUMMABLE_KINDS.has(c.kind))
+                .map(choiceOf)
+            tables.push({ ...choiceOf(field), columns })
+        }
+    }
+    return { values, tables }
+}
+
+/** What a column's formula can read: the row's other numeric columns. A row cannot total a table. */
+export function columnOperands(columns: readonly ColumnLike[], selfKey: string): FormulaOperands {
+    const values = columns
+        .filter(c => c.key !== selfKey && READABLE_KINDS.has(c.kind))
+        .map(choiceOf)
+    return { values, tables: [] }
 }

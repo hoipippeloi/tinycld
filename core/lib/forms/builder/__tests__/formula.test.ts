@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
+import { widgetHost } from '../../__tests__/fixtures'
+import { orderHost } from '../../__tests__/table-fixtures'
 import { type ComputeExpr, computeExprSchema } from '../../expression'
+import { defaultDefinitionFor } from '../../host'
+import { type DraftDefinition, newCustomField } from '../draft'
 import {
     addOperand,
     asExpr,
     canRemoveOperand,
+    columnOperands,
     describeFormula,
     exprAt,
     type FormulaOperands,
+    fieldOperands,
     partsFor,
     removeOperand,
     replaceAt,
@@ -207,5 +213,92 @@ describe('describeFormula', () => {
         expect(describeFormula({ sumOf: [{ var: 'parts' }, 'cost'] }, operands)).toBe(
             'sum of cost (missing) in Parts'
         )
+    })
+})
+
+const partsColumns = [
+    { key: 'item', kind: 'text' as const, label: 'Item', required: false, hidden: false },
+    { key: 'qty', kind: 'number' as const, label: 'Qty', required: false, hidden: false },
+    { key: 'done', kind: 'toggle' as const, label: 'Done', required: false, hidden: false },
+    {
+        key: 'total',
+        kind: 'computed' as const,
+        label: 'Total',
+        required: false,
+        hidden: false,
+        decimals: 0,
+        expression: 0,
+    },
+]
+
+describe('fieldOperands', () => {
+    const base = defaultDefinitionFor(widgetHost)
+    const draft: DraftDefinition = {
+        ...base,
+        fields: [
+            ...base.fields,
+            newCustomField('number', 'Qty', 'main', new Set()),
+            newCustomField('toggle', 'Rush', 'main', new Set()),
+            newCustomField('text', 'Note', 'main', new Set()),
+            {
+                key: 'parts',
+                kind: 'table',
+                page: 'main',
+                label: 'Parts',
+                width: 'full',
+                required: false,
+                hidden: false,
+                columns: partsColumns,
+            },
+            newCustomField('computed', 'Grand total', 'main', new Set()),
+        ],
+    }
+
+    it('offers every other number, toggle and calculated field, and each table with its number columns', () => {
+        expect(fieldOperands(draft, widgetHost, 'grand_total')).toEqual({
+            values: [
+                { key: 'qty', label: 'Qty' },
+                { key: 'rush', label: 'Rush' },
+            ],
+            tables: [
+                {
+                    key: 'parts',
+                    label: 'Parts',
+                    columns: [
+                        { key: 'qty', label: 'Qty' },
+                        { key: 'total', label: 'Total' },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it("reads a host table built-in's columns from the host", () => {
+        expect(fieldOperands(defaultDefinitionFor(orderHost), orderHost, 'subtotal')).toEqual({
+            values: [],
+            tables: [
+                {
+                    key: 'lines',
+                    label: 'Lines',
+                    columns: [
+                        { key: 'qty', label: 'Qty' },
+                        { key: 'rate', label: 'Rate' },
+                        { key: 'amount', label: 'Amount' },
+                    ],
+                },
+            ],
+        })
+    })
+})
+
+describe('columnOperands', () => {
+    it("offers the row's other number, toggle and calculated columns, and no tables", () => {
+        expect(columnOperands(partsColumns, 'total')).toEqual({
+            values: [
+                { key: 'qty', label: 'Qty' },
+                { key: 'done', label: 'Done' },
+            ],
+            tables: [],
+        })
     })
 })
