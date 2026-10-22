@@ -1,9 +1,13 @@
 // Pure on purpose: no react-native import and no generated import, so the
 // generator (a Node script) and vitest can both load it. The platform-specific
-// parts (the generated registry, Image.resolveAssetSource) are injected by
+// parts (the generated registry, the asset-to-URI step) are injected by
 // use-help-image-resolver.ts.
 
-export type HelpImageRegistry = Readonly<Record<string, number>>
+// What Metro's require() of an image yields. Native gets an asset id; on web
+// Expo's asset transformer emits { uri, width, height }, or a bare path when
+// the size is unknown.
+export type HelpImageAsset = number | string | { uri: string }
+export type HelpImageRegistry = Readonly<Record<string, HelpImageAsset>>
 export type HelpImageTheme = 'light' | 'dark'
 
 // Rendered for a relative ref that matches no shipped file, so a typo can never
@@ -32,12 +36,11 @@ export function darkVariantKey(key: string): string {
 
 /**
  * Builds the `transformImageUri` for one package and theme. `toUri` maps a
- * Metro asset id to a fetchable URI (Image.resolveAssetSource on every
- * platform) or null when it cannot.
+ * registry asset to a fetchable URI, or null when it cannot.
  */
 export function createHelpImageResolver(
     registry: HelpImageRegistry,
-    toUri: (assetId: number) => string | null,
+    toUri: (asset: HelpImageAsset) => string | null,
     pkgSlug: string,
     theme: HelpImageTheme
 ): (uri: string) => string {
@@ -47,9 +50,9 @@ export function createHelpImageResolver(
         if (relative === null) return EMPTY_IMAGE_URI
         const key = `${pkgSlug}/${relative}`
         const darkKey = darkVariantKey(key)
-        const assetId = theme === 'dark' && darkKey in registry ? registry[darkKey] : registry[key]
-        if (assetId === undefined) return EMPTY_IMAGE_URI
-        return toUri(assetId) ?? EMPTY_IMAGE_URI
+        const asset = theme === 'dark' && darkKey in registry ? registry[darkKey] : registry[key]
+        if (asset === undefined) return EMPTY_IMAGE_URI
+        return toUri(asset) ?? EMPTY_IMAGE_URI
     }
 }
 

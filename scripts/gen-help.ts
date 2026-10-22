@@ -175,9 +175,10 @@ export function buildHelpSource(groups: HelpGroupInput[], generatedDir: string):
     }
     lines.push(']')
     lines.push('')
-    lines.push('// Metro bundles each file as a static asset on web and native; keys are')
-    lines.push('// "<pkgSlug>/<path under help/>" and resolve through core/lib/help/images.')
-    lines.push('export const helpImages: Record<string, number> = {')
+    lines.push('// Metro bundles each file as a static asset: an asset id on native, a')
+    lines.push('// { uri } object (or bare path) on web. Keys are "<pkgSlug>/<path under')
+    lines.push('// help/>" and resolve through core/lib/help/images.')
+    lines.push('export const helpImages: Record<string, number | string | { uri: string }> = {')
     for (const g of groups) {
         for (const image of g.images) {
             const rel = path.relative(generatedDir, image.file).split(path.sep).join('/')

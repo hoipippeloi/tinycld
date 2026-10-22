@@ -3,6 +3,7 @@ import {
     createHelpImageResolver,
     darkVariantKey,
     EMPTY_IMAGE_URI,
+    type HelpImageAsset,
     isRelativeHelpRef,
     normalizeHelpImageRef,
     stripHelpImageSyntax,
@@ -14,7 +15,7 @@ const registry = {
     'gizmos/images/b.png': 3,
     'widgets/images/a.png': 4,
 }
-const toUri = (id: number) => `asset://${id}`
+const toUri = (asset: HelpImageAsset) => `asset://${String(asset)}`
 
 describe('help image refs', () => {
     it('treats scheme, protocol-relative and root-absolute refs as non-relative', () => {
@@ -66,6 +67,18 @@ describe('createHelpImageResolver', () => {
         expect(resolve('https://x.test/a.png')).toBe('https://x.test/a.png')
         expect(resolve('images/missing.png')).toBe(EMPTY_IMAGE_URI)
         expect(resolve('../other/images/a.png')).toBe(EMPTY_IMAGE_URI)
+    })
+
+    // Web's asset transformer yields { uri, width, height } rather than an id.
+    it('hands a web asset object to the platform resolver unchanged', () => {
+        const web = { 'gizmos/images/a.png': { uri: '/assets/gizmos/help/images/a.png' } }
+        const resolve = createHelpImageResolver(
+            web,
+            asset => (typeof asset === 'object' ? asset.uri : null),
+            'gizmos',
+            'light'
+        )
+        expect(resolve('images/a.png')).toBe('/assets/gizmos/help/images/a.png')
     })
 
     it('blanks an asset id the platform cannot resolve', () => {

@@ -13,6 +13,8 @@ The app supports a light theme, a dark theme, and a "follow system" option that 
 
 Open **Settings → Appearance** to choose between Light, Dark, or System.
 
+![The Appearance settings](images/themes-1.png)
+
 Your preference is stored per-user and follows you across devices when you sign in.
 
 ## How theming works under the hood

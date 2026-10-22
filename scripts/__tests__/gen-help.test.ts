@@ -128,7 +128,9 @@ describe('collectHelpImages', () => {
 describe('buildHelpSource images', () => {
     it('emits a require per image, relative to the generated dir', () => {
         const src = buildHelpSource([group('x', ['images/a.png'])], '/ws/tinycld/lib/generated')
-        expect(src).toContain('export const helpImages: Record<string, number> = {')
+        expect(src).toContain(
+            'export const helpImages: Record<string, number | string | { uri: string }> = {'
+        )
         expect(src).toContain(
             '"gizmos/images/a.png": require("../../../gizmos/help/images/a.png"),'
         )
@@ -136,6 +138,8 @@ describe('buildHelpSource images', () => {
 
     it('emits an empty map when no package ships images', () => {
         const src = buildHelpSource([], '/ws/tinycld/lib/generated')
-        expect(src).toContain('export const helpImages: Record<string, number> = {\n}')
+        expect(src).toContain(
+            'export const helpImages: Record<string, number | string | { uri: string }> = {\n}'
+        )
     })
 })
