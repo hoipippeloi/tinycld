@@ -250,6 +250,8 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                 <View className="flex-row items-center justify-between">
                     <SectionLabel>Installed · drag to reorder sidebar</SectionLabel>
                     <StageActions
+                        isLoading={vm.isLoading}
+                        hasUpdates={vm.hasUpdates}
                         pendingCount={vm.pendingChanges.length}
                         onSelectAll={vm.selectAllUpdates}
                         onClear={vm.clearSelection}
@@ -595,15 +597,21 @@ function PackageActions({
 
 // StageActions: the "stage all updates" / "clear" controls in the section header,
 // shown alongside the package list. Mirrors the old Versions tab's selection bar.
+// Renders nothing until discovery finishes, so an empty list never reads as "up to date".
 function StageActions({
+    isLoading,
+    hasUpdates,
     pendingCount,
     onSelectAll,
     onClear,
 }: {
+    isLoading: boolean
+    hasUpdates: boolean
     pendingCount: number
     onSelectAll: () => void
     onClear: () => void
 }) {
+    if (isLoading) return null
     return (
         <View className="flex-row gap-2 items-center">
             {pendingCount > 0 && (
@@ -611,10 +619,21 @@ function StageActions({
                     <ButtonText>Clear ({pendingCount})</ButtonText>
                 </Button>
             )}
-            <Button onPress={onSelectAll} size="sm" variant="outline">
-                <ButtonText>Stage all updates</ButtonText>
-            </Button>
+            <StageAllButton hasUpdates={hasUpdates} onPress={onSelectAll} />
         </View>
+    )
+}
+
+function StageAllButton({ hasUpdates, onPress }: { hasUpdates: boolean; onPress: () => void }) {
+    if (!hasUpdates) {
+        return (
+            <Text className="text-sm font-semibold text-foreground">Everything is up to date</Text>
+        )
+    }
+    return (
+        <Button onPress={onPress} size="sm" variant="outline">
+            <ButtonText>Stage all updates</ButtonText>
+        </Button>
     )
 }
 

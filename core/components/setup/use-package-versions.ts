@@ -5,6 +5,7 @@ import { serverFetch } from '@tinycld/core/lib/server-fetch'
 import type PocketBase from 'pocketbase'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+    availableUpdates,
     type CompatViolation,
     type DropReport,
     detectDowngrade,
@@ -18,6 +19,7 @@ import { useVersionStagingStore } from './version-staging-store'
 // without an import cycle. Re-exported here for existing call sites that import
 // these from the hook.
 export {
+    availableUpdates,
     type CompatViolation,
     compareVersions,
     type DropReport,
@@ -103,13 +105,9 @@ export function usePackageVersions(pb: PocketBase, enabled = true) {
         })
     }, [targets, versions])
 
-    const selectAllUpdates = useCallback(() => {
-        const next: Record<string, string> = {}
-        for (const v of versions) {
-            if (v.hasUpdate && v.latest) next[v.slug] = v.latest
-        }
-        setAllTargets(next)
-    }, [versions, setAllTargets])
+    const updates = useMemo(() => availableUpdates(versions), [versions])
+
+    const selectAllUpdates = useCallback(() => setAllTargets(updates), [updates, setAllTargets])
 
     const clearSelection = useCallback(() => clearTargets(), [clearTargets])
 
@@ -179,6 +177,7 @@ export function usePackageVersions(pb: PocketBase, enabled = true) {
     return {
         versions,
         isLoading,
+        hasUpdates: Object.keys(updates).length > 0,
         targets,
         setTarget,
         pendingChanges,

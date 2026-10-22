@@ -79,3 +79,13 @@ export function detectDowngrade(info: PackageVersionInfo, targetVersion: string)
     if (cmp !== null) return cmp < 0
     return true // can't determine → treat as downgrade (requires confirmation)
 }
+
+// availableUpdates maps each slug that has a newer release to that release. A
+// package flagged hasUpdate with no `latest` has nothing to stage, so it is left out.
+export function availableUpdates(versions: PackageVersionInfo[]): Record<string, string> {
+    const updates: Record<string, string> = {}
+    for (const v of versions) {
+        if (v.hasUpdate && v.latest) updates[v.slug] = v.latest
+    }
+    return updates
+}
