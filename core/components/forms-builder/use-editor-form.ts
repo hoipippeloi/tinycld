@@ -93,6 +93,9 @@ export function fromDraft(draft: DraftDefinition, host: FormHostDef): DraftDefin
         defaults: typedDefaults(draft, host),
         fields: draft.fields.map(draftField => {
             const field = withoutCleared(draftField)
+            // A cleared column Minimum or Maximum is '' too.
+            if (field.kind === 'table')
+                return { ...field, columns: field.columns.map(withoutCleared) }
             if (field.kind !== 'file') return field
             const { acceptText, ...rest } = field
             if (acceptText === undefined) return rest

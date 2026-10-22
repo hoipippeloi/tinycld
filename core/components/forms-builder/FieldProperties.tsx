@@ -80,7 +80,7 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
         case 'select':
             return (
                 <>
-                    <OptionsEditor control={control} fieldIndex={index} />
+                    <OptionsEditor control={control} name={`fields.${index}.options`} />
                     <RadioInput
                         control={control}
                         name={`fields.${index}.display`}

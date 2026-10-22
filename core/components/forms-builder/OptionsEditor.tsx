@@ -6,9 +6,12 @@ import { ChevronDown, ChevronUp, X } from 'lucide-react-native'
 import type { ComponentType } from 'react'
 import { Pressable, Text, View } from 'react-native'
 
+/** A select field's options, or a choice list column's. */
+export type OptionsPath = `fields.${number}.options` | `fields.${number}.columns.${number}.options`
+
 export interface OptionsEditorProps {
     control: Control<DraftDefinition>
-    fieldIndex: number
+    name: OptionsPath
 }
 
 interface RowActions {
@@ -57,50 +60,45 @@ export function IconAction({
 
 function OptionRow({
     control,
-    fieldIndex,
+    name,
     index,
     actions,
 }: {
     control: Control<DraftDefinition>
-    fieldIndex: number
+    name: OptionsPath
     index: number
     actions: RowActions
 }) {
+    // Watched so each button names its own option, not just "option".
+    const optionLabel = useWatch({ control, name: `${name}.${index}.label` })
+    const named = optionLabel ? ` ${optionLabel}` : ''
     return (
         <View className="flex-row items-end gap-2">
             <View className="flex-1">
-                <TextInput
-                    control={control}
-                    name={`fields.${fieldIndex}.options.${index}.label`}
-                    label="Label"
-                />
+                <TextInput control={control} name={`${name}.${index}.label`} label="Label" />
             </View>
             <View className="flex-1">
-                <TextInput
-                    control={control}
-                    name={`fields.${fieldIndex}.options.${index}.value`}
-                    label="Value"
-                />
+                <TextInput control={control} name={`${name}.${index}.value`} label="Value" />
             </View>
             <IconAction
                 icon={ChevronUp}
                 onPress={actions.onUp}
                 isDisabled={!actions.canUp}
-                label="Move option up"
+                label={`Move option${named} up`}
                 testID={`form-option-up-${index}`}
             />
             <IconAction
                 icon={ChevronDown}
                 onPress={actions.onDown}
                 isDisabled={!actions.canDown}
-                label="Move option down"
+                label={`Move option${named} down`}
                 testID={`form-option-down-${index}`}
             />
             <IconAction
                 icon={X}
                 onPress={actions.onRemove}
                 isDisabled={!actions.canRemove}
-                label="Remove option"
+                label={`Remove option${named}`}
                 testID={`form-option-remove-${index}`}
             />
         </View>
@@ -114,9 +112,7 @@ export function firstFreeNumber(taken: Set<string>): number {
     return n
 }
 
-function useOptions(control: Control<DraftDefinition>, fieldIndex: number) {
-    // The path exists only on a select field; this editor mounts only for one.
-    const name = `fields.${fieldIndex}.options` as `fields.${number}.options`
+function useOptions(control: Control<DraftDefinition>, name: OptionsPath) {
     const options = useFieldArray({ control, name })
     const count = options.fields.length
     const actionsFor = (index: number): RowActions => ({
@@ -136,13 +132,13 @@ function useOptions(control: Control<DraftDefinition>, fieldIndex: number) {
     return { rows: options.fields, actionsFor, add }
 }
 
-export function OptionsEditor({ control, fieldIndex }: OptionsEditorProps) {
-    const { rows, actionsFor, add } = useOptions(control, fieldIndex)
+export function OptionsEditor({ control, name }: OptionsEditorProps) {
+    const { rows, actionsFor, add } = useOptions(control, name)
     const items = rows.map((row, index) => (
         <OptionRow
             key={row.id}
             control={control}
-            fieldIndex={fieldIndex}
+            name={name}
             index={index}
             actions={actionsFor(index)}
         />

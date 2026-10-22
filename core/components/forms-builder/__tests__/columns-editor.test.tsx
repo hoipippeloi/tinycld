@@ -10,6 +10,7 @@ import {
     click,
     editor,
     Harness,
+    lastSaved,
     q,
     render,
     saveDefinition,
@@ -159,5 +160,76 @@ describe('ColumnsEditor', () => {
         const subtotal = render(<Harness fieldKey="subtotal" row={row} host={orderFormHost} />)
         expect(q(subtotal.container, 'form-prop-kind')?.textContent).toContain('Calculated value')
         expect(q(subtotal.container, 'form-formula')).toBeNull()
+    })
+})
+
+describe('ColumnSettings by kind', () => {
+    it("edits a number column's bounds and drops a cleared one when saved", async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await click(container, 'form-column-qty-edit')
+        await typeInto(container, C(1, 'min'), '1')
+        await typeInto(container, C(1, 'max'), '9.5')
+        await typeInto(container, C(1, 'min'), '')
+        await act(async () => {
+            await editor().save()
+        })
+        const saved = lastSaved()?.fields[AT.parts]
+        const qty = saved?.kind === 'table' ? saved.columns[1] : undefined
+        expect(qty).toMatchObject({ key: 'qty', max: 9.5 })
+        expect(qty).not.toHaveProperty('min')
+    })
+
+    it("limits a text column's length", async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await click(container, 'form-column-item-edit')
+        await typeInto(container, C(0, 'maxLength'), '40')
+        expect(editor().form.getValues(C(0, 'maxLength'))).toBe(40)
+    })
+
+    it('gives a choice list column its options', async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await addColumn(container, 'select', 'Size')
+        expect(inputValue(container, C(4, 'options.0.label'))).toBe('Option 1')
+        await click(container, 'form-option-add')
+        expect(editor().form.getValues(C(4, 'options'))).toHaveLength(2)
+    })
+
+    it('builds a calculated column from the other columns of its row', async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        const F = 'form-column-formula'
+        await click(container, 'form-column-total-edit')
+        expect(q(container, `${F}-summary`)?.textContent).toBe('= Qty × Price')
+        await click(container, `${F}-root-part`)
+        expect(q(document.body, `${F}-root-part-field`)?.textContent).toContain('Column')
+        expect(q(document.body, `${F}-root-part-sumOf`)).toBeNull()
+        expect(q(document.body, `${F}-root-part-count`)).toBeNull()
+        await click(document.body, `${F}-root-part-mul`)
+        await click(container, `${F}-0-field`)
+        expect(q(document.body, `${F}-0-field-price`)).toBeTruthy()
+        expect(q(document.body, `${F}-0-field-item`)).toBeNull()
+        expect(q(document.body, `${F}-0-field-total`)).toBeNull()
+        await click(document.body, `${F}-0-field-price`)
+        expect(editor().form.getValues(C(3, 'expression'))).toEqual({
+            mul: [{ var: 'price' }, { var: 'price' }],
+        })
+        await typeInto(container, C(3, 'decimals'), '3')
+        expect(editor().form.getValues(C(3, 'decimals'))).toBe(3)
+    })
+})
+
+describe('OptionsEditor row labels', () => {
+    it('names the option in each row button', async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await addColumn(container, 'select', 'Size')
+        const label = 'Option 1'
+        expect(q(container, 'form-option-up-0')?.getAttribute('accessibilityLabel')).toBe(
+            `Move option ${label} up`
+        )
+        expect(q(container, 'form-option-down-0')?.getAttribute('accessibilityLabel')).toBe(
+            `Move option ${label} down`
+        )
+        expect(q(container, 'form-option-remove-0')?.getAttribute('accessibilityLabel')).toBe(
+            `Remove option ${label}`
+        )
     })
 })
