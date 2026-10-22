@@ -177,11 +177,13 @@ function propControl(page: Page, suffix: string): Locator {
     return properties(page).locator(`[data-testid$=".${suffix}"]`)
 }
 
+const COLUMN_NOUNS: Record<string, string> = { select: 'choice list', computed: 'calculated' }
+
 /** Adds a column to the selected table: its kind from the menu, then its label. */
 async function addColumn(page: Page, kind: string, label: string) {
     await properties(page).getByTestId('form-column-add').click()
     await page.getByTestId(`form-column-kind-${kind}`).click()
-    await answerPrompt(page, 'Column label', label)
+    await answerPrompt(page, `Name the ${COLUMN_NOUNS[kind] ?? kind} column`, label)
     await expect(properties(page).getByTestId('form-column-settings')).toBeVisible()
 }
 
@@ -421,6 +423,7 @@ test.describe('Forms builder', () => {
         await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= Qty')
 
         await properties(page).getByTestId('form-column-qty-remove').click()
+        await page.getByRole('button', { name: 'Remove', exact: true }).click()
         await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= qty (missing)')
         const save = page.getByTestId('form-save')
         await save.click()

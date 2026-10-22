@@ -54,6 +54,7 @@ const knownIcons = {
     List: Icon,
     ListOrdered: Icon,
     Minus: Icon,
+    Plus: Icon,
     Quote: Icon,
     Table: Icon,
     Type: Icon,

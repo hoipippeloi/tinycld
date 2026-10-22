@@ -18,7 +18,7 @@ import { ColumnsEditor } from './ColumnsEditor'
 import { DefaultPicker } from './DefaultPicker'
 import { FormulaSettings } from './FormulaSettings'
 import { OptionsEditor } from './OptionsEditor'
-import { PickMenu, ReadOnlyRow } from './rule-parts'
+import { PickMenu } from './rule-parts'
 import { orderOf, positionOf } from './use-canvas-drag'
 import { removalParts, type useEditorForm } from './use-editor-form'
 
@@ -96,27 +96,33 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
             )
         case 'number':
             return (
-                <>
+                <View className="flex-row flex-wrap gap-x-4">
                     <NumberInput
                         control={control}
                         name={`fields.${index}.min`}
                         label="Minimum"
+                        placeholder="No min"
+                        isCompact
                         allowDecimal
                     />
                     <NumberInput
                         control={control}
                         name={`fields.${index}.max`}
                         label="Maximum"
+                        placeholder="No max"
+                        isCompact
                         allowDecimal
                     />
                     <NumberInput
                         control={control}
                         name={`fields.${index}.step`}
                         label="Step"
+                        placeholder="Any"
+                        isCompact
                         min={0}
                         allowDecimal
                     />
-                </>
+                </View>
             )
         case 'date':
             return <Toggle control={control} name={`fields.${index}.time`} label="Include a time" />
@@ -126,6 +132,8 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
                     control={control}
                     name={`fields.${index}.maxLength`}
                     label="Maximum length"
+                    placeholder="No limit"
+                    isCompact
                     min={1}
                 />
             )
@@ -135,6 +143,7 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
                     control={control}
                     name={`fields.${index}.rows`}
                     label="Rows"
+                    isCompact
                     min={1}
                     max={40}
                 />
@@ -191,6 +200,15 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
         default:
             return null
     }
+}
+
+function HostTableNote({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <Text className="text-xs text-muted-foreground mb-3" testID="form-prop-host-table">
+            Columns for this table come from the app and cannot be changed here.
+        </Text>
+    )
 }
 
 function collaborativeHint(isSupported: boolean) {
@@ -397,15 +415,28 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
     const i = p.index
     const isCustom = p.field.kind !== 'builtin'
     const isHostRequired = Boolean(p.builtin?.required)
+    // A table's columns are what a person edits it for, so they come first.
+    const isTable = p.kind === 'table'
     return (
         <View testID="form-properties">
             <TextInput control={control} name={`fields.${i}.label`} label="Label" />
-            <ReadOnlyRow label="Key" value={fieldKey} testID="form-prop-key" />
-            <ReadOnlyRow
-                label="Kind"
-                value={KIND_LABELS[p.kind] ?? p.kind}
-                testID="form-prop-kind"
+            <View className="flex-row gap-3 -mt-2 mb-3">
+                <Text className="text-xs text-muted-foreground" testID="form-prop-kind">
+                    {KIND_LABELS[p.kind] ?? p.kind}
+                </Text>
+                <Text className="text-xs text-muted-foreground" testID="form-prop-key">
+                    {`Key: ${fieldKey}`}
+                </Text>
+            </View>
+            <KindSection
+                editor={editor}
+                index={i}
+                fieldKey={fieldKey}
+                kind={p.kind}
+                operands={p.operands}
+                isVisible={isCustom && isTable}
             />
+            <HostTableNote isVisible={!isCustom && isTable} />
             <TextInput control={control} name={`fields.${i}.description`} label="Description" />
             <PlaceholderInput editor={editor} index={i} isVisible={!NO_PLACEHOLDER.has(p.kind)} />
             <PlacementSection editor={editor} fieldKey={fieldKey} />
@@ -414,6 +445,7 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 name={`fields.${i}.width`}
                 label="Width"
                 options={WIDTH_OPTIONS}
+                layout="segmented"
             />
             <RequiredToggle
                 editor={editor}
@@ -435,7 +467,7 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 fieldKey={fieldKey}
                 kind={p.kind}
                 operands={p.operands}
-                isVisible={isCustom}
+                isVisible={isCustom && !isTable}
             />
             <DeleteSection
                 isVisible={isCustom}

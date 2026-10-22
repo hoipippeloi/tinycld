@@ -79,15 +79,15 @@ An owner or admin opens **Settings → Forms**. With one record type the list op
 
 ## Editing a form
 
-The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page: a chip with its label follows the pointer and a bar shows where it lands. On a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+The editor shows the form as users see it. Select a field to edit its label, width (Full, Half, Third or Quarter), requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page: a chip with its label follows the pointer and a bar shows where it lands. On a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
 
 To add a table or a calculated value, select **Add field**, then **Table** or **Calculated value** under **Tables and totals**. A new table has one text column, Item. A new calculated value starts at 0.
 
 To change the columns of a table, select the table. Its panel shows **Columns**:
 
-- To add a column, select **Add column**, select its kind (Text, Number, Toggle, Date, Choice list or Calculated), then type its label in **Column label**.
-- To edit a column, select its name ("Edit column Qty"). Its settings open below the list: **Label**, **Required**, **Hidden**, and the settings of its kind, such as **Minimum** and **Maximum** for a number, **Maximum length** for text, or **Options** for a choice list. The key and the kind are set when you add the column, and do not change.
-- To move a column, select its up or down arrow button ("Move column Qty up"). To remove a column, select its remove button ("Remove column Qty"). A table always keeps one column. When two columns have the same label, these buttons also give the column's place ("Remove column 3 (Price)").
+- To add a column, select **Add column**, select its kind (Text, Number, Toggle, Date, Choice list or Calculated), then type its name in the box that opens. Formulas refer to the column by this name, and its kind cannot be changed later.
+- To edit a column, select its name ("Edit column Qty"). Its settings open inside its own card, right under its name: **Label**, **Required**, **Hidden**, and the settings of its kind, such as **Minimum** and **Maximum** for a number, **Maximum length** for text, or **Options** for a choice list. The key and the kind are set when you add the column, and do not change.
+- To move a column, select its up or down arrow button ("Move column Qty up"). To remove a column, select its remove button ("Remove column Qty"), then confirm. A formula that uses the removed column shows it as missing. A table always keeps one column. When two columns have the same label, these buttons also give the column's place ("Remove column 3 (Price)").
 
 With a keyboard, press Tab to go to a button or a menu, then press Enter or Space.
 

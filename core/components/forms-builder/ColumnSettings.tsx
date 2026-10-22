@@ -54,25 +54,31 @@ function ColumnKindSettings({ editor, at, kind, columnKey, siblings }: KindSetti
                     control={control}
                     name={`${at}.maxLength`}
                     label="Maximum length"
+                    placeholder="No limit"
+                    isCompact
                     min={1}
                 />
             )
         case 'number':
             return (
-                <>
+                <View className="flex-row flex-wrap gap-x-4">
                     <NumberInput
                         control={control}
                         name={`${at}.min`}
                         label="Minimum"
+                        placeholder="No min"
+                        isCompact
                         allowDecimal
                     />
                     <NumberInput
                         control={control}
                         name={`${at}.max`}
                         label="Maximum"
+                        placeholder="No max"
+                        isCompact
                         allowDecimal
                     />
-                </>
+                </View>
             )
         case 'select':
             return <OptionsEditor control={control} name={`${at}.options`} />

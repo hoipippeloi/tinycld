@@ -2,6 +2,7 @@ import { newTableColumn, type TableColumnKind } from '@tinycld/core/lib/forms/bu
 import { TABLE_COLUMN_KINDS } from '@tinycld/core/lib/forms/definition'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
+import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { useFieldArray, useWatch } from '@tinycld/core/ui/form'
 import { Menu } from '@tinycld/core/ui/menu'
 import { PromptDialog } from '@tinycld/core/ui/PromptDialog'
@@ -36,6 +37,7 @@ function useColumns(editor: Editor, fieldIndex: number) {
     // The open column and the kind waiting for its label: local UI state.
     const [openKey, setOpenKey] = useState<string | null>(null)
     const [pendingKind, setPendingKind] = useState<TableColumnKind | null>(null)
+    const [removingKey, setRemovingKey] = useState<string | null>(null)
     const count = array.fields.length
     const labels = array.fields.map((row, index) => (columns[index] ?? row).label)
     const rows = array.fields.map((row, index) => {
@@ -56,7 +58,7 @@ function useColumns(editor: Editor, fieldIndex: number) {
             toggle: () => setOpenKey(isOpen ? null : column.key),
             up: () => array.move(index, index - 1),
             down: () => array.move(index, index + 1),
-            remove: () => array.remove(index),
+            remove: () => setRemovingKey(column.key),
         }
     })
     const add = (label: string) => {
@@ -66,9 +68,20 @@ function useColumns(editor: Editor, fieldIndex: number) {
         setOpenKey(column.key)
         setPendingKind(null)
     }
+    const removing = columns.find(c => c.key === removingKey)
+    const confirmRemove = () => {
+        const index = columns.findIndex(c => c.key === removingKey)
+        setRemovingKey(null)
+        if (index >= 0) array.remove(index)
+    }
     return {
         rows,
         openKey,
+        removingLabel: removing?.label ?? '',
+        isRemoving: removing !== undefined,
+        confirmRemove,
+        cancelRemove: () => setRemovingKey(null),
+        pendingKind,
         add,
         ask: setPendingKind,
         isAsking: pendingKind !== null,
@@ -103,7 +116,7 @@ function ColumnRow({ row, children }: { row: ColumnRowModel; children: ReactNode
                     isDisabled={!row.canUp}
                     label={`Move column ${row.name} up`}
                     testID={`form-column-${row.key}-up`}
-                    className="p-1"
+                    className="p-2.5"
                 />
                 <IconAction
                     icon={ChevronDown}
@@ -111,7 +124,7 @@ function ColumnRow({ row, children }: { row: ColumnRowModel; children: ReactNode
                     isDisabled={!row.canDown}
                     label={`Move column ${row.name} down`}
                     testID={`form-column-${row.key}-down`}
-                    className="p-1"
+                    className="p-2.5"
                 />
                 <IconAction
                     icon={X}
@@ -119,7 +132,7 @@ function ColumnRow({ row, children }: { row: ColumnRowModel; children: ReactNode
                     isDisabled={!row.canRemove}
                     label={`Remove column ${row.name}`}
                     testID={`form-column-${row.key}-remove`}
-                    className="p-1"
+                    className="p-2.5 ml-2"
                 />
             </View>
             {children}
@@ -167,11 +180,22 @@ export function ColumnsEditor({ editor, fieldIndex }: ColumnsEditorProps) {
             <Text className="text-sm font-semibold text-foreground mb-1">Columns</Text>
             {rows}
             <AddColumn onPick={c.ask} />
+            <ConfirmDialog
+                isOpen={c.isRemoving}
+                onClose={c.cancelRemove}
+                onConfirm={c.confirmRemove}
+                title="Remove column"
+                message={`Remove the "${c.removingLabel}" column? A formula that uses it shows it as missing until you fix it.`}
+                confirmLabel="Remove"
+                isDestructive
+                requiresServer={false}
+            />
             <PromptDialog
                 isOpen={c.isAsking}
                 onClose={c.cancel}
                 onSubmit={c.add}
-                title="Column label"
+                title={`Name the ${c.pendingKind ? COLUMN_KIND_LABELS[c.pendingKind].toLowerCase() : ''} column`}
+                description="Formulas refer to it by this name. Its kind cannot be changed later."
                 placeholder="Quantity"
                 confirmLabel="Add"
                 required

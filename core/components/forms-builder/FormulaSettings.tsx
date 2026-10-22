@@ -59,6 +59,7 @@ export function FormulaSettings({
                 control={control}
                 name={decimalsName}
                 label="Decimal places"
+                isCompact
                 min={0}
                 max={6}
             />

@@ -16,10 +16,9 @@ function Harness(props: Partial<NumberInputProps<Values>> & { initial?: number }
 
 const inputOf = (c: HTMLElement) => c.querySelector('rn-textinput') as HTMLInputElement
 const type = (c: HTMLElement, value: string) => fireEvent.input(inputOf(c), { target: { value } })
-const press = (c: HTMLElement, glyph: string) => {
-    const button = [...c.querySelectorAll('[role="button"], rn-pressable, button')].find(
-        el => el.textContent === glyph
-    )
+const NAMES = { '+': 'Increase N', '−': 'Decrease N' } as const
+const press = (c: HTMLElement, glyph: keyof typeof NAMES) => {
+    const button = c.querySelector(`[accessibilityLabel="${NAMES[glyph]}"]`)
     fireEvent.click(button as Element)
 }
 

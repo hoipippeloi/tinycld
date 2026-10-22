@@ -39,7 +39,7 @@ const inputValue = (c: HTMLElement, id: string) => (q(c, id) as HTMLInputElement
 
 const labelInput = () =>
     document.body.querySelector(
-        'rn-textinput[accessibilityLabel="Column label"]'
+        'rn-textinput[accessibilityLabel^="Name the"]'
     ) as HTMLElement | null
 
 /** Add column → a kind → the label prompt → Add. */
@@ -51,6 +51,14 @@ async function addColumn(container: HTMLElement, kind: string, label: string) {
     })
     await act(async () => {
         fireEvent.click(screen.getByText('Add'))
+    })
+}
+
+/** Remove asks first: click the column's remove, then the dialog's Remove. */
+async function removeColumn(container: HTMLElement, key: string) {
+    await click(container, `form-column-${key}-remove`)
+    await act(async () => {
+        fireEvent.click(screen.getByText('Remove'))
     })
 }
 
@@ -124,12 +132,22 @@ describe('ColumnsEditor', () => {
 
     it('removes a column but always keeps one', async () => {
         const { container } = render(<Harness fieldKey="parts" />)
-        await click(container, 'form-column-item-remove')
-        await click(container, 'form-column-qty-remove')
-        await click(container, 'form-column-price-remove')
+        await removeColumn(container, 'item')
+        await removeColumn(container, 'qty')
+        await removeColumn(container, 'price')
         expect(keys()).toEqual(['total'])
         await click(container, 'form-column-total-remove')
+        expect(screen.queryByText('Remove')).toBeNull()
         expect(keys()).toEqual(['total'])
+    })
+
+    it('keeps the column when the removal is cancelled', async () => {
+        const { container } = render(<Harness fieldKey="parts" />)
+        await click(container, 'form-column-item-remove')
+        await act(async () => {
+            fireEvent.click(screen.getByText('Cancel'))
+        })
+        expect(keys()).toEqual(['item', 'qty', 'price', 'total'])
     })
 
     it("keeps a column's error on that column when it moves", async () => {
