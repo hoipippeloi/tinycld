@@ -1,6 +1,6 @@
 # Help topic images: how a package ships them
 
-Status: decided 2026-10-21. Needs sign-off before the PR merges (core change, requested by the Books spec).
+Status: decided 2026-10-21. Needs sign-off before the PR merges (core change, requested by the gizmos spec).
 
 ## Question
 
@@ -14,7 +14,7 @@ How does a package's `help/*.md` reference an image stored in its own `help/` di
 
 ## Decision
 
-- The generator writes `export const helpImages: Record<string, number | string | { uri: string }>` into `lib/generated/package-help.ts`. Key: `<pkgSlug>/<path relative to help/>`, for example `books/images/invoices-1.png`. The value is what `require()` yields: an asset id on native (resolved with `Image.resolveAssetSource`), and `{ uri, width, height }` on web, where react-native-web has no `Image.resolveAssetSource`.
+- The generator writes `export const helpImages: Record<string, number | string | { uri: string }>` into `lib/generated/package-help.ts`. Key: `<pkgSlug>/<path relative to help/>`, for example `gizmos/images/widgets-1.png`. The value is what `require()` yields: an asset id on native (resolved with `Image.resolveAssetSource`), and `{ uri, width, height }` on web, where react-native-web has no `Image.resolveAssetSource`.
 - Markdown references are relative to `help/`: `![alt](images/invoices-1.png)`. A leading `./` is allowed. Absolute URLs (`https:`, `data:`, `/x`) pass through untouched. Any `..` segment, or a reference to a missing file, fails generation.
 - Dark mode: if `x.dark.png` ships next to `x.png`, the renderer uses it when the resolved app theme is dark. Authors write only `x.png`.
 - Resolution happens in `HelpTopicView` through the existing `MarkdownRenderer` `transformImageUri` prop. `MarkdownRenderer` itself does not change.
