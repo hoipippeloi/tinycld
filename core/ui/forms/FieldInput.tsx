@@ -7,7 +7,7 @@ import type {
     FormHostUi,
 } from '@tinycld/core/lib/forms/host-ui'
 import type { FormValues } from '@tinycld/core/lib/forms/logic'
-import { type ChecklistItem, resolveKind } from '@tinycld/core/lib/forms/values'
+import { type ChecklistItem, resolveKind, tableColumnsOf } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
@@ -28,6 +28,7 @@ import { DateField } from './fields/DateField'
 import { FileField } from './fields/FileField'
 import { formatComputed } from './fields/format-computed'
 import { RichTextField } from './fields/RichTextField'
+import { TableField } from './fields/TableField'
 import { UserField } from './fields/UserField'
 
 export interface FieldInputProps {
@@ -636,6 +637,26 @@ function HostComputed(props: KindProps) {
     )
 }
 
+function TableKind(props: KindProps) {
+    const { host, ui, field, control, mode, recordId, resolved, testID, label } = props
+    const columns = tableColumnsOf(host, field) ?? []
+    return (
+        <TableField
+            ui={ui}
+            name={field.key}
+            label={label}
+            columns={columns}
+            control={control}
+            mode={mode}
+            recordId={recordId}
+            containerWidth={props.containerWidth ?? 0}
+            computedRows={props.computed?.[field.key]}
+            isHostTable={resolved.builtin?.storage === 'rows'}
+            testID={testID}
+        />
+    )
+}
+
 function KindInput(props: KindProps) {
     const { field, control, resolved, disabled, testID, label } = props
     switch (resolved.kind) {
@@ -690,6 +711,8 @@ function KindInput(props: KindProps) {
         case 'markdown':
         case 'richtext':
             return <RichTextKind {...props} />
+        case 'table':
+            return <TableKind {...props} />
         case 'computed':
             return <ComputedKind {...props} />
         default:

@@ -33,6 +33,9 @@ const knownIcons = {
     ArchiveRestore: Icon,
     GripVertical: Icon,
     Star: Icon,
+    // Table row reorder buttons (core/ui/forms/fields/TableField.tsx)
+    ArrowDown: Icon,
+    ArrowUp: Icon,
     // Toolbar icons (core/tests/unit/responsive-toolbar.test.tsx)
     Bold: Icon,
     EllipsisVertical: Icon,
