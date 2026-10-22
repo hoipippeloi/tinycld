@@ -40,4 +40,13 @@ describe('useFormState computed values', () => {
         expect(result.current.computed.total_qty).toBe(6)
         expect(result.current.state.fields.big_note.visible).toBe(true)
     })
+
+    it('reacts to an edit of one nested cell', () => {
+        const { result } = renderHook(useHarness)
+        // FormValues types nested paths as undefined, so a cell edit goes through a loosened signature.
+        const setCell = result.current.form.setValue as (name: string, value: unknown) => void
+        act(() => setCell('parts.0.qty', 6))
+        expect(result.current.computed.total_qty).toBe(6)
+        expect(result.current.state.fields.big_note.visible).toBe(true)
+    })
 })
