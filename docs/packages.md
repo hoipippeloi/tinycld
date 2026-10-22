@@ -281,7 +281,7 @@ export default manifest
 | `slots[]` | Names of sidebar slots this package exposes for *other* packages to render into. Free-form strings; duplicates within one manifest are a generator error. Render with `<SidebarSlot target="<this-slug>" slot="<name>" />` from `@tinycld/core/components/sidebar-primitives`. |
 | `sidebarContributions[]` | Inverse of `slots`: this package's contributions into *another* package's slot. Each `{ target, slot, component, order?, label? }` is generator-validated. `label` names the contribution where the host lays the slot out as tabs. `target: 'core'` renders into a slot core owns (see [Setup wizard steps](#setup-wizard-steps-setupsteps)). |
 | `setupSteps[]` | Steps this package adds to the first-run setup wizard (`id`, `label`, `module`, `order?`). See [Setup wizard steps](#setup-wizard-steps-setupsteps) below. |
-| `help.directory` | `<id>.md` topics surfaced in the in-app help hub. |
+| `help.directory` | `<id>.md` topics and any images they reference (relative to the directory) surfaced in the in-app help hub. |
 | `seed.script` | Dev sample-data function. |
 | `server` | Go server extension: `package` is the subdir, `module` is its Go module path. The module exports ONE entry point, `Register(app *pocketbase.PocketBase)`, called by the generated registrar — the same call in every composition. |
 | `ports[]` | Public TCP ports this package's server code listens on: `{ name, port, addrEnv?, enabled? }`. `name` is the stable name the server code asks for (`[a-z0-9-]+`, and not one of the reserved names `http` / `https` / `http-redirect`, which the supervisor uses for its own listeners). `addrEnv` names an env var that overrides the listen address; `enabled` (`{ env, default }`) names an env var that turns the port on or off. Generator-validated for duplicate names/ports across packages and materialized to `server/ports.json`; the supervisor that holds the public ports binds each one once and passes it to the server child. |
@@ -295,6 +295,20 @@ export default manifest
 | `build.script` | A build script run before bundling (e.g. an embedded webview bundle). |
 | `dependencies[]` | A **slug-only** list of other packages — **advisory + seed-ordering only.** Used to topologically sort seed execution and as a soft hint; it imposes **no** version constraint and is never a compile-time import. |
 | `peerVersions` | `{ '<slug or @tinycld/core>': '<semver range>' }` (e.g. `{ '@tinycld/core': '>=2.1 <3' }`) — **enforced** semver ranges keyed by slug. See [`dependencies` vs `peerVersions`](#dependencies-vs-peerversions) below. |
+
+#### Help screenshots (contract; not yet implemented)
+
+A package regenerates its help images with one command, run inside the member:
+
+```sh
+pnpm exec tinycld-pkg help:screenshots [--topic <topic-id>]
+```
+
+- **Lives in:** a new verb `help:screenshots` in `tinycld/package-scripts/src/cli.ts` (`Verb` in `targets.ts`, runner in `runners.ts`), so it works for any member and uses the same discovery as `test:e2e`.
+- **Input:** `<member>/help/screenshots.ts`. Its default export is `{ [topicId: string]: Shot[] }`. A `Shot` is `{ name: string; setup: (page: Page) => Promise<void>; target?: string }`. `setup` drives the real UI with the helpers from `@tinycld/core/e2e-helpers` (`login`, `navigateToPackage`, `clickSidebarItem`) and must not write data through raw PocketBase calls. `target` is an optional locator to clip to, otherwise the viewport.
+- **Output:** for each shot, `help/images/<name>.png` (light) and `help/images/<name>.dark.png` (dark), where `<name>` follows `<topic-id>-<n>`. The same `setup` runs twice, once per `colorScheme`.
+- **Data:** it runs against the seeded e2e server; the script never seeds by itself.
+- **Not in scope of the core change:** the generator and renderer only consume the files this command writes.
 
 ### `dependencies` vs `peerVersions`
 
