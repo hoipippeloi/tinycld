@@ -1,8 +1,17 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type { UseFormReturn } from 'react-hook-form'
+import { AccessibilityInfo, Platform, Pressable, Text } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { gizmos, partsDefinition, rowA, rowB } from '../../../lib/forms/__tests__/table-fixtures'
+import {
+    gizmos,
+    orderDefinition,
+    orderFormHost,
+    partsDefinition,
+    rowA,
+    rowB,
+} from '../../../lib/forms/__tests__/table-fixtures'
+import type { BuiltinFieldProps } from '../../../lib/forms/host-ui'
 import type { FormValues } from '../../../lib/forms/logic'
 import { byTestId, rowIdsOf, TableHarness } from './table-harness'
 
@@ -112,5 +121,111 @@ describe('TableField', () => {
     it('says so when there are no rows', () => {
         const { container } = setUp([])
         expect(byTestId(container, 'form-table-parts-empty').textContent).toBe('No rows yet.')
+    })
+})
+
+/** Picks an item and, in the same press, sets the row's rate, as a product picker does. */
+function ItemCell({ value, onChange, table }: BuiltinFieldProps) {
+    const pick = () => {
+        onChange('Widget')
+        table?.onRowChange({ rate: 9 })
+    }
+    return (
+        <Pressable onPress={pick} testID={`pick-${table?.rowIndex}`}>
+            <Text>{String(value ?? '')}</Text>
+        </Pressable>
+    )
+}
+
+describe('TableField writes', () => {
+    it('keeps a cell change and a row change made in one handler', () => {
+        const formRef: { current: UseFormReturn<FormValues> | null } = { current: null }
+        const line = { id: 'l1', item: null, qty: 1, rate: null }
+        const { container } = render(
+            <TableHarness
+                host={orderFormHost}
+                definition={orderDefinition}
+                ui={{ components: { ItemCell } }}
+                initialValues={{ name: 'N', lines: [line] }}
+                formRef={formRef}
+            />
+        )
+        fireEvent.click(byTestId(container, 'pick-0'))
+        expect(formRef.current?.getValues('lines')).toEqual([{ ...line, item: 'Widget', rate: 9 }])
+    })
+
+    it('keeps both moves when two presses land before a re-render', () => {
+        const third = { ...rowB, id: 'c', label: 'C' }
+        const { container, rowsNow } = setUp([rowA, rowB, third])
+        const down = byTestId(container, 'form-table-parts-a-down')
+        act(() => {
+            down.click()
+            down.click()
+        })
+        expect(rowsNow()).toEqual([rowB, third, rowA])
+    })
+
+    it('keeps both rows when Add row is pressed twice before a re-render', () => {
+        const { container, rowsNow } = setUp()
+        const add = byTestId(container, 'form-table-parts-add')
+        act(() => {
+            add.click()
+            add.click()
+        })
+        expect(rowsNow()).toHaveLength(4)
+    })
+
+    it('removes both rows when two removes land before a re-render', () => {
+        const { container, rowsNow } = setUp()
+        const removeA = byTestId(container, 'form-table-parts-a-remove')
+        const removeB = byTestId(container, 'form-table-parts-b-remove')
+        act(() => {
+            removeA.click()
+            removeB.click()
+        })
+        expect(rowsNow()).toEqual([])
+    })
+})
+
+describe('TableField cell labels', () => {
+    it('names a toggle cell by its column and row, without repeating the header', () => {
+        const { container } = setUp()
+        const cell = byTestId(container, 'form-table-parts-b-done')
+        expect(cell.querySelector('[accessibilityLabel="Done, row 2"]')).not.toBeNull()
+        expect(cell.textContent).toBe('')
+    })
+
+    it('names a select cell by its column and row, without repeating the header', () => {
+        const { container } = setUp()
+        const cell = byTestId(container, 'form-table-parts-b-size')
+        expect(cell.querySelector('[accessibilityLabel="Size, row 2"]')).not.toBeNull()
+        expect(cell.textContent).toBe('SmallLarge')
+    })
+})
+
+describe('TableField focus on native', () => {
+    const realOS = Platform.OS
+    afterEach(() => {
+        Object.assign(Platform, { OS: realOS })
+    })
+
+    it('puts the screen reader on the moved row and on Add row after a remove', async () => {
+        Object.assign(Platform, { OS: 'ios' })
+        const send = vi.spyOn(AccessibilityInfo, 'sendAccessibilityEvent')
+        const { container } = setUp()
+        fireEvent.click(byTestId(container, 'form-table-parts-a-down'))
+        await waitFor(() =>
+            expect(send).toHaveBeenLastCalledWith(
+                byTestId(container, 'form-table-parts-a-up'),
+                'focus'
+            )
+        )
+        fireEvent.click(byTestId(container, 'form-table-parts-b-remove'))
+        await waitFor(() =>
+            expect(send).toHaveBeenLastCalledWith(
+                byTestId(container, 'form-table-parts-add'),
+                'focus'
+            )
+        )
     })
 })

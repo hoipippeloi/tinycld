@@ -19,6 +19,7 @@ import {
 } from '@tinycld/core/ui/form'
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react-native'
 import type { ComponentType } from 'react'
+import type { UseFormGetValues } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { DateField } from './DateField'
 import { formatComputed } from './format-computed'
@@ -30,6 +31,7 @@ export interface TableFieldProps {
     label: string
     columns: readonly HostTableColumn[]
     control: Control<FormValues>
+    getValues: UseFormGetValues<FormValues>
     mode: FieldMode
     recordId?: string
     containerWidth: number
@@ -206,7 +208,8 @@ function CellInput(props: CellProps) {
                 <Toggle
                     control={base.control}
                     name={name}
-                    label={column.label}
+                    label={label}
+                    hideLabel
                     disabled={disabled}
                     wrapperProps={{ testID }}
                 />
@@ -226,7 +229,8 @@ function CellInput(props: CellProps) {
                 <SelectInput
                     control={base.control}
                     name={name}
-                    label={column.label}
+                    label={label}
+                    hideLabel
                     options={column.options}
                     horizontal
                     disabled={disabled}
@@ -356,7 +360,6 @@ function GridRow(props: RowProps) {
     return (
         <View
             testID={`${base.ids}-row-${row.id}`}
-            accessibilityLabel={`Row ${index + 1}`}
             className="flex-row items-start gap-2 py-1 border-b border-border"
         >
             {cells}
@@ -431,6 +434,7 @@ export function TableField(props: TableFieldProps) {
     const isEditable = mode === 'create' || mode === 'edit'
     const table = useTableField({
         control: props.control,
+        getValues: props.getValues,
         name,
         columns: props.columns,
         computedRows: props.computedRows,

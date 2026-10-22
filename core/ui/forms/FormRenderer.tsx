@@ -146,6 +146,7 @@ function Cell(props: CellProps) {
                 ui={ui}
                 field={field}
                 control={form.control}
+                getValues={form.getValues}
                 mode={mode}
                 recordId={recordId}
                 options={fieldState?.options}
@@ -334,6 +335,7 @@ function pageRowElement(
                     ui={props.ui}
                     field={row.field}
                     control={props.form.control}
+                    getValues={props.form.getValues}
                     mode={props.mode}
                     recordId={props.recordId}
                     collab={props.collab}

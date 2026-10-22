@@ -35,13 +35,14 @@ function Harness({
     initial = {},
     ui = null,
 }: HarnessProps) {
-    const { control } = useForm<FormValues>({ defaultValues: initial })
+    const { control, getValues } = useForm<FormValues>({ defaultValues: initial })
     return (
         <FieldInput
             host={host}
             ui={ui}
             field={field}
             control={control}
+            getValues={getValues}
             mode={mode}
             computed={computed}
         />

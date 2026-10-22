@@ -10,6 +10,8 @@ export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = 
     name: Path<T>
     control: Control<T>
     label: string
+    /** Keeps `label` as the group's accessible name but does not draw it, as in a table cell under its header. */
+    hideLabel?: boolean
     options: SelectOption[]
     hint?: string
     /** The caller renders the error itself (a form cell does), so the input only colours its border. */
@@ -23,6 +25,7 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     name,
     control,
     label,
+    hideLabel = false,
     options,
     hint,
     hideError = false,
@@ -39,7 +42,9 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
 
     return (
         <View className="gap-1.5 mb-3" {...wrapperProps}>
-            {label ? <Text className="text-sm font-semibold text-foreground">{label}</Text> : null}
+            {label && !hideLabel ? (
+                <Text className="text-sm font-semibold text-foreground">{label}</Text>
+            ) : null}
             <View
                 accessibilityRole="radiogroup"
                 accessibilityLabel={label}

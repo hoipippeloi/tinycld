@@ -22,6 +22,7 @@ import {
 } from '@tinycld/core/ui/form'
 import { CheckSquare, Square } from 'lucide-react-native'
 import type { ComponentType, ReactElement } from 'react'
+import type { UseFormGetValues } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { ChecklistField } from './fields/ChecklistField'
 import { DateField } from './fields/DateField'
@@ -36,6 +37,8 @@ export interface FieldInputProps {
     ui: FormHostUi | null
     field: FormField
     control: Control<FormValues>
+    /** Reads the form's values when a write runs; a table builds its next rows from them. */
+    getValues: UseFormGetValues<FormValues>
     mode: FieldMode
     recordId?: string
     /** Options from a set_options rule, overriding the field's own. */
@@ -638,7 +641,7 @@ function HostComputed(props: KindProps) {
 }
 
 function TableKind(props: KindProps) {
-    const { host, ui, field, control, mode, recordId, resolved, testID, label } = props
+    const { host, ui, field, control, getValues, mode, recordId, resolved, testID, label } = props
     const columns = tableColumnsOf(host, field) ?? []
     return (
         <TableField
@@ -647,6 +650,7 @@ function TableKind(props: KindProps) {
             label={label}
             columns={columns}
             control={control}
+            getValues={getValues}
             mode={mode}
             recordId={recordId}
             containerWidth={props.containerWidth ?? 0}
