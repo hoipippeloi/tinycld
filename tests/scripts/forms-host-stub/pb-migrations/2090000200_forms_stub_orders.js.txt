@@ -1,0 +1,73 @@
+/// <reference path="../../tinycld/server/pb_data/types.d.ts" />
+// E2E fixture: the collections behind the forms-stub:order host and its table rows.
+const SIGNED_IN = '@request.auth.id != ""'
+
+const RULES = {
+    listRule: SIGNED_IN,
+    viewRule: SIGNED_IN,
+    createRule: SIGNED_IN,
+    updateRule: SIGNED_IN,
+    deleteRule: SIGNED_IN,
+}
+
+const stamps = prefix => [
+    { id: `${prefix}_created`, name: 'created', type: 'autodate', onCreate: true, onUpdate: false },
+    { id: `${prefix}_updated`, name: 'updated', type: 'autodate', onCreate: true, onUpdate: true },
+]
+
+migrate(
+    app => {
+        const forms = app.findCollectionByNameOrId('forms')
+        const orders = new Collection({
+            id: 'pbc_forms_stub_orders',
+            name: 'forms_stub_orders',
+            type: 'base',
+            system: false,
+            ...RULES,
+            fields: [
+                { id: 'fso_name', name: 'name', type: 'text', required: true, max: 200 },
+                { id: 'fso_subtotal', name: 'subtotal', type: 'number' },
+                {
+                    id: 'fso_form',
+                    name: 'form',
+                    type: 'relation',
+                    collectionId: forms.id,
+                    cascadeDelete: false,
+                    maxSelect: 1,
+                },
+                { id: 'fso_fields', name: 'fields', type: 'json', maxSize: 1000000 },
+                ...stamps('fso'),
+            ],
+        })
+        app.save(orders)
+        const lines = new Collection({
+            id: 'pbc_forms_stub_order_lines',
+            name: 'forms_stub_order_lines',
+            type: 'base',
+            system: false,
+            ...RULES,
+            fields: [
+                {
+                    id: 'fsol_order',
+                    name: 'order',
+                    type: 'relation',
+                    collectionId: orders.id,
+                    cascadeDelete: true,
+                    maxSelect: 1,
+                    required: true,
+                },
+                { id: 'fsol_position', name: 'position', type: 'number' },
+                { id: 'fsol_item', name: 'item', type: 'text', max: 200 },
+                { id: 'fsol_qty', name: 'qty', type: 'number' },
+                { id: 'fsol_rate', name: 'rate', type: 'number' },
+                { id: 'fsol_amount', name: 'amount', type: 'number' },
+                ...stamps('fsol'),
+            ],
+        })
+        app.save(lines)
+    },
+    app => {
+        app.delete(app.findCollectionByNameOrId('forms_stub_order_lines'))
+        app.delete(app.findCollectionByNameOrId('forms_stub_orders'))
+    }
+)

@@ -1,0 +1,46 @@
+import type { BuiltinFieldProps, FormHostUi } from '@tinycld/core/lib/forms/host-ui'
+import { Pressable, Text, View } from 'react-native'
+
+const ITEMS = [
+    { value: 'widget', label: 'Widget', rate: 5 },
+    { value: 'gadget', label: 'Gadget', rate: 7.5 },
+]
+
+type Item = (typeof ITEMS)[number]
+
+const choiceClass = (isChosen: boolean) =>
+    isChosen
+        ? 'border border-primary rounded-md px-2 py-1'
+        : 'border border-border rounded-md px-2 py-1'
+
+/** The Item cell: picking an item also sets the row's rate, through the table context. */
+function ItemPicker({ value, onChange, disabled, label, table }: BuiltinFieldProps) {
+    const pick = (item: Item) => {
+        if (table) table.onRowChange({ item: item.value, rate: item.rate })
+        else onChange(item.value)
+    }
+    const rowId = table?.row.id ?? 'field'
+    const choices = ITEMS.map(item => (
+        <Pressable
+            key={item.value}
+            onPress={() => pick(item)}
+            disabled={disabled}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: value === item.value, disabled }}
+            accessibilityLabel={item.label}
+            testID={`forms-stub-item-${rowId}-${item.value}`}
+            className={choiceClass(value === item.value)}
+        >
+            <Text className="text-foreground text-sm">{item.label}</Text>
+        </Pressable>
+    ))
+    return (
+        <View accessibilityRole="radiogroup" accessibilityLabel={label} className="flex-row gap-1">
+            {choices}
+        </View>
+    )
+}
+
+const ui: FormHostUi = { components: { ItemPicker } }
+
+export default ui

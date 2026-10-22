@@ -1,0 +1,20 @@
+import type { TableRowMapper } from '@tinycld/core/lib/forms/table-rows'
+import type { Schema } from '@tinycld/core/types/pbSchema'
+
+export type LineRecord = Schema['forms_stub_order_lines']['type']
+type LineFields = Pick<LineRecord, 'position' | 'item' | 'qty' | 'rate' | 'amount'>
+
+const numberOf = (value: unknown) => (typeof value === 'number' ? value : 0)
+
+/** The Order host's rows: one forms_stub_order_lines record per table row. */
+export const lineMapper: TableRowMapper<LineRecord, LineFields> = {
+    toRow: line => ({ item: line.item, qty: line.qty, rate: line.rate, amount: line.amount }),
+    positionOf: line => line.position,
+    toRecord: (row, position) => ({
+        position,
+        item: typeof row.item === 'string' ? row.item : '',
+        qty: numberOf(row.qty),
+        rate: numberOf(row.rate),
+        amount: numberOf(row.amount),
+    }),
+}
