@@ -29,11 +29,13 @@ Some records have a **table**, such as the lines of an order. Each row of a
 table has the same columns.
 
 - To add a row, select **Add row** below the table.
-- To remove a row, select the remove button at the end of the row.
-- To move a row, select **Move up** or **Move down** on the row. With a
-  keyboard, press Tab to go to the button, then press Enter or Space. The
-  focus stays on the row, so you can press the key again to move the row
-  more.
+- To remove a row, select the trash button at the end of the row. Its label
+  is "Remove row N", where N is the number of the row.
+- To move a row, select the up arrow button ("Move row N up") or the down
+  arrow button ("Move row N down") at the end of the row. The first row
+  cannot move up, and the last row cannot move down. With a keyboard, press
+  Tab to go to the button, then press Enter or Space. The focus stays on the
+  row, so you can press the key again to move the row more.
 
 A star after a column name shows a required column. If a required cell is
 empty when you save, the form shows an error below that cell. On a phone,
