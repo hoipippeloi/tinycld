@@ -39,7 +39,16 @@ export function toDraft(definition: FormDefinition): DraftDefinition {
 }
 
 // A cleared optional input holds '' rather than nothing; the schema wants the prop absent.
-const CLEARABLE = new Set(['description', 'placeholder', 'min', 'max', 'step', 'maxLength', 'rows'])
+const CLEARABLE = new Set([
+    'description',
+    'placeholder',
+    'min',
+    'max',
+    'step',
+    'maxLength',
+    'rows',
+    'decimals',
+])
 
 function withoutCleared<F extends object>(field: F): F {
     const kept = Object.entries(field).filter(

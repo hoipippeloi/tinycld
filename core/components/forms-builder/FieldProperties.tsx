@@ -1,4 +1,6 @@
 import {
+    type FormulaOperands,
+    fieldOperands,
     kindOf,
     moveField,
     type Removed,
@@ -13,6 +15,7 @@ import { NumberInput, RadioInput, TextInput, Toggle, useWatch } from '@tinycld/c
 import { useState } from 'react'
 import { Text, View } from 'react-native'
 import { DefaultPicker } from './DefaultPicker'
+import { FormulaSettings } from './FormulaSettings'
 import { OptionsEditor } from './OptionsEditor'
 import { PickMenu } from './rule-parts'
 import { orderOf, positionOf } from './use-canvas-drag'
@@ -53,6 +56,7 @@ const DISPLAY_OPTIONS = [
 const NO_PLACEHOLDER = new Set(['table', 'computed'])
 /** A calculated value is never typed in, so the record cannot require it. */
 const NO_REQUIRED = new Set(['computed'])
+const NO_OPERANDS: FormulaOperands = { values: [], tables: [] }
 
 export interface FieldPropertiesProps {
     editor: Editor
@@ -71,11 +75,13 @@ function ReadOnlyRow({ label, value, testID }: { label: string; value: string; t
 interface KindSectionProps {
     editor: Editor
     index: number
+    fieldKey: string
     kind: string
+    operands: FormulaOperands
     isVisible: boolean
 }
 
-function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
+function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: KindSectionProps) {
     const { control } = editor.form
     if (!isVisible) return null
     switch (kind) {
@@ -176,6 +182,18 @@ function KindSection({ editor, index, kind, isVisible }: KindSectionProps) {
                     disabled={!editor.host?.collaborative}
                 />
             )
+        case 'computed':
+            return (
+                <FormulaSettings
+                    key={fieldKey}
+                    editor={editor}
+                    name={`fields.${index}.expression`}
+                    decimalsName={`fields.${index}.decimals`}
+                    operands={operands}
+                    valueNoun="Field"
+                    testID="form-formula"
+                />
+            )
         default:
             return null
     }
@@ -202,6 +220,7 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
     const builtin = host && field?.kind === 'builtin' ? findBuiltin(host, fieldKey) : undefined
     const draft = { ...editor.form.getValues(), fields }
     const kind = host ? (kindOf(draft, host, fieldKey) ?? 'text') : 'text'
+    const operands = host ? fieldOperands(draft, host, fieldKey) : NO_OPERANDS
     // The delete confirm is local UI state.
     const [isConfirming, setIsConfirming] = useState(false)
     const message = removalMessage(isConfirming ? referencesOf(draft, fieldKey) : null)
@@ -209,7 +228,17 @@ function useFieldProperties(editor: Editor, fieldKey: string) {
         setIsConfirming(false)
         editor.applyRemoval(def => removeField(def, fieldKey))
     }
-    return { index, field, builtin, kind, isConfirming, setIsConfirming, message, remove }
+    return {
+        index,
+        field,
+        builtin,
+        kind,
+        operands,
+        isConfirming,
+        setIsConfirming,
+        message,
+        remove,
+    }
 }
 
 /**
@@ -404,7 +433,14 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 hint={isHostRequired ? 'Required by the record' : undefined}
             />
             <DefaultPicker editor={editor} fieldKey={fieldKey} kind={p.kind} />
-            <KindSection editor={editor} index={i} kind={p.kind} isVisible={isCustom} />
+            <KindSection
+                editor={editor}
+                index={i}
+                fieldKey={fieldKey}
+                kind={p.kind}
+                operands={p.operands}
+                isVisible={isCustom}
+            />
             <DeleteSection
                 isVisible={isCustom}
                 isConfirming={p.isConfirming}
