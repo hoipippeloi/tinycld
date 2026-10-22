@@ -80,6 +80,7 @@ function NewOrder({ host, onDone }: { host: FormHost; onDone: () => void }) {
     const context = useEvalContext()
     const ui = useHostUi(host)
     const create = useFormCreate(host, undefined, context)
+    const lineColumns = host.builtin.find(b => b.key === 'lines')?.columns ?? []
     const [ordersCollection, linesCollection] = useStore(
         'forms_stub_orders',
         'forms_stub_order_lines'
@@ -94,7 +95,7 @@ function NewOrder({ host, onDone }: { host: FormHost; onDone: () => void }) {
                 form: create.formId,
                 fields: split.fields,
             })
-            const plan = planTableWrites([], split.tables.lines ?? [])
+            const plan = planTableWrites([], split.tables.lines ?? [], lineColumns)
             for (const { row, position } of plan.insert)
                 yield linesCollection.insert({
                     id: row.id,
