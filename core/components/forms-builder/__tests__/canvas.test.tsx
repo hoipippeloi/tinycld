@@ -277,4 +277,24 @@ describe('Canvas', () => {
         expect(q(container, 'form-canvas')).toBeTruthy()
         expect(q(container, 'form-field-severity')).toBeTruthy()
     })
+
+    it('adds a table with one column and a calculated value from Add field', async () => {
+        const { baseElement } = render(<Harness />)
+        await addField(baseElement, 'table', 'Parts')
+        expect(editor?.form.getValues('fields').at(-1)).toMatchObject({
+            key: 'parts',
+            kind: 'table',
+            columns: [{ key: 'item', kind: 'text', label: 'Item' }],
+        })
+        // The design canvas draws the table's column header.
+        expect(q(baseElement, 'form-table-parts-head-item')).toBeTruthy()
+        await addField(baseElement, 'computed', 'Total')
+        expect(editor?.form.getValues('fields').at(-1)).toMatchObject({
+            key: 'total',
+            kind: 'computed',
+            expression: 0,
+            decimals: 0,
+        })
+        expect(q(baseElement, 'form-input-total')?.textContent).toBe('Calculated')
+    })
 })

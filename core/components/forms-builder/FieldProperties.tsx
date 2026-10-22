@@ -32,6 +32,8 @@ const KIND_LABELS: Record<string, string> = {
     richtext: 'Rich text',
     markdown: 'Markdown',
     file: 'File',
+    computed: 'Calculated value',
+    table: 'Table',
     custom: 'Built-in',
     section: 'Section',
 }
@@ -47,6 +49,10 @@ const DISPLAY_OPTIONS = [
     { value: 'radio', label: 'Radio buttons' },
     { value: 'checkbox', label: 'Checkboxes' },
 ]
+/** A table draws rows and a calculated value its result: neither shows a placeholder. */
+const NO_PLACEHOLDER = new Set(['table', 'computed'])
+/** A calculated value is never typed in, so the record cannot require it. */
+const NO_REQUIRED = new Set(['computed'])
 
 export interface FieldPropertiesProps {
     editor: Editor
@@ -320,6 +326,45 @@ function DeleteSection({
     )
 }
 
+function PlaceholderInput({
+    editor,
+    index,
+    isVisible,
+}: {
+    editor: Editor
+    index: number
+    isVisible: boolean
+}) {
+    if (!isVisible) return null
+    return (
+        <TextInput
+            control={editor.form.control}
+            name={`fields.${index}.placeholder`}
+            label="Placeholder"
+        />
+    )
+}
+
+interface RequiredToggleProps {
+    editor: Editor
+    index: number
+    isHostRequired: boolean
+    isVisible: boolean
+}
+
+function RequiredToggle({ editor, index, isHostRequired, isVisible }: RequiredToggleProps) {
+    if (!isVisible) return null
+    return (
+        <Toggle
+            control={editor.form.control}
+            name={`fields.${index}.required`}
+            label="Required"
+            disabled={isHostRequired}
+            hint={isHostRequired ? 'The record always needs it' : undefined}
+        />
+    )
+}
+
 export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
     const p = useFieldProperties(editor, fieldKey)
     const { control } = editor.form
@@ -337,7 +382,7 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 testID="form-prop-kind"
             />
             <TextInput control={control} name={`fields.${i}.description`} label="Description" />
-            <TextInput control={control} name={`fields.${i}.placeholder`} label="Placeholder" />
+            <PlaceholderInput editor={editor} index={i} isVisible={!NO_PLACEHOLDER.has(p.kind)} />
             <PlacementSection editor={editor} fieldKey={fieldKey} />
             <RadioInput
                 control={control}
@@ -345,12 +390,11 @@ export function FieldProperties({ editor, fieldKey }: FieldPropertiesProps) {
                 label="Width"
                 options={WIDTH_OPTIONS}
             />
-            <Toggle
-                control={control}
-                name={`fields.${i}.required`}
-                label="Required"
-                disabled={isHostRequired}
-                hint={isHostRequired ? 'The record always needs it' : undefined}
+            <RequiredToggle
+                editor={editor}
+                index={i}
+                isHostRequired={isHostRequired}
+                isVisible={!NO_REQUIRED.has(p.kind)}
             />
             <Toggle
                 control={control}
