@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { computedIssues } from './computed-validation'
-import { CUSTOM_KINDS, columnSchema, type FormDefinition, keySchema } from './definition'
+import { CUSTOM_KINDS, type FormDefinition, hostColumnSchema, keySchema } from './definition'
 import { computeExprSchema } from './expression'
 
 export const BUILTIN_KINDS = [...CUSTOM_KINDS, 'custom', 'section'] as const
@@ -29,7 +29,7 @@ const builtinSchema = z
         expression: computeExprSchema.optional(),
         decimals: z.number().int().min(0).max(6).default(0),
         /** A table built-in: its columns. Rows live in the host's own collection. */
-        columns: z.array(columnSchema).min(1).optional(),
+        columns: z.array(hostColumnSchema).min(1).optional(),
     })
     .superRefine((b, ctx) => {
         if (b.kind === 'section' && b.storage !== 'none')

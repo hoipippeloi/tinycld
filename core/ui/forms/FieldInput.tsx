@@ -7,7 +7,7 @@ import type {
     FormHostUi,
 } from '@tinycld/core/lib/forms/host-ui'
 import type { FormValues } from '@tinycld/core/lib/forms/logic'
-import { type ChecklistItem, resolveKind } from '@tinycld/core/lib/forms/values'
+import { type ChecklistItem, resolveKind, tableColumnsOf } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
@@ -22,11 +22,14 @@ import {
 } from '@tinycld/core/ui/form'
 import { CheckSquare, Square } from 'lucide-react-native'
 import type { ComponentType, ReactElement } from 'react'
+import type { UseFormGetValues } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { ChecklistField } from './fields/ChecklistField'
 import { DateField } from './fields/DateField'
 import { FileField } from './fields/FileField'
+import { formatComputed } from './fields/format-computed'
 import { RichTextField } from './fields/RichTextField'
+import { TableField } from './fields/TableField'
 import { UserField } from './fields/UserField'
 
 export interface FieldInputProps {
@@ -34,6 +37,8 @@ export interface FieldInputProps {
     ui: FormHostUi | null
     field: FormField
     control: Control<FormValues>
+    /** Reads the form's values when a write runs; a table builds its next rows from them. */
+    getValues: UseFormGetValues<FormValues>
     mode: FieldMode
     recordId?: string
     /** Options from a set_options rule, overriding the field's own. */
@@ -41,6 +46,10 @@ export interface FieldInputProps {
     collab?: CollabDoc | null
     /** Enter in a single-line input; the wizard moves to the next page. */
     onSubmitEditing?: () => void
+    /** The width the form lays out in; a table shows its rows as cards when narrow. 0 is unmeasured. */
+    containerWidth?: number
+    /** The live computed values (`applyComputed` over the form); without them a computed field shows its stored value. */
+    computed?: FormValues
 }
 
 type Resolved = ReturnType<typeof resolveKind>
@@ -556,6 +565,102 @@ function DesignPlaceholder({ host }: { host: FormHost }) {
     )
 }
 
+function computedDecimals(resolved: Resolved): number {
+    if (resolved.custom?.kind === 'computed') return resolved.custom.decimals
+    return resolved.builtin?.decimals ?? 0
+}
+
+function ComputedText({
+    value,
+    decimals,
+    testID,
+    label,
+}: {
+    value: unknown
+    decimals: number
+    testID: string
+    label: string
+}) {
+    const text = formatComputed(value, decimals)
+    const tone = text ? 'text-foreground' : 'text-muted-foreground'
+    return (
+        <Text testID={testID} accessibilityLabel={label} className={`py-2 ${tone}`}>
+            {text || '—'}
+        </Text>
+    )
+}
+
+/** Read-only: the value updates as the fields it reads change. */
+function ComputedKind({ field, control, resolved, computed, mode, testID, label }: KindProps) {
+    const decimals = computedDecimals(resolved)
+    if (mode === 'design') {
+        return (
+            <Text testID={testID} className="py-2 text-muted-foreground">
+                Calculated
+            </Text>
+        )
+    }
+    if (computed) {
+        return (
+            <ComputedText
+                value={computed[field.key]}
+                decimals={decimals}
+                testID={testID}
+                label={label}
+            />
+        )
+    }
+    return (
+        <Uncontrolled<unknown>
+            name={field.key}
+            control={control}
+            render={value => (
+                <ComputedText value={value} decimals={decimals} testID={testID} label={label} />
+            )}
+        />
+    )
+}
+
+const ignoreChange = () => {}
+
+/** A host draws a computed built-in (as money, say) from the live value; it is never edited. */
+function HostComputed(props: KindProps) {
+    const Component = props.ui?.components[props.resolved.builtin?.component ?? '']
+    if (!Component) return null
+    return (
+        <Component
+            fieldKey={props.field.key}
+            label={props.field.label}
+            recordId={props.recordId}
+            value={props.computed?.[props.field.key]}
+            onChange={ignoreChange}
+            mode={props.mode}
+            disabled
+        />
+    )
+}
+
+function TableKind(props: KindProps) {
+    const { host, ui, field, control, getValues, mode, recordId, resolved, testID, label } = props
+    const columns = tableColumnsOf(host, field) ?? []
+    return (
+        <TableField
+            ui={ui}
+            name={field.key}
+            label={label}
+            columns={columns}
+            control={control}
+            getValues={getValues}
+            mode={mode}
+            recordId={recordId}
+            containerWidth={props.containerWidth ?? 0}
+            computedRows={props.computed?.[field.key]}
+            isHostTable={resolved.builtin?.storage === 'rows'}
+            testID={testID}
+        />
+    )
+}
+
 function KindInput(props: KindProps) {
     const { field, control, resolved, disabled, testID, label } = props
     switch (resolved.kind) {
@@ -610,6 +715,10 @@ function KindInput(props: KindProps) {
         case 'markdown':
         case 'richtext':
             return <RichTextKind {...props} />
+        case 'table':
+            return <TableKind {...props} />
+        case 'computed':
+            return <ComputedKind {...props} />
         default:
             return <Text className="text-muted-foreground">{field.label} has no input.</Text>
     }
@@ -633,6 +742,7 @@ export function FieldInput(props: FieldInputProps) {
         // A section is host chrome with no value of its own; it has nothing to show before the record exists.
         if (resolved.kind === 'section' && props.mode !== 'edit' && props.mode !== 'read')
             return null
+        if (resolved.kind === 'computed') return <HostComputed {...kindProps} />
         return <HostComponent {...kindProps} />
     }
     if (resolved.kind === 'section') return null

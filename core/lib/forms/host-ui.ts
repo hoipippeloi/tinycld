@@ -1,6 +1,17 @@
 import type { ComponentType } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
+import type { TableRow } from './values'
+
+/** Set when a host component draws one cell of a table built-in. */
+export interface TableCellContext {
+    columnKey: string
+    rowIndex: number
+    /** The row's current cells, computed cells filled. */
+    row: TableRow
+    /** Sets several cells of this row in one change, such as a rate picked with a product. */
+    onRowChange: (cells: Record<string, unknown>) => void
+}
 
 export interface CollabDoc {
     doc: Y.Doc
@@ -24,6 +35,8 @@ export interface BuiltinFieldProps {
     collab?: CollabDoc | null
     /** The fragment name resolved from the host's template, for a collaborative field. */
     fragment?: string
+    /** Only when the component draws a table cell: `value` and `onChange` are then the cell's. */
+    table?: TableCellContext
 }
 
 export interface FormHostUi {

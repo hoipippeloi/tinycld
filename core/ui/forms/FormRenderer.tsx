@@ -80,6 +80,7 @@ export interface FormRendererProps {
 
 interface BodyProps extends FormRendererProps {
     state: FormState
+    computed: FormValues
     containerWidth: number
     mode: FieldMode
     /** Enter in a single-line input; set by the wizard. */
@@ -145,11 +146,14 @@ function Cell(props: CellProps) {
                 ui={ui}
                 field={field}
                 control={form.control}
+                getValues={form.getValues}
                 mode={mode}
                 recordId={recordId}
                 options={fieldState?.options}
                 collab={collab}
                 onSubmitEditing={props.onSubmitEditing}
+                containerWidth={containerWidth}
+                computed={props.computed}
             />
         </FieldCell>
     )
@@ -331,6 +335,7 @@ function pageRowElement(
                     ui={props.ui}
                     field={row.field}
                     control={props.form.control}
+                    getValues={props.form.getValues}
                     mode={props.mode}
                     recordId={props.recordId}
                     collab={props.collab}
@@ -503,7 +508,7 @@ export function FormRenderer(props: FormRendererProps) {
     const { width, onLayout } = useContainerWidth()
     const mode = modeFor(layout, readOnly, recordId)
     const isEditable = mode === 'create' || mode === 'edit'
-    const { state, schema } = useFormState(
+    const { state, schema, computed } = useFormState(
         definition,
         host,
         form.control,
@@ -522,6 +527,7 @@ export function FormRenderer(props: FormRendererProps) {
             <Body
                 {...props}
                 state={state}
+                computed={computed}
                 containerWidth={width}
                 mode={mode}
                 onContainerLayout={onLayout}

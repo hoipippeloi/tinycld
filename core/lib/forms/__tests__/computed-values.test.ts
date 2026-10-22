@@ -54,7 +54,7 @@ describe('splitValues and mergeValues for computed and tables', () => {
         const record = { fields: { subtotal: 5, lines: [{ id: '1', qty: 1 }] } }
         const values = mergeValues(host, def, record)
         expect(values.subtotal).toBe(5)
-        expect(values.lines).toEqual([{ id: '1', qty: 1 }])
+        expect(values.lines).toEqual([{ id: '1', qty: 1, rate: null, taxable: null }])
     })
 })
 
