@@ -3,6 +3,7 @@ import { bugDefinition, widgetHost } from '../../__tests__/fixtures'
 import { definitionSchema } from '../../definition'
 import { defaultDefinitionFor } from '../../host'
 import { actionsFor, catalogFieldFor, kindOf, NO_VALUE_OPS, operatorsFor } from '../catalog'
+import { newCustomField } from '../draft'
 
 const def = definitionSchema.parse({
     ...defaultDefinitionFor(widgetHost),
@@ -71,5 +72,29 @@ describe('operatorsFor / actionsFor', () => {
     it('offers no set_value for a kind the builder has no value editor for', () => {
         for (const kind of ['checklist', 'file', 'custom'])
             expect(actionsFor(kind)).toEqual(['show', 'hide', 'require'])
+    })
+})
+
+describe('tables and calculated values in rules', () => {
+    const withCalc = definitionSchema.parse({
+        ...def,
+        fields: [
+            ...def.fields,
+            newCustomField('computed', 'Total', 'main', new Set()),
+            newCustomField('table', 'Parts', 'main', new Set()),
+        ],
+    })
+
+    it('compares a calculated value as a number', () => {
+        expect(catalogFieldFor(withCalc, widgetHost, 'total')).toEqual({
+            key: 'total',
+            label: 'Total',
+            type: 'number',
+        })
+    })
+
+    it('only shows or hides a calculated value, and sets no value on a table', () => {
+        expect(actionsFor('computed')).toEqual(['show', 'hide'])
+        expect(actionsFor('table')).toEqual(['show', 'hide', 'require'])
     })
 })
