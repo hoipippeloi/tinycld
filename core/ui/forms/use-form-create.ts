@@ -6,13 +6,29 @@ import {
     type FormValues,
 } from '@tinycld/core/lib/forms/logic'
 import { useFormsOfHost } from '@tinycld/core/lib/forms/use-forms-of-host'
-import { buildSchema, type SplitValues, splitValues } from '@tinycld/core/lib/forms/values'
+import {
+    buildSchema,
+    emptyTablesOf,
+    prepareValues,
+    type SplitValues,
+    splitValues,
+} from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { EMPTY_DEFINITION, EMPTY_STATE } from './empty-schema'
 import { formErrorHandler } from './form-error-handler'
 import { useSchemaRefResolver } from './use-schema-ref-resolver'
+
+/** A new record's starting values: no rows in each table, then the defaults, then the caller's. */
+function startingValues(
+    definition: FormDefinition,
+    host: FormHost,
+    context: EvalContext,
+    given: FormValues
+): FormValues {
+    return { ...emptyTablesOf(definition, host), ...applyDefaults(definition, context), ...given }
+}
 
 export function useFormCreate(
     host: FormHost,
@@ -35,9 +51,7 @@ export function useFormCreate(
     initial.current = initialValues
     const form = useForm<FormValues>({
         resolver,
-        defaultValues: definition
-            ? { ...applyDefaults(definition, context), ...initial.current }
-            : {},
+        defaultValues: definition ? startingValues(definition, host, context, initial.current) : {},
         mode: 'onSubmit',
     })
 
@@ -48,8 +62,8 @@ export function useFormCreate(
     useEffect(() => {
         if (!definition || !resolvedId || seededFormId.current === resolvedId) return
         seededFormId.current = resolvedId
-        form.reset({ ...applyDefaults(definition, context), ...initial.current })
-    }, [definition, resolvedId, form, context])
+        form.reset(startingValues(definition, host, context, initial.current))
+    }, [definition, resolvedId, form, context, host])
 
     const switchForm = (nextId: string) => {
         const next = forms.find(f => f.id === nextId)
@@ -59,7 +73,7 @@ export function useFormCreate(
         for (const f of next.definition.fields) {
             if (current[f.key] !== undefined && current[f.key] !== '') kept[f.key] = current[f.key]
         }
-        form.reset({ ...applyDefaults(next.definition, context), ...kept })
+        form.reset(startingValues(next.definition, host, context, kept))
         seededFormId.current = nextId
         setFormId(nextId)
     }
@@ -69,11 +83,11 @@ export function useFormCreate(
         schemaRef.current = buildSchema(
             definition,
             host,
-            evaluate(definition, form.getValues(), context)
+            evaluate(definition, prepareValues(definition, host, form.getValues()), context)
         )
         let out: SplitValues | null = null
         await form.handleSubmit(values => {
-            out = splitValues(host, definition, values)
+            out = splitValues(host, definition, prepareValues(definition, host, values))
         })()
         return out
     }
