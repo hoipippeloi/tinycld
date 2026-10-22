@@ -41,6 +41,10 @@ export interface FieldInputProps {
     collab?: CollabDoc | null
     /** Enter in a single-line input; the wizard moves to the next page. */
     onSubmitEditing?: () => void
+    /** The width the form lays out in; a table shows its rows as cards when narrow. 0 is unmeasured. */
+    containerWidth?: number
+    /** The live computed values (`applyComputed` over the form); without them a computed field shows its stored value. */
+    computed?: FormValues
 }
 
 type Resolved = ReturnType<typeof resolveKind>

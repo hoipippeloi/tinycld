@@ -1,3 +1,4 @@
+import { applyComputed } from '@tinycld/core/lib/forms/compute'
 import type { FormDefinition } from '@tinycld/core/lib/forms/definition'
 import { type EvalContext, evaluate, type FormValues } from '@tinycld/core/lib/forms/logic'
 import { buildSchema } from '@tinycld/core/lib/forms/values'
@@ -22,7 +23,9 @@ export function useFormState(
     setValue?: UseFormSetValue<FormValues>
 ) {
     const values = useWatch({ control }) as FormValues
-    const state = useMemo(() => evaluate(def, values, ctx), [def, values, ctx])
+    // Rules and the display read the computed values, so a rule on a total reacts as rows change.
+    const computed = useMemo(() => applyComputed(def, host, values), [def, host, values])
+    const state = useMemo(() => evaluate(def, computed, ctx), [def, computed, ctx])
     const schema = useMemo(() => buildSchema(def, host, state), [def, host, state])
     const previouslyActive = useRef<Set<string> | null>(null)
     if (previouslyActive.current === null) previouslyActive.current = new Set(state.activeRules)
@@ -49,7 +52,7 @@ export function useFormState(
         previouslyActive.current = new Set(state.activeRules)
     }, [state.activeRules])
 
-    return { state, schema }
+    return { state, schema, computed }
 }
 
 export type UseFormStateResult = ReturnType<typeof useFormState>
