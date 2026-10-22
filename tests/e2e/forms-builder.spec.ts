@@ -193,6 +193,23 @@ async function columnOrder(page: Page): Promise<string[]> {
     return ids.map(id => id.replace(/^form-column-/, '').replace(/-edit$/, ''))
 }
 
+/**
+ * Saves and waits for the server to store the definition. A disabled Save
+ * button alone does not show this: the button is also disabled while the
+ * write is pending, and a reload then would cancel it.
+ */
+async function saveForm(page: Page) {
+    const stored = page.waitForResponse(
+        response =>
+            response.url().includes('/api/collections/forms/records/') &&
+            response.request().method() === 'PATCH'
+    )
+    const save = page.getByTestId('form-save')
+    await save.click()
+    expect((await stored).ok()).toBe(true)
+    await expect(save).toBeDisabled()
+}
+
 test.describe('Forms builder', () => {
     test.skip(skipWithoutFormsStub(), 'forms-host-stub not scaffolded in this workspace')
 
@@ -290,9 +307,7 @@ test.describe('Forms builder', () => {
         await expect(affected.getByTestId('form-field-steps')).toContainText('Require')
 
         // Save, then reload: what was saved comes back.
-        const save = page.getByTestId('form-save')
-        await save.click()
-        await expect(save).toBeDisabled()
+        await saveForm(page)
         await page.reload()
         await expect(page.getByTestId('form-editor')).toBeVisible()
         await expect(canvas(page).getByTestId('form-field-severity')).toBeVisible()
@@ -366,9 +381,7 @@ test.describe('Forms builder', () => {
         await propControl(page, 'decimals').fill('2')
 
         // Save: the server checks the definition again. Then reload: it comes back.
-        const save = page.getByTestId('form-save')
-        await save.click()
-        await expect(save).toBeDisabled()
+        await saveForm(page)
         await page.reload()
         await expect(page.getByTestId('form-editor')).toBeVisible()
         await canvas(page)
