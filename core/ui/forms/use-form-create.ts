@@ -5,6 +5,7 @@ import {
     evaluate,
     type FormValues,
 } from '@tinycld/core/lib/forms/logic'
+import { completeTableRows } from '@tinycld/core/lib/forms/table-rows'
 import { useFormsOfHost } from '@tinycld/core/lib/forms/use-forms-of-host'
 import {
     buildSchema,
@@ -12,6 +13,8 @@ import {
     prepareValues,
     type SplitValues,
     splitValues,
+    type TableRow,
+    tableColumnsOf,
 } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useEffect, useRef, useState } from 'react'
@@ -71,7 +74,14 @@ export function useFormCreate(
         const current = form.getValues()
         const kept: FormValues = {}
         for (const f of next.definition.fields) {
-            if (current[f.key] !== undefined && current[f.key] !== '') kept[f.key] = current[f.key]
+            const value = current[f.key]
+            if (value === undefined || value === '') continue
+            const columns = tableColumnsOf(host, f)
+            // The new form's columns may differ; a missing cell would take a neighbour's value on a move.
+            kept[f.key] =
+                columns && Array.isArray(value)
+                    ? completeTableRows(columns, value as TableRow[])
+                    : value
         }
         form.reset(startingValues(next.definition, host, context, kept))
         seededFormId.current = nextId

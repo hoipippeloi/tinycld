@@ -5,7 +5,7 @@ import type { TableRow } from './values'
  * How a host keeps a table built-in's rows (`storage: 'rows'`) in its own
  * collection. Core never writes those rows. The host reads its records into
  * table rows with `tableRowsOf`, hands them to `useFormEdit`, and writes the
- * plan `patch()` returns (or `planTableWrites([], rows)` on create), mapping
+ * plan `patch()` returns (or `planTableWrites([], rows, columns)` on create), mapping
  * each row back with `toRecord`. Positions are dense indexes, 0 first: a host
  * that stores another numbering renumbers its rows before it relies on a plan.
  */
@@ -51,12 +51,13 @@ function sameCells(a: TableRow, b: TableRow, ignored: ReadonlySet<string>): bool
  * What the host writes so its rows match `after`; a row's position is its index
  * there. Computed `columns` are left out of the comparison: the form fills them
  * on every row, and a stored row may not hold them, so comparing them would
- * rewrite every row. A written row still carries its computed cells.
+ * rewrite every row. A written row still carries its computed cells. `columns`
+ * is required: a host that left it out would rewrite rows with stale computed cells.
  */
 export function planTableWrites(
     before: readonly TableRow[],
     after: readonly TableRow[],
-    columns: readonly TableColumn[] = []
+    columns: readonly TableColumn[]
 ): TableWritePlan {
     const computed = new Set(columns.filter(c => c.kind === 'computed').map(c => c.key))
     const stored = new Map(before.map((row, position) => [row.id, { row, position }] as const))

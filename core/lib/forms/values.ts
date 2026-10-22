@@ -281,6 +281,7 @@ export function mergeValues(
     }
     return out
 }
+
 /** A host table built-in: its rows live in the host's own collection. */
 export function isHostTable(host: FormHostDef, field: FormField): boolean {
     const { kind, builtin } = resolveKind(host, field)

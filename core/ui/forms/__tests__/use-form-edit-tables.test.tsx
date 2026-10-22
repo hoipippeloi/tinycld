@@ -100,6 +100,17 @@ describe('useFormEdit with a host table', () => {
         })
     })
 
+    it('a cleared number cell is null in tables while written keeps the raw empty string', async () => {
+        const { result } = renderHook(() => useFormEdit(orderFormHost, record, ctx, {}, tables))
+        act(() => result.current.form.setValue(qtyOf(0), '', { shouldDirty: true }))
+        let patch: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            patch = await result.current.patch()
+        })
+        expect(patch?.tables.lines?.[0].qty).toBeNull()
+        expect(patch?.written.lines).toEqual([{ ...a, qty: '' }, b])
+    })
+
     it('markSaved leaves a saved table clean', async () => {
         const { result } = renderHook(() => useFormEdit(orderFormHost, record, ctx, {}, tables))
         act(() => result.current.form.setValue(qtyOf(1), 4, { shouldDirty: true }))

@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { orderDefinition, orderFormHost } from '../../../lib/forms/__tests__/table-fixtures'
+import {
+    gizmos,
+    orderDefinition,
+    orderFormHost,
+    partsDefinition,
+} from '../../../lib/forms/__tests__/table-fixtures'
+import { definitionSchema } from '../../../lib/forms/definition'
 import { useFormCreate } from '../use-form-create'
 
 const orderForm = {
@@ -63,5 +69,49 @@ describe('useFormCreate with tables', () => {
         expect(result.current.form.getFieldState('lines.0.item').error?.message).toBe(
             'Item is required'
         )
+    })
+})
+
+describe('useFormCreate switching forms with a custom table', () => {
+    const formOf = (id: string, definition: typeof partsDefinition, isDefault: boolean) => ({
+        id,
+        host: gizmos.key,
+        name: id,
+        slug: id,
+        is_default: isDefault,
+        archived: false,
+        order: 0,
+        definition,
+    })
+    const narrow = definitionSchema.parse({
+        ...partsDefinition,
+        fields: partsDefinition.fields.map(f =>
+            f.key === 'parts'
+                ? {
+                      ...f,
+                      columns: [
+                          { key: 'label', kind: 'text', label: 'Label' },
+                          { key: 'qty', kind: 'number', label: 'Qty' },
+                      ],
+                  }
+                : f
+        ),
+    })
+
+    it('completes carried rows against the new form columns, so an added column is null', () => {
+        const forms = [formOf('narrow', narrow, true), formOf('wide', partsDefinition, false)]
+        formsOfHost.mockReturnValue({ forms, defaultForm: forms[0], isReady: true })
+        const { result } = renderHook(() => useFormCreate(gizmos, undefined, ctx))
+        act(() => {
+            result.current.form.setValue('parts', [
+                { id: 'a', label: 'A', qty: 1 },
+                { id: 'b', label: 'B', qty: 2 },
+            ])
+        })
+        act(() => result.current.switchForm('wide'))
+        expect(result.current.form.getValues('parts')).toEqual([
+            { id: 'a', label: 'A', qty: 1, done: null, due: null, size: null },
+            { id: 'b', label: 'B', qty: 2, done: null, due: null, size: null },
+        ])
     })
 })

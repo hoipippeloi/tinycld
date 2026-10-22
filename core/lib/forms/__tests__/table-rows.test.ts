@@ -98,7 +98,7 @@ describe('planTableWrites', () => {
     const c = { id: 'c', item: 'C' }
 
     it('inserts every row of a new record at its index', () => {
-        expect(planTableWrites([], [a, b])).toEqual({
+        expect(planTableWrites([], [a, b], [])).toEqual({
             insert: [
                 { row: a, position: 0 },
                 { row: b, position: 1 },
@@ -109,7 +109,7 @@ describe('planTableWrites', () => {
     })
 
     it('writes nothing when nothing changed', () => {
-        expect(planTableWrites([a, b], [{ ...a }, { ...b }])).toEqual({
+        expect(planTableWrites([a, b], [{ ...a }, { ...b }], [])).toEqual({
             insert: [],
             update: [],
             remove: [],
@@ -118,7 +118,7 @@ describe('planTableWrites', () => {
 
     it('updates a row whose cell or index changed, and removes a dropped row', () => {
         const edited = { ...c, item: 'C2' }
-        expect(planTableWrites([a, b, c], [edited, a])).toEqual({
+        expect(planTableWrites([a, b, c], [edited, a], [])).toEqual({
             insert: [],
             update: [
                 { row: edited, position: 0 },
@@ -129,7 +129,7 @@ describe('planTableWrites', () => {
     })
 
     it('treats a cell that went from missing to null as changed', () => {
-        expect(planTableWrites([a], [{ ...a, qty: null }]).update).toHaveLength(1)
+        expect(planTableWrites([a], [{ ...a, qty: null }], []).update).toHaveLength(1)
     })
 
     it('ignores computed cells: a stored row without one is not rewritten', () => {
