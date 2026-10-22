@@ -131,4 +131,21 @@ describe('planTableWrites', () => {
     it('treats a cell that went from missing to null as changed', () => {
         expect(planTableWrites([a], [{ ...a, qty: null }]).update).toHaveLength(1)
     })
+
+    it('ignores computed cells: a stored row without one is not rewritten', () => {
+        const stored = { id: 'a', label: 'A', qty: 1, done: null }
+        expect(planTableWrites([stored], [{ ...stored, double: 2 }], columns)).toEqual({
+            insert: [],
+            update: [],
+            remove: [],
+        })
+    })
+
+    it('still writes a row with its computed cell when an editable cell changed', () => {
+        const stored = { id: 'a', label: 'A', qty: 1, done: null }
+        const edited = { ...stored, qty: 3, double: 6 }
+        expect(planTableWrites([stored], [edited], columns).update).toEqual([
+            { row: edited, position: 0 },
+        ])
+    })
 })

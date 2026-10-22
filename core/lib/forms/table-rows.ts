@@ -38,23 +38,33 @@ export interface TableWritePlan {
     remove: string[]
 }
 
-function sameCells(a: TableRow, b: TableRow): boolean {
+function sameCells(a: TableRow, b: TableRow, ignored: ReadonlySet<string>): boolean {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)])
-    for (const key of keys) if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return false
+    for (const key of keys) {
+        if (ignored.has(key)) continue
+        if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return false
+    }
     return true
 }
 
-/** What the host writes so its rows match `after`; a row's position is its index there. */
+/**
+ * What the host writes so its rows match `after`; a row's position is its index
+ * there. Computed `columns` are left out of the comparison: the form fills them
+ * on every row, and a stored row may not hold them, so comparing them would
+ * rewrite every row. A written row still carries its computed cells.
+ */
 export function planTableWrites(
     before: readonly TableRow[],
-    after: readonly TableRow[]
+    after: readonly TableRow[],
+    columns: readonly TableColumn[] = []
 ): TableWritePlan {
+    const computed = new Set(columns.filter(c => c.kind === 'computed').map(c => c.key))
     const stored = new Map(before.map((row, position) => [row.id, { row, position }] as const))
     const plan: TableWritePlan = { insert: [], update: [], remove: [] }
     after.forEach((row, position) => {
         const old = stored.get(row.id)
         if (!old) plan.insert.push({ row, position })
-        else if (old.position !== position || !sameCells(old.row, row))
+        else if (old.position !== position || !sameCells(old.row, row, computed))
             plan.update.push({ row, position })
     })
     const kept = new Set(after.map(row => row.id))

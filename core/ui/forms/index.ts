@@ -12,7 +12,7 @@ export { formErrorHandler, type HostFieldErrors, mapHostErrors } from './form-er
 export { AUTO_PATCH_DELAY_MS, useAutoPatch } from './use-auto-patch'
 export { useContainerWidth } from './use-container-width'
 export { useFormCreate } from './use-form-create'
-export { useFormEdit } from './use-form-edit'
+export { type PatchResult, useFormEdit } from './use-form-edit'
 export { useHostUi } from './use-host-ui'
 export { type FormSchema, useSchemaRefResolver } from './use-schema-ref-resolver'
 export { effectiveWidth, NARROW_BELOW, widthClass } from './widths'
