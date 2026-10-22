@@ -131,6 +131,17 @@ export const columnSchema = z.discriminatedUnion('kind', [
 ])
 export type TableColumn = z.infer<typeof columnSchema>
 
+/**
+ * A host table built-in's column. It may name a component in the host's UI
+ * module `components` map that draws its cell (a product picker, say). A custom
+ * table column cannot: `columnSchema` strips the key, so a definition an admin
+ * edits never mounts host code. The server never reads it.
+ */
+export const hostColumnSchema = columnSchema.and(
+    z.object({ component: z.string().min(1).optional() })
+)
+export type HostTableColumn = z.infer<typeof hostColumnSchema>
+
 const customFieldSchema = z.discriminatedUnion('kind', [
     z.object({
         ...base,
