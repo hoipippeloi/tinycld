@@ -26,19 +26,29 @@ interface IconActionProps {
     isDisabled: boolean
     label: string
     testID: string
+    /** Bottom padding lines it up with a labelled input; a plain row passes its own. */
+    className?: string
 }
 
-function IconAction({ icon: Icon, onPress, isDisabled, label, testID }: IconActionProps) {
+export function IconAction({
+    icon: Icon,
+    onPress,
+    isDisabled,
+    label,
+    testID,
+    className = 'pb-5',
+}: IconActionProps) {
     const fg = useThemeColor('foreground')
     const muted = useThemeColor('muted-foreground')
     return (
         <Pressable
             onPress={onPress}
             disabled={isDisabled}
+            accessibilityRole="button"
             accessibilityLabel={label}
             accessibilityState={{ disabled: isDisabled }}
             testID={testID}
-            className="pb-5"
+            className={className}
         >
             <Icon size={16} color={isDisabled ? muted : fg} />
         </Pressable>

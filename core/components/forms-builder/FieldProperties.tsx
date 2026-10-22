@@ -14,10 +14,11 @@ import { ConfirmDialog } from '@tinycld/core/ui/ConfirmDialog'
 import { NumberInput, RadioInput, TextInput, Toggle, useWatch } from '@tinycld/core/ui/form'
 import { useState } from 'react'
 import { Text, View } from 'react-native'
+import { ColumnsEditor } from './ColumnsEditor'
 import { DefaultPicker } from './DefaultPicker'
 import { FormulaSettings } from './FormulaSettings'
 import { OptionsEditor } from './OptionsEditor'
-import { PickMenu } from './rule-parts'
+import { PickMenu, ReadOnlyRow } from './rule-parts'
 import { orderOf, positionOf } from './use-canvas-drag'
 import { removalParts, type useEditorForm } from './use-editor-form'
 
@@ -61,15 +62,6 @@ const NO_OPERANDS: FormulaOperands = { values: [], tables: [] }
 export interface FieldPropertiesProps {
     editor: Editor
     fieldKey: string
-}
-
-function ReadOnlyRow({ label, value, testID }: { label: string; value: string; testID: string }) {
-    return (
-        <View className="mb-3" testID={testID}>
-            <Text className="text-sm font-semibold text-foreground">{label}</Text>
-            <Text className="text-muted-foreground">{value}</Text>
-        </View>
-    )
 }
 
 interface KindSectionProps {
@@ -194,6 +186,8 @@ function KindSection({ editor, index, fieldKey, kind, operands, isVisible }: Kin
                     testID="form-formula"
                 />
             )
+        case 'table':
+            return <ColumnsEditor key={fieldKey} editor={editor} fieldIndex={index} />
         default:
             return null
     }

@@ -145,3 +145,21 @@ export function NumberText({ value, onChange, label, placeholder, testID }: Numb
         />
     )
 }
+
+/** A label over a value that cannot be edited here, such as a key or a kind. */
+export function ReadOnlyRow({
+    label,
+    value,
+    testID,
+}: {
+    label: string
+    value: string
+    testID: string
+}) {
+    return (
+        <View className="mb-3" testID={testID}>
+            <Text className="text-sm font-semibold text-foreground">{label}</Text>
+            <Text className="text-muted-foreground">{value}</Text>
+        </View>
+    )
+}
