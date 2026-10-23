@@ -18,6 +18,8 @@ export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = 
     hideError?: boolean
     horizontal?: boolean
     disabled?: boolean
+    /** Called after the form value changes to a different option, so a caller can clear dependent fields in the change event itself. */
+    onValueChange?: (value: string) => void
     wrapperProps?: ViewProps
 }
 
@@ -31,6 +33,7 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     hideError = false,
     horizontal = false,
     disabled = false,
+    onValueChange,
     wrapperProps = {},
 }: SelectInputProps<T>) {
     const {
@@ -56,7 +59,10 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                         <Pressable
                             key={option.value}
                             accessibilityLabel={option.label}
-                            onPress={() => field.onChange(option.value)}
+                            onPress={() => {
+                                field.onChange(option.value)
+                                if (!isSelected) onValueChange?.(option.value)
+                            }}
                             disabled={disabled}
                             accessibilityRole="radio"
                             // A radio's state is "checked"; ARIA ignores aria-selected
