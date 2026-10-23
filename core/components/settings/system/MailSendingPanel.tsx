@@ -1,7 +1,7 @@
 import { usePackage } from '@tinycld/core/lib/packages/use-packages'
 import {
+    ButtonGroup,
     FormErrorSummary,
-    SelectInput,
     TextInput,
     Toggle,
     useForm,
@@ -158,7 +158,7 @@ function ProviderFields({
     if (!isVisible) return null
     return (
         <>
-            <SelectInput
+            <ButtonGroup
                 control={control}
                 name="provider"
                 label="Provider"

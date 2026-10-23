@@ -11,11 +11,11 @@ import { type ChecklistItem, resolveKind, tableColumnsOf } from '@tinycld/core/l
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
+    ButtonGroup,
     type Control,
     Controller,
     NumberInput,
     RadioInput,
-    SelectInput,
     TextAreaInput,
     TextInput,
     Toggle,
@@ -327,7 +327,7 @@ function SelectKind({
         )
     }
     return (
-        <SelectInput
+        <ButtonGroup
             control={control}
             hideError
             name={field.key}

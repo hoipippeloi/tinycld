@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useForm } from 'react-hook-form'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OverlayProvider } from '../../overlay'
 import { SelectInput } from '../SelectInput'
 
 afterEach(cleanup)
@@ -10,81 +11,110 @@ let latest: () => string = () => ''
 
 function Harness({
     disabled = false,
+    initial = 'x',
+    hint,
+    placeholder,
     onValueChange,
 }: {
     disabled?: boolean
+    initial?: string
+    hint?: string
+    placeholder?: string
     onValueChange?: (value: string) => void
 }) {
-    const { control, getValues } = useForm({ defaultValues: { s: 'x' } })
+    const { control, getValues } = useForm({ defaultValues: { s: initial } })
     latest = () => getValues('s')
     return (
-        <SelectInput
-            control={control}
-            name="s"
-            label="Pick"
-            disabled={disabled}
-            onValueChange={onValueChange}
-            options={[
-                { value: 'x', label: 'Ex' },
-                { value: 'y', label: 'Why' },
-            ]}
-        />
+        <OverlayProvider>
+            <SelectInput
+                control={control}
+                name="s"
+                label="Pick"
+                testID="pick"
+                hint={hint}
+                placeholder={placeholder}
+                disabled={disabled}
+                onValueChange={onValueChange}
+                options={[
+                    { value: 'x', label: 'Ex' },
+                    { value: 'y', label: 'Why' },
+                ]}
+            />
+        </OverlayProvider>
     )
 }
 
+const q = (id: string) =>
+    document.body.querySelector(`[testID="${id}"], [data-testid="${id}"]`) as HTMLElement | null
+const labelOf = (el: HTMLElement | null) =>
+    el?.getAttribute('accessibilityLabel') ?? el?.getAttribute('aria-label')
+
 describe('SelectInput', () => {
-    it('marks the chosen option checked for the web accessibility tree', () => {
+    it('renders a trigger, not a radio group', () => {
         render(<Harness />)
-        expect(screen.getByText('Ex').closest('[aria-checked="true"]')).not.toBeNull()
-        expect(screen.getByText('Why').closest('[aria-checked="false"]')).not.toBeNull()
-    })
-    it('moves the selection on press and not when disabled', () => {
-        const { rerender } = render(<Harness />)
-        fireEvent.click(screen.getByText('Why'))
-        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
-        rerender(<Harness disabled />)
-        fireEvent.click(screen.getByText('Ex'))
-        expect(screen.getByText('Why').closest('[aria-checked="true"]')).not.toBeNull()
+        expect(q('pick')).not.toBeNull()
+        expect(document.querySelector('[accessibilityrole="radiogroup"]')).toBeNull()
+        expect(document.querySelector('[accessibilityrole="radio"]')).toBeNull()
     })
 
-    it('calls onValueChange once with the new value and updates the form value', () => {
+    it('shows the field label, the selected option label and an accessible name combining them', () => {
+        render(<Harness />)
+        expect(document.body.textContent).toContain('Pick')
+        expect(q('pick')?.textContent).toContain('Ex')
+        expect(labelOf(q('pick'))).toBe('Pick: Ex')
+    })
+
+    it('is 44pt tall', () => {
+        render(<Harness />)
+        expect((q('pick') as HTMLElement).style.minHeight).toBe('44px')
+    })
+
+    it('shows the placeholder when no option matches the value', () => {
+        render(<Harness initial="" placeholder="Select one" />)
+        expect(q('pick')?.textContent).toContain('Select one')
+        expect(labelOf(q('pick'))).toBe('Pick: Select one')
+    })
+
+    it('opens a menu with one item per option, each with a testID of testID-value', () => {
+        render(<Harness />)
+        expect(q('pick-y')).toBeNull()
+        fireEvent.click(q('pick') as HTMLElement)
+        expect(q('pick-x')?.textContent).toContain('Ex')
+        expect(q('pick-y')?.textContent).toContain('Why')
+    })
+
+    it('sets the value, updates the trigger and calls onValueChange once on a real change', () => {
         const onValueChange = vi.fn()
         render(<Harness onValueChange={onValueChange} />)
-        fireEvent.click(screen.getByText('Why'))
+        fireEvent.click(q('pick') as HTMLElement)
+        fireEvent.click(q('pick-y') as HTMLElement)
+        expect(latest()).toBe('y')
         expect(onValueChange).toHaveBeenCalledTimes(1)
         expect(onValueChange).toHaveBeenCalledWith('y')
-        expect(latest()).toBe('y')
+        expect(labelOf(q('pick'))).toBe('Pick: Why')
     })
-    it('changes the form value the same way when no onValueChange is given', () => {
-        render(<Harness />)
-        fireEvent.click(screen.getByText('Why'))
-        expect(latest()).toBe('y')
+
+    it('does not call onValueChange when the current option is picked again', () => {
+        const onValueChange = vi.fn()
+        render(<Harness onValueChange={onValueChange} />)
+        fireEvent.click(q('pick') as HTMLElement)
+        fireEvent.click(q('pick-x') as HTMLElement)
+        expect(onValueChange).not.toHaveBeenCalled()
+        expect(latest()).toBe('x')
     })
-    it('does not call onValueChange when disabled', () => {
+
+    it('does not open or change anything when disabled', () => {
         const onValueChange = vi.fn()
         render(<Harness disabled onValueChange={onValueChange} />)
-        fireEvent.click(screen.getByText('Why'))
+        expect(q('pick')?.getAttribute('aria-disabled')).toBe('true')
+        fireEvent.click(q('pick') as HTMLElement)
+        expect(q('pick-y')).toBeNull()
         expect(onValueChange).not.toHaveBeenCalled()
+        expect(latest()).toBe('x')
     })
 
-    it('does not call onValueChange when the already selected option is pressed', () => {
-        const onValueChange = vi.fn()
-        render(<Harness onValueChange={onValueChange} />)
-        fireEvent.click(screen.getByText('Ex'))
-        expect(onValueChange).not.toHaveBeenCalled()
-        expect(latest()).toBe('x')
-    })
-    it('calls onValueChange only for the real change when the selected option is pressed again', () => {
-        const onValueChange = vi.fn()
-        render(<Harness onValueChange={onValueChange} />)
-        fireEvent.click(screen.getByText('Why'))
-        fireEvent.click(screen.getByText('Why'))
-        expect(onValueChange).toHaveBeenCalledTimes(1)
-        expect(onValueChange).toHaveBeenCalledWith('y')
-    })
-    it('leaves the form value unchanged when disabled', () => {
-        render(<Harness disabled />)
-        fireEvent.click(screen.getByText('Why'))
-        expect(latest()).toBe('x')
+    it('renders the hint', () => {
+        render(<Harness hint="Cannot change" />)
+        expect(document.body.textContent).toContain('Cannot change')
     })
 })

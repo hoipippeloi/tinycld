@@ -9,10 +9,10 @@ import type { FormValues } from '@tinycld/core/lib/forms/logic'
 import type { TableRow } from '@tinycld/core/lib/forms/values'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import {
+    ButtonGroup,
     type Control,
     Controller,
     NumberInput,
-    SelectInput,
     TextInput,
     Toggle,
     useController,
@@ -227,7 +227,7 @@ function CellInput(props: CellProps) {
             )
         case 'select':
             return (
-                <SelectInput
+                <ButtonGroup
                     control={base.control}
                     name={name}
                     label={label}
