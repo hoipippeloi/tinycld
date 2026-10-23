@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -33,10 +34,13 @@ vi.mock('@tinycld/core/lib/pocketbase', async () => {
         users: mk('users', [{ id: 'u1', role: 'owner' }]),
         org_pkg_access: mk('org-pkg-access', []),
     }
-    return { useStore: (...names: string[]) => names.map(n => collections[n]) }
+    // Chrome that only appears once ready (rail, drawers) reads other collections; empty is enough.
+    const collectionFor = (n: string) => (collections[n] ??= mk(n, []))
+    return { useStore: (...names: string[]) => names.map(collectionFor) }
 })
 
-vi.mock('expo-router', async () => {
+vi.mock('expo-router', async importOriginal => {
+    const stub = await importOriginal<typeof import('expo-router')>()
     const { useEffect, useState } = await import('react')
     function ScreenProbe() {
         const [draft, setDraft] = useState('')
@@ -54,13 +58,7 @@ vi.mock('expo-router', async () => {
             />
         )
     }
-    return {
-        Tabs: ScreenProbe,
-        router: { replace: vi.fn(), push: vi.fn(), back: vi.fn() },
-        usePathname: () => '/',
-        useLocalSearchParams: () => ({}),
-        useGlobalSearchParams: () => ({}),
-    }
+    return { ...stub, Tabs: ScreenProbe }
 })
 
 import { WorkspaceLayout } from '@tinycld/core/components/workspace/WorkspaceLayout'
@@ -98,9 +96,11 @@ describe('WorkspaceLayout breakpoint changes', () => {
     it('keeps the PackageTabs subtree mounted across mobile, desktop, tablet and back', () => {
         useWindowSizeStore.getState().setSize(WIDTHS.mobile, 800)
         const { container } = render(
-            <OverlayProvider>
-                <WorkspaceLayout isReady={false} />
-            </OverlayProvider>
+            <QueryClientProvider client={new QueryClient()}>
+                <OverlayProvider>
+                    <WorkspaceLayout />
+                </OverlayProvider>
+            </QueryClientProvider>
         )
 
         act(() => {

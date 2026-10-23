@@ -9,10 +9,9 @@ import { login, navigateToPackage } from '@tinycld/core/e2e-helpers'
 // if the screen is NOT unmounted. A DOM expando set on the live <input> is the
 // second signal: a remounted screen renders a brand-new node without it.
 //
-// It fails today because the mobile branch returns <MobileLayout> with
-// PackageProviderWrapper at the root while tablet/desktop nest it under a
-// different parent, so React remounts the whole PackageTabs subtree on every
-// mobile <-> tablet/desktop switch.
+// Guards against WorkspaceLayout returning a different tree per breakpoint:
+// a different parent or slot for PackageProviderWrapper/PackageTabs makes React
+// remount the whole navigator on every mobile <-> tablet/desktop switch.
 
 const DESKTOP = { width: 1280, height: 800 }
 const TABLET = { width: 800, height: 900 }

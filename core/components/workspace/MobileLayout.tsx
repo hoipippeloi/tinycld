@@ -24,14 +24,19 @@ export function MobileOverlays({ isVisible, isReady }: { isVisible: boolean; isR
     )
 }
 
-/** Rendered AFTER the content box: edge-anchored chrome that bleeds to the screen edge. */
-export function MobileChrome({ isVisible, isReady }: { isVisible: boolean; isReady: boolean }) {
+/** Rendered AFTER the content box: the tab bar bleeds to the screen edge. */
+export function MobileTabBarSlot({ isVisible, isReady }: { isVisible: boolean; isReady: boolean }) {
+    if (!isVisible || !isReady) return null
+    return <MobileTabBar />
+}
+
+/**
+ * Rendered as a child of the root box, not the row: the drawer is absolutely
+ * positioned from y=0, so it must share a parent with the demo banner and the
+ * status-bar inset rather than sit below them.
+ */
+export function MobileDrawerSlot({ isVisible, isReady }: { isVisible: boolean; isReady: boolean }) {
     const isDrawerOpen = useWorkspaceStore(s => s.isDrawerOpen)
     if (!isVisible || !isReady) return null
-    return (
-        <>
-            <MobileTabBar />
-            <MobileDrawer isVisible={isDrawerOpen} />
-        </>
-    )
+    return <MobileDrawer isVisible={isDrawerOpen} />
 }
