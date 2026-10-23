@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useDeviceInsets } from '@tinycld/core/lib/use-safe-area'
 import { Platform, View } from 'react-native'
-import { MobileLayout } from './MobileLayout'
+import { MobileChrome, MobileOverlays } from './MobileLayout'
 import { useActivePkgDenied } from './PackageAccessDenied'
 import { PackageProviderWrapper } from './PackageProviderWrapper'
 import { PackageRail } from './PackageRail'
@@ -27,8 +27,7 @@ export function WorkspaceLayout({ isReady = true }: { isReady?: boolean }) {
     const activePkg = usePackage(activePkgSlug ?? '')
     const activePkgDenied = useActivePkgDenied()
     const insets = useDeviceInsets()
-
-    if (breakpoint === 'mobile') return <MobileLayout isReady={isReady} />
+    const isMobile = breakpoint === 'mobile'
 
     // Tablet + desktop both dock the package sidebar as a persistent panel next
     // to the rail. (Mobile uses MobileDrawer instead.) An earlier tablet-only
@@ -38,9 +37,18 @@ export function WorkspaceLayout({ isReady = true }: { isReady?: boolean }) {
     // panel matches the intended "contextual sidebar to the right of the rail".
     // A denied package's sidebar sits OUTSIDE the PackageAccessDenied overlay,
     // so hide it here for the same state.
-    const hasSidebar = activePkg?.sidebar != null && !activePkgDenied
+    const hasSidebar = !isMobile && activePkg?.sidebar != null && !activePkgDenied
     const sidebarWidth = breakpoint === 'tablet' ? SIDEBAR_WIDTH_TABLET : SIDEBAR_WIDTH_DESKTOP
 
+    // Horizontal insets: see the comment on the content box below.
+    const contentStyle = isMobile
+        ? { paddingLeft: insets.left, paddingRight: insets.right }
+        : { backgroundColor: bgColor, paddingRight: insets.right, paddingBottom: insets.bottom }
+
+    // One tree shape for every breakpoint: only the chrome around
+    // PackageProviderWrapper/PackageTabs varies, via sibling slots that keep
+    // their position. A different parent or position would make React remount
+    // the whole navigator and every screen when the window crosses a breakpoint.
     return (
         <View
             // Names the package currently mounted in the shell. Set from the
@@ -60,7 +68,7 @@ export function WorkspaceLayout({ isReady = true }: { isReady?: boolean }) {
             ]}
         >
             <DemoBanner />
-            <View className="flex-1 flex-row" style={{ minHeight: 0 }}>
+            <View className={isMobile ? 'flex-1' : 'flex-1 flex-row'} style={{ minHeight: 0 }}>
                 {/* Horizontal insets are consumed by the edge panels themselves,
                     NOT by this container: padding them here painted the gutters
                     in the app background, leaving a wide light band down the
@@ -72,9 +80,11 @@ export function WorkspaceLayout({ isReady = true }: { isReady?: boolean }) {
                     the housing is on the left (bleeding its dark colour into the
                     gutter), or the content pane pads insets.right when it is on
                     the right. The opposite side stays full-bleed. */}
-                {isReady && <PackageRail insetLeft={insets.left} insetBottom={insets.bottom} />}
+                {isReady && !isMobile && (
+                    <PackageRail insetLeft={insets.left} insetBottom={insets.bottom} />
+                )}
 
-                {isReady && <NotificationDrawer />}
+                {isReady && !isMobile && <NotificationDrawer />}
 
                 <PackageProviderWrapper>
                     {/* PackageSidebar takes no bottom inset — its SidebarNav
@@ -82,21 +92,25 @@ export function WorkspaceLayout({ isReady = true }: { isReady?: boolean }) {
                         content so the list can scroll the full height. */}
                     {isReady && hasSidebar && <PackageSidebar width={sidebarWidth} />}
 
+                    {/* On mobile the horizontal insets go HERE, not on the root: the
+                        tab bar and the slide-in drawer are edge-anchored chrome
+                        that must keep bleeding to the screen edge (they inset
+                        their own contents), and without it every package screen
+                        runs under the notch. The mobile sheets stay INSIDE this
+                        box: a Sheet rests at the bottom edge of its PARENT,
+                        which is what puts it exactly on the tab bar without a
+                        manual offset. */}
                     <View
-                        className="flex-1"
-                        style={{
-                            backgroundColor: bgColor,
-                            minHeight: 0,
-                            paddingRight: insets.right,
-                            paddingBottom: insets.bottom,
-                        }}
+                        className={isMobile ? 'flex-1 overflow-hidden' : 'flex-1'}
+                        style={[{ minHeight: 0 }, contentStyle]}
                     >
                         <PackageTabs />
-                        {/* Native tablets take this branch, not MobileLayout,
-                            so the source-chooser sheet needs a host here too.
-                            Null on web. */}
+                        <MobileOverlays isVisible={isMobile} isReady={isReady} />
+                        {/* Native tablets take this path too, so the
+                            source-chooser sheet needs a host here. Null on web. */}
                         {isReady && <FilePickerSheetHost />}
                     </View>
+                    <MobileChrome isVisible={isMobile} isReady={isReady} />
                 </PackageProviderWrapper>
             </View>
         </View>
