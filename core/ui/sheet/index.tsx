@@ -9,7 +9,7 @@ import {
 } from '@tinycld/core/ui/overlay'
 import { X } from 'lucide-react-native'
 import type { ReactNode } from 'react'
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState } from 'react'
 import {
     KeyboardAvoidingView,
     Platform,
@@ -110,12 +110,21 @@ function SheetRoot({
     const translateY = useSharedValue(dir * INITIAL_OFFSCREEN)
     const backdropOpacity = useSharedValue(0)
     const [mounted, setMounted] = useState(false)
+    const seededDir = useRef(dir)
     const surfaceRef = useRef<View | null>(null)
 
     const close = useCallback(() => onClose(), [onClose])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         if (isOpen) {
+            // The side can change while the sheet is closed, or in the commit
+            // right after it opens (a Menu derives it from its trigger on
+            // open), and the value was seeded for the old side: start off-screen
+            // on the edge the sheet rests on now, or a top sheet would be drawn
+            // at the bottom and slide up. A layout effect, so the re-seed lands
+            // before the first frame of the spring is painted.
+            if (!mounted || seededDir.current !== dir) translateY.value = dir * INITIAL_OFFSCREEN
+            seededDir.current = dir
             setMounted(true)
             translateY.value = withSpring(0, SPRING_CONFIG)
             backdropOpacity.value = withTiming(1, { duration: 200 })
