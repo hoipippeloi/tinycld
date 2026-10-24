@@ -47,7 +47,7 @@ export function stagedDirection(info: PackageVersionInfo, target?: string): RowD
     return cmp > 0 ? 'up' : 'down'
 }
 
-// RowVersionSelect is a standalone (non-RHF) version picker. SelectInput is
+// RowVersionSelect is a standalone (non-RHF) version picker. ButtonGroup is
 // react-hook-form-bound, so for a per-row select we use the anchored Menu
 // primitive (correct positioning + a11y). A row that can't change (≤1 option)
 // renders plain static text instead — the merged screen shows the bare current

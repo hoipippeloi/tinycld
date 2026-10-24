@@ -12,6 +12,8 @@ export type ToggleProps<T extends FieldValues = Record<string, unknown>> = {
     /** The caller renders the error itself (a form cell does), so the input only colours its border. */
     hideError?: boolean
     disabled?: boolean
+    /** Called after the form value changes, so a caller can clear dependent fields in the change event itself. */
+    onValueChange?: (value: boolean) => void
     /** Defaults to `name`, as on the other form inputs. */
     testID?: string
     wrapperProps?: ViewProps
@@ -25,6 +27,7 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
     hint,
     hideError = false,
     disabled = false,
+    onValueChange,
     testID,
     wrapperProps = {},
 }: ToggleProps<T>) {
@@ -43,7 +46,10 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
                 )}
                 <Switch
                     value={Boolean(field.value)}
-                    onValueChange={field.onChange}
+                    onValueChange={next => {
+                        field.onChange(next)
+                        onValueChange?.(next)
+                    }}
                     disabled={disabled}
                     accessibilityLabel={label}
                     testID={testID ?? name}

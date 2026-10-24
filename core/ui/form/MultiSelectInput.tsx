@@ -2,7 +2,7 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Check } from 'lucide-react-native'
 import { type Control, type FieldValues, type Path, useController } from 'react-hook-form'
 import { Pressable, Text, View, type ViewProps } from 'react-native'
-import type { SelectOption } from './SelectInput'
+import type { SelectOption } from './ButtonGroup'
 
 export type MultiSelectInputProps<T extends FieldValues = Record<string, unknown>> = {
     name: Path<T>

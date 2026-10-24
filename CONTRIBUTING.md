@@ -450,7 +450,7 @@ That is what `fork-drift` exists for, and why a fully green scan is not full cov
   ```tsx
   import { useForm, zodResolver, z, TextInput, FormErrorSummary } from '@tinycld/core/ui/form'
   ```
-- Available components: `TextInput`, `TextAreaInput`, `NumberInput`, `SelectInput`, `Toggle`, `FormErrorSummary`
+- Available components: `TextInput`, `TextAreaInput`, `NumberInput`, `ButtonGroup`, `Toggle`, `FormErrorSummary`
 - Each input accepts a generic `control` and type-safe `name` via `Path<T>` — pass the `control` from `useForm()` and field names are autocompleted
 - Define a Zod schema per form, pass it via `zodResolver(schema)` to `useForm()`, and let TypeScript infer the form type from `defaultValues` — do not manually specify the generic
 - Use `mode: 'onChange'` for real-time validation as the user types
