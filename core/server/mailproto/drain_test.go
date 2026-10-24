@@ -23,6 +23,7 @@ import (
 // widgetStore is the backend the test sessions share. A store blocks until
 // release closes, so a test can hold a write in progress.
 type widgetStore struct {
+	started chan struct{} // a session has begun reading a message
 	read    chan struct{} // a session has read a whole message
 	release chan struct{} // lets the stores finish
 	stored  atomic.Int32
@@ -36,6 +37,7 @@ type widgetStore struct {
 
 func newWidgetStore() *widgetStore {
 	return &widgetStore{
+		started:       make(chan struct{}, 8),
 		read:          make(chan struct{}, 8),
 		release:       make(chan struct{}),
 		readErr:       make(chan error, 8),
@@ -45,6 +47,7 @@ func newWidgetStore() *widgetStore {
 }
 
 func (w *widgetStore) store(r io.Reader) error {
+	w.started <- struct{}{}
 	if _, err := io.ReadAll(r); err != nil {
 		w.readErr <- err
 		return err
@@ -391,6 +394,12 @@ func TestStuckSessionsAreCutAtTheBound(t *testing.T) {
 	smtpStuck.send("Subject: half a widget\r\n")
 
 	smtpQuiet := smtpHello(t, smtpAddr)
+
+	// The IMAP APPEND has no reply to wait for. Without this, a slow runner
+	// can begin the drain before the server has read the command, which
+	// then ends an idle session instead of cutting a half-read message.
+	waitFor(t, w.started, "the first half-read message to start")
+	waitFor(t, w.started, "the second half-read message to start")
 
 	start := time.Now()
 	done := terminate(t, app, imapAddr)
