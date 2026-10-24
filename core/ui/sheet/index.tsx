@@ -274,9 +274,13 @@ function SheetHeader({
     onClose: () => void
 }) {
     const mutedColor = useThemeColor('muted')
+    const side = useContext(SheetSideContext)
     if (!title) return null
+    // A bottom sheet's drag handle sits above the title; a top sheet's handle is
+    // at the far end, so the title needs its own room below the screen edge.
+    const paddingTop = side === 'top' ? 'pt-4' : 'pt-1'
     return (
-        <View className="flex-row items-start gap-3 px-5 pt-1 pb-3">
+        <View className={`flex-row items-start gap-3 px-5 ${paddingTop} pb-3`}>
             <View className="flex-1 gap-1">
                 <Text className="text-[16px] font-semibold text-foreground">{title}</Text>
                 <SheetDescription text={description} />

@@ -68,3 +68,24 @@ describe('Menu as a sheet', () => {
         expect(slideInStart()).toBeLessThan(0)
     })
 })
+
+describe('Sheet title spacing', () => {
+    function titleRowClass(side: SheetSide) {
+        const view = render(
+            <OverlayProvider>
+                <OverlayHost name="root" />
+                <Sheet isOpen onClose={() => {}} side={side} title="Business Checking">
+                    <Sheet.Body>{null}</Sheet.Body>
+                </Sheet>
+            </OverlayProvider>
+        )
+        const title = view.getByText('Business Checking')
+        return title.parentElement?.parentElement?.className ?? ''
+    }
+
+    it('gives a top sheet more room above the title than a bottom sheet', () => {
+        expect(titleRowClass('top')).toContain('pt-4')
+        cleanup()
+        expect(titleRowClass('bottom')).toContain('pt-1')
+    })
+})
