@@ -296,7 +296,7 @@ export default manifest
 | `dependencies[]` | A **slug-only** list of other packages — **advisory + seed-ordering only.** Used to topologically sort seed execution and as a soft hint; it imposes **no** version constraint and is never a compile-time import. |
 | `peerVersions` | `{ '<slug or @tinycld/core>': '<semver range>' }` (e.g. `{ '@tinycld/core': '>=2.1 <3' }`) — **enforced** semver ranges keyed by slug. See [`dependencies` vs `peerVersions`](#dependencies-vs-peerversions) below. |
 
-#### Help screenshots (contract; not yet implemented)
+#### Help screenshots
 
 A package regenerates its help images with one command, run inside the member:
 
@@ -308,6 +308,7 @@ pnpm exec tinycld-pkg help:screenshots [--topic <topic-id>]
 - **Input:** `<member>/help/screenshots.ts`. Its default export is `{ [topicId: string]: Shot[] }`. A `Shot` is `{ name: string; setup: (page: Page) => Promise<void>; target?: string }`. `setup` drives the real UI with the helpers from `@tinycld/core/e2e-helpers` (`login`, `navigateToPackage`, `clickSidebarItem`) and must not write data through raw PocketBase calls. `target` is an optional locator to clip to, otherwise the viewport.
 - **Output:** for each shot, `help/images/<name>.png` (light) and `help/images/<name>.dark.png` (dark), where `<name>` follows `<topic-id>-<n>`. The same `setup` runs twice, once per `colorScheme`.
 - **Data:** it runs against the seeded e2e server; the script never seeds by itself.
+- **Behaviour:** the command uses the member's own `playwright.config.ts` (web server, ports) with one worker and no retries. A file is written only after both `setup` and the screenshot succeed. An unknown `--topic` and a bad plan (missing or empty topic, invalid or duplicate shot name, name without the `<topic-id>-` prefix) fail the run before any browser starts. The viewport is 1280x800. Light and dark come from the browser colour scheme. `--topic` needs no `--` separator.
 - **Not in scope of the core change:** the generator and renderer only consume the files this command writes.
 
 ### `dependencies` vs `peerVersions`
