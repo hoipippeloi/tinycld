@@ -8,5 +8,9 @@
     },
     "dependencies": {
         "tsx": "^4.21.0"
+    },
+    "exports": {
+        "./help-screenshots": "./src/help-screenshots.ts",
+        "./package.json": "./package.json"
     }
 }
