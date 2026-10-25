@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { parseTopicFlag, planFiles, type ScreenshotPlan } from '../src/help-screenshots'
+import {
+    parseTopicFlag,
+    planFiles,
+    resolveTopic,
+    type ScreenshotPlan,
+} from '../src/help-screenshots'
 
 const noop = async () => {}
 const plan: ScreenshotPlan = {
@@ -25,6 +30,30 @@ describe('parseTopicFlag', () => {
     })
     it('throws when --topic has no value', () => {
         expect(() => parseTopicFlag(['--topic'])).toThrow(/--topic needs a topic id/)
+    })
+})
+
+describe('parseTopicFlag empty value', () => {
+    it('throws for --topic= with no id', () => {
+        expect(() => parseTopicFlag(['--topic='])).toThrow(/--topic needs a topic id/)
+    })
+})
+
+describe('resolveTopic', () => {
+    it('reads --topic from own args without a -- separator', () => {
+        expect(resolveTopic(['--topic', 'alpha-topic'], [])).toEqual({
+            topic: 'alpha-topic',
+            passthrough: [],
+        })
+    })
+    it('still reads --topic after the separator and strips it', () => {
+        expect(resolveTopic([], ['--topic=beta-topic', '--x'])).toEqual({
+            topic: 'beta-topic',
+            passthrough: ['--x'],
+        })
+    })
+    it('returns no topic when absent', () => {
+        expect(resolveTopic([], ['--x'])).toEqual({ passthrough: ['--x'] })
     })
 })
 

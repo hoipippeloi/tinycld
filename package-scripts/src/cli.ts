@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { type CurrentPackage, discover } from './discovery'
-import { parseTopicFlag } from './help-screenshots'
+import { resolveTopic } from './help-screenshots'
 import { runAll } from './orchestrator'
 import {
     buildCheckCommands,
@@ -17,7 +17,8 @@ function commandsFor(
     verb: Verb,
     pkg: CurrentPackage,
     appDir: string,
-    passthrough: string[]
+    passthrough: string[],
+    ownArgs: string[] = []
 ): Command[] {
     switch (verb) {
         case 'typecheck':
@@ -29,8 +30,8 @@ function commandsFor(
         case 'check':
             return buildCheckCommands(pkg, appDir)
         case 'help:screenshots': {
-            const { topic, rest } = parseTopicFlag(passthrough)
-            return [buildHelpScreenshotsCommand(pkg, appDir, { topic, passthrough: rest })]
+            const resolved = resolveTopic(ownArgs, passthrough)
+            return [buildHelpScreenshotsCommand(pkg, appDir, resolved)]
         }
         default:
             throw new Error(
@@ -43,9 +44,10 @@ async function runForPackage(
     verb: Verb,
     pkg: CurrentPackage,
     appDir: string,
-    passthrough: string[]
+    passthrough: string[],
+    ownArgs: string[] = []
 ): Promise<number> {
-    for (const cmd of commandsFor(verb, pkg, appDir, passthrough)) {
+    for (const cmd of commandsFor(verb, pkg, appDir, passthrough, ownArgs)) {
         const code = await runCommand(cmd)
         if (code !== 0) return code
     }
@@ -104,7 +106,7 @@ async function main() {
         console.error('Not inside a package or the app shell.')
         process.exit(2)
     }
-    const code = await runForPackage(verb, currentPackage, appDir, passthrough)
+    const code = await runForPackage(verb, currentPackage, appDir, passthrough, ownArgs)
     process.exit(code)
 }
 

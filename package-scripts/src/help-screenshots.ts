@@ -22,11 +22,23 @@ export function parseTopicFlag(args: string[]): { topic?: string; rest: string[]
             i++
         } else if (arg.startsWith('--topic=')) {
             topic = arg.slice('--topic='.length)
+            if (!topic) throw new Error('--topic needs a topic id')
         } else {
             rest.push(arg)
         }
     }
     return topic ? { topic, rest } : { rest }
+}
+
+// `--topic` may come before or after the `--` separator; both forms select a topic.
+export function resolveTopic(
+    ownArgs: string[],
+    passthrough: string[]
+): { topic?: string; passthrough: string[] } {
+    const own = parseTopicFlag(ownArgs)
+    const after = parseTopicFlag(passthrough)
+    const topic = own.topic ?? after.topic
+    return topic ? { topic, passthrough: after.rest } : { passthrough: after.rest }
 }
 
 export function planFiles(plan: ScreenshotPlan, topic?: string) {
