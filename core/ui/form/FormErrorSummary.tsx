@@ -64,7 +64,10 @@ const extractErrorEntries = (errors: FieldErrors): ErrorEntry[] =>
 
 export interface FormErrorSummaryProps {
     errors: FieldErrors
-    title?: string
+    /** `null` hides the title line. */
+    title?: string | null
+    /** `destructive` is an outlined box with destructive-colored messages and no tinted fill. */
+    variant?: 'soft' | 'destructive'
     testID?: string
     isEnabled?: boolean
     /**
@@ -78,6 +81,7 @@ export function FormErrorSummary({
     errors,
     title = 'Please fix the following errors:',
     testID,
+    variant = 'soft',
     isEnabled = false,
     showFieldNames = true,
 }: FormErrorSummaryProps) {
@@ -86,14 +90,23 @@ export function FormErrorSummary({
     const errorEntries = extractErrorEntries(errors)
     if (errorEntries.length === 0) return null
 
+    const isDestructive = variant === 'destructive'
+    const boxClass = isDestructive
+        ? 'border border-destructive rounded-md px-3 py-2 gap-1'
+        : 'bg-danger-soft border border-danger-soft-foreground rounded-lg p-3 mb-3'
+    const messageClass = isDestructive ? 'text-sm text-destructive' : 'text-xs text-danger mb-1'
+
     return (
         <View
-            className="bg-danger-soft border border-danger-soft-foreground rounded-lg p-3 mb-3"
+            className={boxClass}
             testID={testID}
+            accessibilityRole={isDestructive ? 'alert' : undefined}
         >
-            <Text className="text-sm font-semibold text-danger mb-2">{title}</Text>
+            {title === null ? null : (
+                <Text className="text-sm font-semibold text-danger mb-2">{title}</Text>
+            )}
             {errorEntries.map(entry => (
-                <Text key={`${entry.key}-${entry.message}`} className="text-xs text-danger mb-1">
+                <Text key={`${entry.key}-${entry.message}`} className={messageClass}>
                     {entryText(entry, showFieldNames)}
                 </Text>
             ))}

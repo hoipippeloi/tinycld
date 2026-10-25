@@ -50,4 +50,34 @@ describe('FormErrorSummary', () => {
         const { getByText } = render(<FormErrorSummary isEnabled errors={result.current.errors} />)
         expect(getByText('Rate limited')).not.toBeNull()
     })
+
+    it('hides the title when title is null and keeps the default title otherwise', () => {
+        const { result } = renderHook(useErrors)
+        act(() => result.current.form.setError('name', { type: 'server', message: 'Required' }))
+        const hidden = render(
+            <FormErrorSummary isEnabled title={null} errors={result.current.errors} />
+        )
+        expect(hidden.queryByText('Please fix the following errors:')).toBeNull()
+        expect(hidden.getByText('name: Required')).not.toBeNull()
+        cleanup()
+        const shown = render(<FormErrorSummary isEnabled errors={result.current.errors} />)
+        expect(shown.getByText('Please fix the following errors:')).not.toBeNull()
+    })
+
+    it('renders the destructive variant with a destructive border and messages', () => {
+        const { result } = renderHook(useErrors)
+        act(() => result.current.form.setError('name', { type: 'server', message: 'Required' }))
+        const { container, getByText } = render(
+            <FormErrorSummary
+                isEnabled
+                variant="destructive"
+                testID="summary"
+                errors={result.current.errors}
+            />
+        )
+        expect(container.querySelector('[testid="summary"]')?.className).toContain(
+            'border-destructive'
+        )
+        expect(getByText('name: Required').className).toContain('text-destructive')
+    })
 })
