@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from '@playwright/test'
 
@@ -9,7 +10,12 @@ if (!member)
 
 // The member's own config carries the webServer, ports and browser setup; only
 // the test dir and match change, so screenshots run against the same server as e2e.
-const memberConfig = (await import(path.join(member, 'playwright.config.ts'))).default
+const memberConfigFile = path.join(member, 'playwright.config.ts')
+if (!fs.existsSync(memberConfigFile))
+    throw new Error(
+        `${memberConfigFile} does not exist; help:screenshots needs the member's Playwright config for its webServer and ports`
+    )
+const memberConfig = (await import(memberConfigFile)).default
 
 export default defineConfig({
     ...memberConfig,

@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, test } from '@playwright/test'
+import { test } from '@playwright/test'
 import { login } from '@tinycld/core/e2e-helpers'
 import { planFiles, type ScreenshotPlan } from './help-screenshots'
 
@@ -31,7 +31,6 @@ for (const scheme of ['light', 'dark'] as const) {
                     : await page.screenshot()
                 fs.mkdirSync(imagesDir, { recursive: true })
                 fs.writeFileSync(out, buffer)
-                expect(fs.existsSync(out)).toBe(true)
             })
         }
     })
