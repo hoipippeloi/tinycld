@@ -6,6 +6,7 @@ export interface Command {
     bin: string
     args: string[]
     cwd: string
+    env?: Record<string, string>
 }
 
 // A package's own tsconfig (feature) or the app's tsconfig (app shell).
@@ -76,6 +77,22 @@ export function buildE2eCommand(
         bin: 'playwright',
         args: ['test', '--config', playwrightConfigFor(pkg), ...passthrough],
         cwd: pkg.dir,
+    }
+}
+
+export function buildHelpScreenshotsCommand(
+    pkg: CurrentPackage,
+    _appDir: string,
+    opts: { topic?: string; passthrough?: string[] }
+): Command {
+    const config = path.join(import.meta.dirname, 'help-screenshots.config.ts')
+    const env: Record<string, string> = { HELP_SCREENSHOTS_MEMBER: pkg.dir }
+    if (opts.topic) env.HELP_SCREENSHOTS_TOPIC = opts.topic
+    return {
+        bin: 'playwright',
+        args: ['test', '--config', config, ...(opts.passthrough ?? [])],
+        cwd: pkg.dir,
+        env,
     }
 }
 

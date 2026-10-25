@@ -2,6 +2,7 @@ import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
     buildCheckCommands,
+    buildHelpScreenshotsCommand,
     buildLintCommand,
     buildTestCommand,
     buildTypecheckCommand,
@@ -52,5 +53,23 @@ describe('buildCheckCommands', () => {
     it('skips the unit tests of a member without a vitest.config.ts', () => {
         const cmds = buildCheckCommands(featurePkg, appDir, false)
         expect(cmds.map(c => c.bin)).toEqual(['biome', 'tsc'])
+    })
+})
+
+describe('buildHelpScreenshotsCommand', () => {
+    it('runs playwright with the shipped config and passes the member through env', () => {
+        const cmd = buildHelpScreenshotsCommand(featurePkg, appDir, { topic: 'alpha-topic' })
+        expect(cmd.bin).toBe('playwright')
+        expect(cmd.args.slice(0, 2)).toEqual(['test', '--config'])
+        expect(cmd.args[2]).toMatch(/help-screenshots\.config\.ts$/)
+        expect(cmd.args).not.toContain('--topic')
+        expect(cmd.env).toEqual({
+            HELP_SCREENSHOTS_MEMBER: featurePkg.dir,
+            HELP_SCREENSHOTS_TOPIC: 'alpha-topic',
+        })
+    })
+    it('omits the topic env when no topic is given', () => {
+        const cmd = buildHelpScreenshotsCommand(featurePkg, appDir, {})
+        expect(cmd.env).toEqual({ HELP_SCREENSHOTS_MEMBER: featurePkg.dir })
     })
 })

@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { type CurrentPackage, isAppShellName } from './discovery'
 
-export type Verb = 'typecheck' | 'test' | 'test:e2e' | 'check'
+export type Verb = 'typecheck' | 'test' | 'test:e2e' | 'check' | 'help:screenshots'
 
 function readJson(file: string): { name?: string; workspaces?: string[] } | null {
     try {

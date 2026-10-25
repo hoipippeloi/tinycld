@@ -1,9 +1,11 @@
 #!/usr/bin/env tsx
 import { type CurrentPackage, discover } from './discovery'
+import { parseTopicFlag } from './help-screenshots'
 import { runAll } from './orchestrator'
 import {
     buildCheckCommands,
     buildE2eCommand,
+    buildHelpScreenshotsCommand,
     buildTestCommand,
     buildTypecheckCommand,
     type Command,
@@ -26,9 +28,13 @@ function commandsFor(
             return [buildE2eCommand(pkg, appDir, passthrough)]
         case 'check':
             return buildCheckCommands(pkg, appDir)
+        case 'help:screenshots': {
+            const { topic, rest } = parseTopicFlag(passthrough)
+            return [buildHelpScreenshotsCommand(pkg, appDir, { topic, passthrough: rest })]
+        }
         default:
             throw new Error(
-                `Unknown verb '${verb}'. Use one of: typecheck | test | test:e2e | check`
+                `Unknown verb '${verb}'. Use one of: typecheck | test | test:e2e | check | help:screenshots`
             )
     }
 }
@@ -51,7 +57,7 @@ async function main() {
     const [verb, ...rest] = argv as [Verb, ...string[]]
     if (!verb) {
         console.error(
-            'usage: tinycld-pkg <typecheck|test|test:e2e|check> [--all] [--bail] [-- <runner args>]'
+            'usage: tinycld-pkg <typecheck|test|test:e2e|check|help:screenshots> [--all] [--bail] [-- <runner args>]'
         )
         process.exit(2)
     }
@@ -68,6 +74,10 @@ async function main() {
         console.error(
             'Cannot combine --all with `-- <runner args>`: passthrough targets a single package.'
         )
+        process.exit(2)
+    }
+    if (all && verb === 'help:screenshots') {
+        console.error('help:screenshots runs one package at a time')
         process.exit(2)
     }
     const { workspaceRoot, appDir, currentPackage } = discover()
