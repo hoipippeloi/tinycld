@@ -2,20 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test } from '@playwright/test'
 import { login } from '@tinycld/core/e2e-helpers'
-import { planFiles, type ScreenshotPlan } from './help-screenshots'
+import { loadPlan, planFiles } from './help-screenshots'
 
 const member = process.env.HELP_SCREENSHOTS_MEMBER ?? ''
 const topic = process.env.HELP_SCREENSHOTS_TOPIC
 const helpDir = path.join(member, 'help')
 const imagesDir = path.join(helpDir, 'images')
 
-async function loadPlan(): Promise<ScreenshotPlan> {
-    const file = path.join(helpDir, 'screenshots.ts')
-    if (!fs.existsSync(file)) throw new Error(`${file} does not exist`)
-    return (await import(file)).default
-}
-
-const files = planFiles(await loadPlan(), topic)
+const files = planFiles(await loadPlan(member), topic)
 
 for (const scheme of ['light', 'dark'] as const) {
     test.describe(scheme, () => {

@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { defineConfig } from '@playwright/test'
+import { loadPlan, planFiles } from './help-screenshots'
 
 const member = process.env.HELP_SCREENSHOTS_MEMBER
 if (!member)
@@ -10,6 +11,10 @@ if (!member)
 
 // The member's own config carries the webServer, ports and browser setup; only
 // the test dir and match change, so screenshots run against the same server as e2e.
+// Playwright loads this file before it starts the web servers, so a bad plan or
+// an unknown --topic fails here in seconds rather than after the server build.
+planFiles(await loadPlan(member), process.env.HELP_SCREENSHOTS_TOPIC)
+
 const memberConfigFile = path.join(member, 'playwright.config.ts')
 if (!fs.existsSync(memberConfigFile))
     throw new Error(

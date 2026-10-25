@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    loadPlan,
     parseTopicFlag,
     planFiles,
     resolveTopic,
@@ -54,6 +55,35 @@ describe('resolveTopic', () => {
     })
     it('returns no topic when absent', () => {
         expect(resolveTopic([], ['--x'])).toEqual({ passthrough: ['--x'] })
+    })
+})
+
+describe('planFiles guards', () => {
+    it('rejects a plan that is not an object', () => {
+        expect(() => planFiles(undefined as unknown as ScreenshotPlan)).toThrow(
+            /default export must be an object/
+        )
+        expect(() => planFiles([] as unknown as ScreenshotPlan)).toThrow(
+            /default export must be an object/
+        )
+    })
+    it('rejects a topic whose shots are not an array', () => {
+        expect(() => planFiles({ t: 'x' } as unknown as ScreenshotPlan)).toThrow(
+            /Topic "t" must be an array of shots/
+        )
+    })
+    it('rejects a shot whose setup is not a function', () => {
+        expect(() =>
+            planFiles({ t: [{ name: 't-1', setup: 1 }] } as unknown as ScreenshotPlan)
+        ).toThrow(/Shot "t-1" needs a setup function/)
+    })
+})
+
+describe('loadPlan', () => {
+    it('fails with "does not exist" when the member has no screenshots.ts', async () => {
+        await expect(loadPlan('/nonexistent-member')).rejects.toThrow(
+            /screenshots\.ts does not exist/
+        )
     })
 })
 

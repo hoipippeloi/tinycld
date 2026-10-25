@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import type { Page } from '@playwright/test'
 
 export interface Shot {
@@ -41,7 +43,17 @@ export function resolveTopic(
     return topic ? { topic, passthrough: after.rest } : { passthrough: after.rest }
 }
 
+// Shared by the config (so a bad plan fails before the web servers start) and the spec.
+export async function loadPlan(member: string): Promise<ScreenshotPlan> {
+    const file = path.join(member, 'help', 'screenshots.ts')
+    if (!fs.existsSync(file)) throw new Error(`${file} does not exist`)
+    return (await import(file)).default
+}
+
 export function planFiles(plan: ScreenshotPlan, topic?: string) {
+    if (typeof plan !== 'object' || plan === null || Array.isArray(plan)) {
+        throw new Error('help/screenshots.ts default export must be an object of topic id to shots')
+    }
     const known = Object.keys(plan)
     if (topic && !known.includes(topic)) {
         throw new Error(`Unknown topic "${topic}". Known topics: ${known.join(', ')}`)
@@ -50,8 +62,12 @@ export function planFiles(plan: ScreenshotPlan, topic?: string) {
     const files: { topicId: string; shot: Shot; light: string; dark: string }[] = []
     for (const topicId of known) {
         const shots = plan[topicId]
+        if (!Array.isArray(shots)) throw new Error(`Topic "${topicId}" must be an array of shots`)
         if (shots.length === 0) throw new Error(`Topic "${topicId}" has no shots`)
         for (const shot of shots) {
+            if (typeof shot.setup !== 'function') {
+                throw new Error(`Shot "${shot.name}" needs a setup function`)
+            }
             if (!NAME.test(shot.name)) throw new Error(`Invalid shot name "${shot.name}"`)
             if (!shot.name.startsWith(`${topicId}-`)) {
                 throw new Error(`Shot "${shot.name}" must start with "${topicId}-"`)
