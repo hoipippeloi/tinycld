@@ -102,7 +102,7 @@ jobs:
         run: |
           cd ws/tinycld
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git fetch upstream 'refs/tags/v*:refs/tags/upstream/*' --no-tags
+          git fetch upstream 'refs/tags/*:refs/tags/upstream/*' --no-tags
 
           # newest upstream release tag that is an ancestor of deploy HEAD
           for t in $(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" --jq '.[].tag_name'); do
