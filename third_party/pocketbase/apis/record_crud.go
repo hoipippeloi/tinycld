@@ -112,13 +112,21 @@ func recordsList(e *core.RequestEvent) error {
 		//
 		// In all cases it doesn't really matter that much because it doesn't affect the builtin PocketBase security sensitive fields (e.g. password and tokenKey) since they
 		// are not client-side filterable and in the few places where they need to be compared against an external value, a constant time check is used.
-		if !e.HasSuperuserAuth() &&
+		//
+		// tinycld: guests only. The client loads every screen through filtered
+		// live queries, and for a fresh user most of them are empty, so a
+		// signed-in member tripped this sleep several times on every cold load
+		// (the rate limit is per client IP, so parallel tabs and e2e workers
+		// share one bucket). A member probing their own org's rules is not the
+		// audience this guard is for; the rate limiter covers them.
+		if e.Auth == nil &&
+			!e.HasSuperuserAuth() &&
 			(collection.ListRule != nil && *collection.ListRule != "") &&
 			(requestInfo.Query["filter"] != "") &&
 			len(e.Records) == 0 &&
 			checkRateLimit(e.RequestEvent, "@pb_list_timing_check_"+collection.Id, listTimingRateLimitRule) != nil {
 			e.App.Logger().Debug("Randomized throttle because of too many failed searches", "collectionId", collection.Id)
-			randomizedThrottle(500)
+			listTimingThrottle(500)
 		}
 
 		return execAfterSuccessTx(true, e.App, func() error {
@@ -128,6 +136,10 @@ func recordsList(e *core.RequestEvent) error {
 }
 
 var listTimingRateLimitRule = core.RateLimitRule{MaxRequests: 3, Duration: 3}
+
+// listTimingThrottle is the sleep the empty-search guard applies. A variable so
+// a test can observe the decision without waiting out a random sleep.
+var listTimingThrottle = randomizedThrottle
 
 func randomizedThrottle(softMax int64) {
 	var timeout int64
