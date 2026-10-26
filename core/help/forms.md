@@ -107,4 +107,4 @@ The **Rules** tab lists the form's rules. Each rule has conditions ("when all of
 
 **Preview** opens the draft as a desktop sees it, with rules live; switch to Phone to see how its columns stack on a small screen. **Save** writes the form; the server checks it again and points at any field it refuses. The list above the form names each problem by its field or rule.
 
-If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, and when you reload or close the browser tab. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.
+If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, the browser's Back and Forward buttons on the web, and when you reload or close the browser tab. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.

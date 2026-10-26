@@ -59,6 +59,26 @@ type Host struct {
 	Collab       *Collab   `json:"collaborative,omitempty"`
 
 	InsertCustomBefore string `json:"insertCustomBefore,omitempty"`
+	// Layout is the layout of the host's default form: the first seeded
+	// form, and every new form an admin starts from Settings → Forms → New
+	// form (the client starts it from defaultDefinitionFor). Nil means one
+	// full-width page.
+	Layout *HostLayout `json:"layout,omitempty"`
+}
+
+// HostLayout mirrors hostLayoutSchema in core/lib/forms/host.ts. The client
+// schema checks every key it names when the generator merges the hosts.
+type HostLayout struct {
+	Pages  []Page                 `json:"pages"`
+	Fields map[string]LayoutField `json:"fields"`
+	Rules  []Rule                 `json:"rules"`
+}
+
+// LayoutField places one built-in; an empty value means the first page, or
+// full width.
+type LayoutField struct {
+	Page  string `json:"page,omitempty"`
+	Width string `json:"width,omitempty"`
 }
 
 type Defs struct {

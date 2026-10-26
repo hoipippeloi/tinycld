@@ -101,7 +101,7 @@ export function TextInput<T extends FieldValues = Record<string, unknown>>(
                     accessibilityLabel={accessibilityLabel ?? label}
                     testID={testID ?? name}
                     placeholderTextColor={placeholderColor}
-                    className={`flex-1 border rounded-lg px-3 py-2.5 text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}
+                    className={`flex-1 min-w-0 border rounded-lg px-3 py-2.5 text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}
                     style={iosInputCenteringStyle(16)}
                 />
                 {addon}

@@ -11,9 +11,12 @@ import (
 )
 
 // defaultDefinition mirrors defaultDefinitionFor in core/lib/forms/host.ts:
-// every builtin on one page, in declared order. Every slice and map is
-// non-nil, because the client schema rejects a JSON null where it expects a
-// list or an object (core/lib/forms/fixtures/seeded-definition.json).
+// every builtin in declared order, on one full-width page named after the
+// host, or, when the host declares a layout, on the layout's pages with the
+// page and width it gives each one (the first page and full width otherwise)
+// and the layout's rules. Every slice and map is non-nil, because the client
+// schema rejects a JSON null where it expects a list or an object
+// (core/lib/forms/fixtures/seeded-definition.json, layout-definition.json).
 func defaultDefinition(host *Host) *Definition {
 	def := &Definition{
 		Version:  1,
@@ -23,14 +26,32 @@ func defaultDefinition(host *Host) *Definition {
 		Defaults: map[string]any{},
 		Submit:   Submit{Required: []string{}},
 	}
+	layout := host.Layout
+	if layout != nil && len(layout.Pages) > 0 {
+		def.Pages = layout.Pages
+	}
+	if layout != nil && layout.Rules != nil {
+		def.Rules = layout.Rules
+	}
+	first := def.Pages[0].Key
 	for _, b := range host.Builtins {
-		def.Fields = append(def.Fields, builtinRef(b, "main"))
+		page, width := first, "full"
+		if layout != nil {
+			placed := layout.Fields[b.Key]
+			if placed.Page != "" {
+				page = placed.Page
+			}
+			if placed.Width != "" {
+				width = placed.Width
+			}
+		}
+		def.Fields = append(def.Fields, builtinRef(b, page, width))
 	}
 	return def
 }
 
-func builtinRef(b Builtin, page string) Field {
-	return Field{Key: b.Key, Kind: "builtin", Page: page, Label: b.Label, Width: "full", Required: b.Required}
+func builtinRef(b Builtin, page, width string) Field {
+	return Field{Key: b.Key, Kind: "builtin", Page: page, Label: b.Label, Width: width, Required: b.Required}
 }
 
 func slugOf(label string) string {
@@ -185,7 +206,7 @@ func reconcileDefinition(def map[string]any, host *Host) (added, removed []strin
 		if present[b.Key] {
 			continue
 		}
-		ref := builtinRef(b, page)
+		ref := builtinRef(b, page, "full")
 		kept = append(kept, map[string]any{
 			"key": ref.Key, "kind": ref.Kind, "page": ref.Page, "label": ref.Label,
 			"width": ref.Width, "required": ref.Required, "hidden": false,
