@@ -7,6 +7,7 @@ import { getResolvedAddress } from '@tinycld/core/lib/server-address'
 import { useSortedPackagesResult } from '@tinycld/core/lib/use-sorted-packages'
 import { Redirect, router } from 'expo-router'
 import { useEffect } from 'react'
+import { usePackagePrefetch } from '~/lib/route-prefetch'
 
 export default function Index() {
     const auth = useAuth({ throwIfAnon: false })
@@ -52,11 +53,14 @@ export default function Index() {
 // first accessible package (or settings when there is none). app/(app)/index.tsx
 // can't own '/' while app/index.tsx exists, so the landing redirect lives here.
 // Waits for isReady so the default-deny empty window doesn't bounce to settings
-// before the real package list arrives.
+// before the real package list arrives, and then for the landing package's
+// route chunks and sidebar, so they mount without a Suspense fallback (see
+// lib/route-prefetch.ts).
 function LandingRedirect() {
     const { packages: sorted, isReady } = useSortedPackagesResult()
     const orgHref = useOrgHref()
-    if (!isReady) return <SkeletonLayout />
-    const landing = sorted[0]?.slug ?? 'settings'
+    const landing = isReady ? (sorted[0]?.slug ?? 'settings') : null
+    const landingLoaded = usePackagePrefetch(landing)
+    if (!landing || !landingLoaded) return <SkeletonLayout />
     return <Redirect href={orgHref(landing as never)} />
 }

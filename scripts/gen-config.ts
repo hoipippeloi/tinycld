@@ -154,7 +154,7 @@ function pushArrayLines<T>(
 }
 
 function settingsPanelLine(packageName: string, s: ConfigSettingsPanel): string {
-    return `            { slug: ${jsonLiteral(s.slug)}, label: ${jsonLiteral(s.label)}, Component: lazy(() => import('${packageName}/${s.component}')) },`
+    return `            { slug: ${jsonLiteral(s.slug)}, label: ${jsonLiteral(s.label)}, Component: lazyChunk(() => import('${packageName}/${s.component}')) },`
 }
 
 // One systemSettings entry. Extracted from buildConfigSource so that function
@@ -163,12 +163,12 @@ function settingsPanelLine(packageName: string, s: ConfigSettingsPanel): string 
 // out byte-identical to what it generated before.
 function systemSettingsPanelLine(packageName: string, s: ConfigSystemSettingsPanel): string {
     const keyPrefix = s.keyPrefix ? `, keyPrefix: ${jsonLiteral(s.keyPrefix)}` : ''
-    return `            { slug: ${jsonLiteral(s.slug)}, label: ${jsonLiteral(s.label)}${keyPrefix}, Component: lazy(() => import('${packageName}/${s.component}')) },`
+    return `            { slug: ${jsonLiteral(s.slug)}, label: ${jsonLiteral(s.label)}${keyPrefix}, Component: lazyChunk(() => import('${packageName}/${s.component}')) },`
 }
 
 function sidebarContributionLine(packageName: string, c: ConfigSidebarContribution): string {
     const label = c.label ? ` label: ${jsonLiteral(c.label)},` : ''
-    return `            { target: ${jsonLiteral(c.target)}, slot: ${jsonLiteral(c.slot)}, order: ${c.order},${label} Component: lazy(() => import('${packageName}/${c.component}')) },`
+    return `            { target: ${jsonLiteral(c.target)}, slot: ${jsonLiteral(c.slot)}, order: ${c.order},${label} Component: lazyChunk(() => import('${packageName}/${c.component}')) },`
 }
 
 export function buildConfigSource(pkgs: ConfigPkg[]): string {
@@ -191,7 +191,7 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
             p.systemSettings.length > 0 ||
             p.sidebarContributions.length > 0
     )
-    if (needsLazy) lines.push("import { lazy } from 'react'")
+    if (needsLazy) lines.push("import { lazyChunk } from '@tinycld/core/lib/lazy-chunk'")
 
     for (const p of pkgs) {
         if (p.hasRegister) {
@@ -223,7 +223,14 @@ export function buildConfigSource(pkgs: ConfigPkg[]): string {
         )
         if (p.hasRegister) lines.push(`        registerCollections: ${ident(p.slug)}Register,`)
         if (p.hasSidebar) {
-            lines.push(`        sidebar: lazy(() => import('${p.packageName}/sidebar')),`)
+            // Stays a lazy import, like every package surface below: on web a
+            // package must load on demand, so its sidebar is its own chunk and
+            // never part of the initial bundle. A static import here would pull
+            // the sidebar and everything it imports into the shell's bundle for
+            // every installed package. lazyChunk (not React.lazy) so a chunk
+            // that was preloaded mounts without a Suspense fallback and React's
+            // 300ms fallback throttle; see core/lib/lazy-chunk.ts.
+            lines.push(`        sidebar: lazyChunk(() => import('${p.packageName}/sidebar')),`)
         }
         if (p.hasProvider) {
             // A load thunk, not lazy(): core resolves every provider before the
