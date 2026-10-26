@@ -212,6 +212,42 @@ async function saveForm(page: Page) {
     await expect(save).toBeDisabled()
 }
 
+const BACK_GUARD_VIEWPORTS = [
+    { name: 'desktop', size: { width: 1280, height: 800 } },
+    { name: 'phone', size: { width: 390, height: 844 } },
+] as const
+
+/** The forms list's own URL: settings/forms, with at most a query, never a form id. */
+const FORMS_LIST_URL = /\/settings\/forms\/?(\?[^/]*)?$/
+
+function formsListShown(page: Page): Locator {
+    return page.getByTestId(HOST_ROW_TEST_ID).or(page.getByTestId('forms-new'))
+}
+
+/**
+ * Adds a text field so the editor is dirty. On a phone the new field's
+ * properties open in a sheet over the editor; Escape closes it so the
+ * navigation under test reaches the editor, not the sheet.
+ */
+async function addBackNote(page: Page, viewport: 'desktop' | 'phone') {
+    const [firstPage] = await pageKeys(page)
+    await addField(page, firstPage, 'text', 'Back note')
+    await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+    if (viewport !== 'phone') return
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('form-panel-sheet')).toBeHidden()
+}
+
+/** The URL of the history entry `offset` steps from the current one (Chromium's Navigation API). */
+async function entryUrl(page: Page, offset: number): Promise<string> {
+    const url = await page.evaluate(step => {
+        const index = (window.navigation.currentEntry?.index ?? 0) + step
+        return window.navigation.entries()[index]?.url ?? null
+    }, offset)
+    if (!url) throw new Error(`no history entry ${offset} steps from here`)
+    return url
+}
+
 test.describe('Forms builder', () => {
     test.skip(skipWithoutFormsStub(), 'forms-host-stub not scaffolded in this workspace')
 
@@ -543,4 +579,99 @@ test.describe('Forms builder', () => {
         await expect(page.getByTestId(`forms-row-${scratchId}`)).toBeHidden()
         await expect(page.getByTestId(`forms-row-${taskId}`)).toBeVisible()
     })
+
+    for (const viewport of BACK_GUARD_VIEWPORTS) {
+        test(`asks before the browser Back button leaves a dirty form (${viewport.name})`, async ({
+            page,
+        }) => {
+            await page.setViewportSize(viewport.size)
+            const name = `Back guard ${Date.now()} ${viewport.name}`
+            await createForm(page, name)
+            await addBackNote(page, viewport.name)
+            const editorUrl = page.url()
+            const discardTitle = page.getByText('Discard changes?', { exact: true })
+            const backNote = canvas(page).getByTestId('form-field-back_note')
+
+            // A Back of two steps (the browser's long-press history menu) asks
+            // too, and Cancel puts the URL back on the editor, not one step short.
+            await page.evaluate(() => window.history.go(-2))
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+
+            // Browser Back on a dirty editor asks first and keeps the editor's URL.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await expect(page).toHaveURL(editorUrl)
+
+            // The forms editor's confirm cancels with its own label, "Cancel".
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+
+            // The guard is not left half way: the next browser Back still asks.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(backNote).toBeVisible()
+
+            // Asked again, Discard lets the browser Back through to the forms list.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(page).not.toHaveURL(editorUrl)
+
+            // Discard lets that one move through, not every later one: the
+            // editor opened again and made dirty asks on browser Back again.
+            const formId = await formIdOf(page, name)
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await addBackNote(page, viewport.name)
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await expect(page).toHaveURL(editorUrl)
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+
+            // Discard after a 2-step Back makes the whole move: the URL is
+            // the entry two steps back, not the forms list one step back.
+            const twoBackUrl = await entryUrl(page, -2)
+            expect(twoBackUrl).not.toBe(await entryUrl(page, -1))
+            await page.evaluate(() => window.history.go(-2))
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(twoBackUrl)
+
+            // Forward one step is the forms list again, for the steps below.
+            await page.goForward()
+            await expect(formsListShown(page)).toBeVisible()
+
+            // A clean editor leaves on browser Back without asking.
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await expect(canvas(page).getByTestId('form-field-back_note')).toHaveCount(0)
+            await page.goBack()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(discardTitle).toHaveCount(0)
+            await expect(page).not.toHaveURL(editorUrl)
+
+            // The in-app Back still leaves after Discard, to the forms list URL.
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await addBackNote(page, viewport.name)
+            await page.getByTestId('form-back').click()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(page).toHaveURL(FORMS_LIST_URL)
+            await expect(page).not.toHaveURL(editorUrl)
+        })
+    }
 })

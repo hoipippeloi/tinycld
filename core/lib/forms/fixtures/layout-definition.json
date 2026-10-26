@@ -1,0 +1,87 @@
+{
+    "version": 1,
+    "pages": [
+        {
+            "key": "details",
+            "title": "Details"
+        },
+        {
+            "key": "more",
+            "title": "More"
+        }
+    ],
+    "fields": [
+        {
+            "key": "name",
+            "kind": "builtin",
+            "page": "details",
+            "label": "Name",
+            "width": "full",
+            "required": true,
+            "hidden": false
+        },
+        {
+            "key": "first",
+            "kind": "builtin",
+            "page": "details",
+            "label": "First",
+            "width": "half",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "last",
+            "kind": "builtin",
+            "page": "details",
+            "label": "Last",
+            "width": "half",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "due",
+            "kind": "builtin",
+            "page": "details",
+            "label": "Due",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        },
+        {
+            "key": "notes",
+            "kind": "builtin",
+            "page": "more",
+            "label": "Notes",
+            "width": "full",
+            "required": false,
+            "hidden": false
+        }
+    ],
+    "rules": [
+        {
+            "key": "hide_due",
+            "match": "all",
+            "when": [
+                {
+                    "field": "name",
+                    "op": "is_empty"
+                }
+            ],
+            "actions": [
+                {
+                    "action": "hide",
+                    "field": "due"
+                },
+                {
+                    "action": "set_value",
+                    "field": "notes",
+                    "value": null
+                }
+            ]
+        }
+    ],
+    "defaults": {},
+    "submit": {
+        "required": []
+    }
+}

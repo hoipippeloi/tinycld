@@ -71,6 +71,21 @@ type Action struct {
 	Value   any      `json:"value,omitempty"`
 }
 
+// MarshalJSON writes a set_value's value even when it is null, as the client
+// does (its schema defaults the value to null), so both seeds write the same
+// JSON (core/lib/forms/fixtures/layout-definition.json). Every other action
+// has no value and leaves it out.
+func (a Action) MarshalJSON() ([]byte, error) {
+	type plain Action
+	if a.Action != "set_value" {
+		return json.Marshal(plain(a))
+	}
+	return json.Marshal(struct {
+		plain
+		Value any `json:"value"`
+	}{plain(a), a.Value})
+}
+
 type Rule struct {
 	Key     string      `json:"key"`
 	Match   string      `json:"match"`

@@ -73,6 +73,25 @@ describe('mergeFormHosts', () => {
             mergeFormHosts([{ slug: 'gizmos', hosts: [{ ...widget, builtin: [] }] }])
         ).toThrow(/builtin/)
     })
+    it('keeps a host layout, so server/form_hosts.json carries it to Go', () => {
+        const layout = {
+            pages: [
+                { key: 'details', title: 'Details' },
+                { key: 'more', title: 'More' },
+            ],
+            fields: { name: { width: 'half' } },
+            rules: [
+                {
+                    key: 'show_more',
+                    match: 'all',
+                    when: [{ field: 'name', op: 'is_empty' }],
+                    actions: [{ action: 'show', page: 'more' }],
+                },
+            ],
+        }
+        const merged = mergeFormHosts([{ slug: 'gizmos', hosts: [{ ...widget, layout }] }])
+        expect(merged.hosts[0].layout).toEqual(layout)
+    })
     it('rejects a duplicate key across packages', () => {
         expect(() =>
             mergeFormHosts([

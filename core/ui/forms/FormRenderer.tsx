@@ -10,6 +10,7 @@ import { type LayoutChangeEvent, ScrollView, Text, View } from 'react-native'
 import { FieldCell } from './FieldCell'
 import { FieldInput, hasPinnedRow, PinnedHostRow, rendersBare, rendersOwnLabel } from './FieldInput'
 import { FormLayout } from './FormLayout'
+import { type SubmitSummaryKind, submitSummary } from './submit-summary'
 import { useContainerWidth } from './use-container-width'
 import { useFormState } from './use-form-state'
 import { type LayoutRect, type MeasureRect, useMeasuredRect } from './use-measure-rect'
@@ -75,6 +76,13 @@ export interface FormRendererProps {
     scroll?: SectionsScroll
     /** Kept current with the effective schema; see useSchemaRefResolver. */
     schemaRef?: MutableRefObject<FormSchema>
+    /**
+     * `all` (default): the error summary lists every error after a submit.
+     * `root`: it lists only the no-field (server) error, whenever one exists,
+     * for a host that shows field errors inline only and saves edits without a
+     * submit. See submitSummary.
+     */
+    summary?: SubmitSummaryKind
     testID?: string
 }
 
@@ -236,19 +244,23 @@ function DesignPage({ page, isTitleVisible, ...props }: PageProps & { isTitleVis
 
 function SubmitErrors({
     form,
+    summary = 'all',
     attempted = false,
 }: {
     form: UseFormReturn<FormValues>
+    summary?: SubmitSummaryKind
     /** A wizard Next that failed counts as an attempt, before any submit. */
     attempted?: boolean
 }) {
     const { errors, isSubmitted } = form.formState
+    const shown = submitSummary({ errors, isSubmitted, attempted }, summary)
     // The messages name the field by its label already ("Name is required"), so the key is noise.
     return (
         <FormErrorSummary
-            errors={errors}
-            isEnabled={isSubmitted || attempted}
+            errors={shown.errors}
+            isEnabled={shown.isEnabled}
             showFieldNames={false}
+            testID="form-error-summary"
         />
     )
 }
@@ -258,7 +270,7 @@ function DesignSections(props: BodyProps) {
     const pages = props.definition.pages
     return (
         <>
-            <SubmitErrors form={props.form} />
+            <SubmitErrors form={props.form} summary={props.summary} />
             {pages.map(page => (
                 <DesignPage
                     key={page.key}
@@ -374,7 +386,7 @@ function sectionRows(props: BodyProps): { rows: ReactElement[]; pinnedIndexes: n
     const rows: ReactElement[] = [
         <Row key="errors" className={props.scroll?.rowClassName}>
             <View onLayout={props.onContainerLayout}>
-                <SubmitErrors form={form} />
+                <SubmitErrors form={form} summary={props.summary} />
             </View>
         </Row>,
     ]
@@ -471,7 +483,7 @@ function Wizard(props: BodyProps) {
     return (
         <View>
             <WizardSteps pages={w.pages} index={w.index} />
-            <SubmitErrors form={props.form} attempted={w.attemptedNext} />
+            <SubmitErrors form={props.form} summary={props.summary} attempted={w.attemptedNext} />
             <PageFields {...props} page={w.page} onSubmitEditing={w.next} />
             <WizardFooter
                 isFirst={w.index === 0}

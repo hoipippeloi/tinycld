@@ -255,7 +255,7 @@ const actionSchema = z.union([
 ])
 export type RuleAction = z.infer<typeof actionSchema>
 
-const ruleSchema = z.object({
+export const ruleSchema = z.object({
     key: keySchema,
     match: z.enum(['all', 'any']).default('all'),
     when: z.array(conditionSchema).min(1, 'Add at least one condition'),

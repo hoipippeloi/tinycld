@@ -11,6 +11,7 @@ import { useUrl } from '@tinycld/core/lib/use-url'
 import '~/lib/configure-core'
 import '~/global.css'
 import { AppErrorBoundary } from '@tinycld/core/components/AppErrorBoundary'
+import { installBrowserBackGuard } from '@tinycld/core/components/forms-builder/use-leave-guard'
 import { NewVersionToast } from '@tinycld/core/components/NewVersionToast'
 import { useAuth } from '@tinycld/core/lib/auth'
 import { BundleSentinel } from '@tinycld/core/lib/bundle-sentinel'
@@ -37,6 +38,10 @@ installFatalRollbackHandler()
 // The bundle entry already took the handoff out of the URL (lib/capture-server-
 // handoff.ts); saving it waits for configure-core, which the probe needs.
 acceptServerHandoff()
+// Before the navigation container mounts and adds expo-router's own popstate
+// listener: the browser runs window listeners in the order they were added,
+// so a dirty editor's leave guard sees the browser Back first.
+installBrowserBackGuard()
 
 // Expo Router renders a route module's exported `ErrorBoundary` (wrapping its
 // subtree in <Try>) whenever a descendant throws during render. Exporting it
