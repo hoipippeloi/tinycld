@@ -768,9 +768,7 @@ func realtimeBroadcastRecord(app core.App, action string, record *core.Record, d
 							}
 							client.Set(dryCacheKey, messages)
 						} else {
-							routine.FireAndForget(func() {
-								client.Send(msg)
-							})
+							realtimeSend(client, msg) // fork: see realtime_send_tinycld.go
 						}
 					}
 				}
@@ -804,13 +802,7 @@ func realtimeBroadcastDryCacheKey(app core.App, key string) error {
 
 				client.Unset(key)
 
-				client := client
-
-				routine.FireAndForget(func() {
-					for _, msg := range messages {
-						client.Send(msg)
-					}
-				})
+				realtimeSend(client, messages...) // fork: see realtime_send_tinycld.go
 			}
 
 			return nil
