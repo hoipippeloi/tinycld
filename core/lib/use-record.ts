@@ -15,6 +15,8 @@ import { useLiveQuery } from '@tanstack/react-db'
  * Disabled — no query, `record` undefined, not loading — while `id` is empty,
  * because an empty id is a real value that matches nothing.
  *
+ * The query key names the collection and the id: the only values the query captures.
+ *
  * ```ts
  * const [usersCollection] = useStore('users')
  * const { record: author } = useRecord(usersCollection, comment.author)
@@ -29,6 +31,7 @@ export function useRecord<
     id: string | null | undefined
 ): { record: TRow | undefined; isLoading: boolean } {
     const { data, isLoading } = useLiveQuery({
+        queryKey: ['record', collection.id, id ?? ''],
         query: q =>
             id
                 ? q

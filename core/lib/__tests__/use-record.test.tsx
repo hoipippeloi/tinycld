@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
-import { eq } from '@tanstack/db'
+import {
+    createCollection as createLocalCollection,
+    eq,
+    localOnlyCollectionOptions,
+} from '@tanstack/db'
 import { useLiveQuery } from '@tanstack/react-db'
-import { cleanup, renderHook, waitFor } from '@testing-library/react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useRecord } from '@tinycld/core/lib/use-record'
 import { createCollection, disconnectRealtime } from 'pbtsdb/core'
 import PocketBase, { BaseAuthStore } from 'pocketbase'
@@ -55,6 +59,20 @@ function makeNotes() {
     return { notes, requests }
 }
 
+type Item = { id: string; label: string }
+
+let localCount = 0
+
+function localItems(name: string, initialData: Item[]) {
+    return createLocalCollection(
+        localOnlyCollectionOptions<Item>({
+            id: `use-record-${name}-${++localCount}`,
+            getKey: (item: Item) => item.id,
+            initialData,
+        })
+    )
+}
+
 afterEach(() => cleanup())
 
 describe('useRecord', () => {
@@ -82,15 +100,121 @@ describe('useRecord', () => {
         expect(requests).toHaveLength(1)
     })
 
-    it('is disabled while the id is empty', async () => {
+    // useRecord names its live query with an explicit key, which is the whole
+    // identity of the query for the life of one hook. Two hooks mounted side by
+    // side have separate identities anyway, so the swap and rerender steps are
+    // what guard the key: a key that left out the id or the collection would
+    // keep serving the old record.
+    it('keeps two records of one collection apart, also when their ids swap', async () => {
+        const widgets = localItems('widgets', [
+            { id: 'a', label: 'widget a' },
+            { id: 'b', label: 'widget b' },
+        ])
+        const { result, rerender } = renderHook(
+            ({ first, second }) => ({
+                first: useRecord(widgets, first),
+                second: useRecord(widgets, second),
+            }),
+            { initialProps: { first: 'a', second: 'b' } }
+        )
+        await waitFor(() => {
+            expect(result.current.first.record?.label).toBe('widget a')
+            expect(result.current.second.record?.label).toBe('widget b')
+        })
+
+        rerender({ first: 'b', second: 'a' })
+        await waitFor(() => {
+            expect(result.current.first.record?.label).toBe('widget b')
+            expect(result.current.second.record?.label).toBe('widget a')
+        })
+    })
+
+    it('follows a changed id to the new record, and back', async () => {
+        const widgets = localItems('widgets', [
+            { id: 'a', label: 'widget a' },
+            { id: 'b', label: 'widget b' },
+        ])
+        const { result, rerender } = renderHook(({ id }) => useRecord(widgets, id), {
+            initialProps: { id: 'a' },
+        })
+        await waitFor(() => expect(result.current.record?.label).toBe('widget a'))
+
+        rerender({ id: 'b' })
+        await waitFor(() => expect(result.current.record?.label).toBe('widget b'))
+
+        rerender({ id: 'a' })
+        await waitFor(() => expect(result.current.record?.label).toBe('widget a'))
+    })
+
+    // The side-by-side hooks have separate identities anyway; the rerender of
+    // one hook onto another collection is what guards the key.
+    it("returns each collection's own row for the same id", async () => {
+        const widgets = localItems('widgets', [{ id: 'same', label: 'the widget' }])
+        const gadgets = localItems('gadgets', [{ id: 'same', label: 'the gadget' }])
+
+        const sideBySide = renderHook(() => ({
+            widget: useRecord(widgets, 'same'),
+            gadget: useRecord(gadgets, 'same'),
+        }))
+        await waitFor(() => {
+            expect(sideBySide.result.current.widget.record?.label).toBe('the widget')
+            expect(sideBySide.result.current.gadget.record?.label).toBe('the gadget')
+        })
+
+        const { result, rerender } = renderHook(({ collection }) => useRecord(collection, 'same'), {
+            initialProps: { collection: widgets },
+        })
+        await waitFor(() => expect(result.current.record?.label).toBe('the widget'))
+
+        rerender({ collection: gadgets })
+        await waitFor(() => expect(result.current.record?.label).toBe('the gadget'))
+
+        rerender({ collection: widgets })
+        await waitFor(() => expect(result.current.record?.label).toBe('the widget'))
+    })
+
+    it('is disabled for an empty or missing id: no record, not loading, no request', async () => {
         const { notes, requests } = makeNotes()
-
-        const { result } = renderHook(() => useRecord(notes, ''))
-        const unset = renderHook(() => useRecord(notes, undefined))
-
+        const { result, rerender } = renderHook(
+            ({ id }: { id: string | null | undefined }) => useRecord(notes, id),
+            { initialProps: { id: '' as string | null | undefined } }
+        )
         expect(result.current).toEqual({ record: undefined, isLoading: false })
-        expect(unset.result.current).toEqual({ record: undefined, isLoading: false })
-        await new Promise(resolve => setTimeout(resolve, 20))
-        expect(requests).toEqual([])
+
+        rerender({ id: null })
+        expect(result.current).toEqual({ record: undefined, isLoading: false })
+
+        rerender({ id: undefined })
+        expect(result.current).toEqual({ record: undefined, isLoading: false })
+
+        // The request log is ordered: the first request is the one for n1, so
+        // no request for an empty id went out before it.
+        rerender({ id: 'n1' })
+        await waitFor(() => expect(result.current.record?.title).toBe('First'))
+        expect(requests).toEqual(['id = "n1"'])
+
+        // Leaving a real id for an empty one drops the record it held.
+        rerender({ id: '' })
+        expect(result.current).toEqual({ record: undefined, isLoading: false })
+
+        // The record is undefined at once, so waiting on it proves no settle.
+        // A second real id gives the ordered proof: its request comes directly
+        // after n1's, so no request for the empty id went out between them.
+        rerender({ id: 'n2' })
+        await waitFor(() => expect(result.current.record?.title).toBe('Second'))
+        expect(requests).toEqual(['id = "n1"', 'id = "n2"'])
+    })
+
+    it('re-renders when the held row changes', async () => {
+        const widgets = localItems('widgets', [{ id: 'a', label: 'before' }])
+        const { result } = renderHook(() => useRecord(widgets, 'a'))
+        await waitFor(() => expect(result.current.record?.label).toBe('before'))
+
+        await act(async () => {
+            await widgets.update('a', draft => {
+                draft.label = 'after'
+            }).isPersisted.promise
+        })
+        await waitFor(() => expect(result.current.record?.label).toBe('after'))
     })
 })
