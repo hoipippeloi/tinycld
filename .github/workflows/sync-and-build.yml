@@ -1,0 +1,174 @@
+name: Sync upstream & publish Railway image
+
+# Fork pipeline for running TinyCld on Railway with local changes preserved.
+#
+#   main    = pristine mirror of upstream tinycld/tinycld (fast-forwarded)
+#   deploy  = upstream release tag + your custom commits (merge-based)
+#
+# Every run ends with a fresh image at ghcr.io/<owner>/tinycld:latest.
+# Railway's "Image Auto Updates" picks up new digests automatically.
+#
+# Triggers:
+#   - daily schedule      -> sync latest upstream release into `deploy`, then build
+#   - push to `deploy`    -> build only (your own changes)
+#   - manual dispatch     -> sync + build
+
+on:
+  schedule:
+    - cron: "23 4 * * *" # daily 04:23 UTC
+  workflow_dispatch:
+  push:
+    branches: [deploy]
+
+concurrency:
+  group: tinycld-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: write # push merges to `deploy`
+  packages: write # push image to ghcr.io
+
+env:
+  UPSTREAM_REPO: tinycld/tinycld
+
+jobs:
+  sync:
+    # push-to-deploy = your own change; no upstream sync needed
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out deploy branch
+        uses: actions/checkout@v5
+        with:
+          ref: deploy
+          fetch-depth: 0
+
+      - name: Fast-forward main from upstream (best effort)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh repo sync "${GITHUB_REPOSITORY}" -b main \
+            || echo "::warning::main not fast-forwardable — left as-is (deploy branch is what ships)"
+
+      - name: Merge latest upstream release into deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "tinycld-sync-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TAG="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
+          echo "Latest upstream release: ${TAG}"
+
+          if git merge-base --is-ancestor "${TAG}" HEAD; then
+            echo "deploy already contains ${TAG} — nothing to sync"
+            exit 0
+          fi
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream tag "${TAG}" --no-tags
+
+          if ! git merge --no-ff --no-edit -m "Merge upstream ${TAG} [skip ci]" "${TAG}"; then
+            echo "::error::Merge conflict merging ${TAG} into deploy."
+            echo "Resolve locally:"
+            echo "  git checkout deploy"
+            echo "  git remote add upstream https://github.com/${UPSTREAM_REPO}.git"
+            echo "  git fetch upstream tag ${TAG} --no-tags"
+            echo "  git merge ${TAG}   # resolve conflicts, commit"
+            echo "  git push           # pipeline rebuilds automatically"
+            exit 1
+          fi
+
+          git push origin deploy
+
+  build:
+    needs: sync
+    if: ${{ always() && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out deploy branch (the tinycld workspace member)
+        uses: actions/checkout@v5
+        with:
+          ref: deploy
+          path: ws/tinycld
+          fetch-depth: 0
+
+      - name: Determine release tag deploy is based on
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd ws/tinycld
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream 'refs/tags/v*:refs/tags/upstream/*' --no-tags
+
+          # newest upstream release tag that is an ancestor of deploy HEAD
+          for t in $(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" --jq '.[].tag_name'); do
+            if git merge-base --is-ancestor "refs/tags/upstream/${t}" HEAD 2>/dev/null; then
+              echo "tag=${t}" >> "$GITHUB_OUTPUT"
+              echo "Building from upstream release ${t}"
+              exit 0
+            fi
+          done
+          echo "::error::deploy is not based on any of the last 30 upstream release tags"
+          exit 1
+
+      - name: Download pinned release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ws/assets
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${UPSTREAM_REPO}" \
+            --pattern manifest.json \
+            --pattern pnpm-lock.yaml \
+            --pattern package-versions.json \
+            --dir ws/assets
+
+      # Upstream's own script: clones every feature sibling at the SHA pinned in
+      # manifest.json, runs `bootstrap --assemble-only`, drops the pinned
+      # lockfile + version pins into place. Workspace root ends up byte-identical
+      # to upstream's release build. NOTE: siblings always come from upstream —
+      # to ship a modified feature package, see RAILWAY.md ("Modifying a feature
+      # package").
+      - name: Assemble workspace
+        working-directory: ws
+        run: bash tinycld/scripts/ci-assemble-workspace.sh "$PWD/assets"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push image (linux/amd64)
+        working-directory: ws
+        env:
+          IMAGE: ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/tinycld
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --file tinycld/Dockerfile \
+            --cache-from type=gha,scope=tinycld-amd64 \
+            --cache-to type=gha,mode=max,scope=tinycld-amd64 \
+            --tag "${IMAGE}:latest" \
+            --tag "${IMAGE}:${{ steps.tag.outputs.tag }}-$(git -C tinycld rev-parse --short HEAD)" \
+            --push \
+            .
+
+      - name: Summary
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/tinycld"
+          {
+            echo "### Published \`${IMAGE}:latest\`"
+            echo ""
+            echo "- upstream release: \`${{ steps.tag.outputs.tag }}\`"
+            echo "- deploy HEAD: \`${{ github.sha }}\`"
+            echo "- Railway picks this up via Image Auto Updates (or redeploy manually)"
+          } >> "$GITHUB_STEP_SUMMARY"
