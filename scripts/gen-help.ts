@@ -96,10 +96,13 @@ export function collectHelpImages(helpDir: string): HelpImageInput[] {
 }
 
 const IMAGE_REF = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?/g
+// Image syntax inside a code span or a fenced block is shown as text, not
+// rendered, so it references nothing.
+const CODE = /```[\s\S]*?```|`[^`\n]*`/g
 
 /** Relative image refs in a topic body, as authored. */
 export function helpImageRefs(body: string): string[] {
-    return [...body.matchAll(IMAGE_REF)].map(m => m[1]).filter(isRelativeHelpRef)
+    return [...body.replace(CODE, '').matchAll(IMAGE_REF)].map(m => m[1]).filter(isRelativeHelpRef)
 }
 
 /** Fails generation on a ref that is missing or climbs out of help/. */
