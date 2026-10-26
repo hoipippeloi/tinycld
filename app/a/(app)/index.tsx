@@ -4,12 +4,16 @@ import { useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useCurrentRole } from '@tinycld/core/lib/use-current-role'
 import { useSortedPackagesResult } from '@tinycld/core/lib/use-sorted-packages'
 import { Redirect } from 'expo-router'
+import { usePackagePrefetch } from '~/lib/route-prefetch'
 
 export default function OrgIndex() {
     const { packages: sorted, isReady } = useSortedPackagesResult()
     const { isGuest } = useCurrentRole()
     const orgHref = useOrgHref()
     const first = sorted[0]
+    // Hold the redirect until the landing package's chunks are loaded, so its
+    // screen and sidebar mount without a Suspense fallback (lib/route-prefetch.ts).
+    const landingLoaded = usePackagePrefetch(isReady ? (first?.slug ?? 'settings') : null)
 
     trace('OrgIndex render', {
         sortedCount: sorted.length,
@@ -22,7 +26,7 @@ export default function OrgIndex() {
     // "still loading" rather than "genuinely nothing". Wait for isReady before
     // deciding where to land — redirecting to settings prematurely would flash
     // then bounce to the real package once the registry/overrides arrive.
-    if (!isReady) return null
+    if (!isReady || !landingLoaded) return null
 
     if (first) {
         const href = orgHref(first.slug as never)

@@ -14,7 +14,9 @@ const layoutSource = readFileSync(join(appRoot, 'app', '_layout.tsx'), 'utf8')
 // (which calls crypto.randomUUID() at module scope via @tanstack/db) initialized at
 // position 1682 while lib/polyfill-crypto.ts ran at 4669, so the app died on Hermes
 // with "Property 'crypto' doesn't exist" before any handler could report it.
-// The only position that wins that race is ahead of the expo-router import.
+// The only position that wins that race is ahead of the expo-router import:
+// index.js inlines expo-router/entry, and the qualified entry is the import
+// that pulls in `_ctx`.
 const POLYFILLS = ['./lib/diagnose-regexp', './lib/polyfill-dom-shim', './lib/polyfill-crypto']
 
 describe('bundle entry', () => {
@@ -22,8 +24,8 @@ describe('bundle entry', () => {
         expect(packageJson.main).toBe('index.js')
     })
 
-    it('imports every polyfill before expo-router/entry', () => {
-        const routerIndex = entrySource.indexOf("'expo-router/entry'")
+    it('imports every polyfill before the expo-router entry', () => {
+        const routerIndex = entrySource.indexOf("'expo-router/build/qualified-entry'")
         expect(routerIndex).toBeGreaterThan(-1)
 
         for (const polyfill of POLYFILLS) {
@@ -31,7 +33,7 @@ describe('bundle entry', () => {
             expect(polyfillIndex, `${polyfill} must be imported in index.js`).toBeGreaterThan(-1)
             expect(
                 polyfillIndex,
-                `${polyfill} must be imported before expo-router/entry`
+                `${polyfill} must be imported before the expo-router entry`
             ).toBeLessThan(routerIndex)
         }
     })

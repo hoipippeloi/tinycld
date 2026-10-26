@@ -67,9 +67,9 @@ export default defineConfig({
     // attempt is always captured for diagnosis. Inherited by every package's
     // config.
     retries: 0,
-    // Two workers, overriding Playwright's default of 50% OF CPUS.
+    // Two workers in CI; Playwright's default (50% of CPUs) locally.
     //
-    // That default is not a CI special case, whatever the folklore says — see
+    // The default is not a CI special case, whatever the folklore says — see
     // resolveWorkers in playwright's common/config.js, which reads
     // `os.cpus().length` and takes the percentage. A standard 2-core GitHub
     // runner therefore resolves to ONE worker, and the boards e2e log said so
@@ -79,18 +79,19 @@ export default defineConfig({
     // Measured on boards before generalizing here: two workers on the same
     // 2-core runner ran the same 140 tests in 11.9 minutes (139 passed, 1
     // skipped — the same split as the serial run), a ~29% saving with no new
-    // failures.
+    // failures. Any percentage at or below 100% still resolves to 1 on that
+    // runner, so CI needs the fixed number.
     //
-    // WHY A FIXED 2 RATHER THAN A PERCENTAGE. The runner has 2 cores, so any
-    // percentage at or below 100% resolves to 1 there, while a developer
-    // machine with 14 cores would take 7 browsers against one PocketBase. A
-    // fixed 2 is the number that helps CI, which is where the wall clock
-    // actually hurts, and it keeps local runs the same shape as CI.
+    // Locally the fixed 2 only held a developer machine back: a 14-core
+    // machine ran the same two browsers as the runner against a PocketBase
+    // that sat mostly idle. Every spec sets up its own data, which is what
+    // already lets several workers share one server, so the default applies
+    // off CI.
     //
     // A package that needs different parallelism overrides this in its own
     // config; a suite whose specs are not independent should be FIXED rather
     // than serialized, for the reason `retries: 0` above gives.
-    workers: 2,
+    workers: process.env.CI ? 2 : undefined,
     // Scoped to tests/e2e/ specifically. The tests/install/ tree has
     // its own playwright.config.ts and is invoked separately by the
     // docker smoke-test workflow — leaving testDir at the playwright

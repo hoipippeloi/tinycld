@@ -143,3 +143,16 @@ describe('buildHelpSource images', () => {
         )
     })
 })
+
+describe('helpImageRefs in code', () => {
+    it('ignores image syntax inside code spans and fenced blocks', () => {
+        const body = [
+            'every image emits as `![alt](src)` at its natural size',
+            '```md',
+            '![x](images/x.png)',
+            '```',
+            '![real](images/a.png)',
+        ].join('\n')
+        expect(helpImageRefs(body)).toEqual(['images/a.png'])
+    })
+})
