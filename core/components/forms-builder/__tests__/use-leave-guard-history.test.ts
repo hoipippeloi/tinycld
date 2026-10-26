@@ -690,18 +690,42 @@ describe('with the shared listener installed', () => {
             expect(routerSaw).toHaveBeenCalledTimes(1)
         })
 
-        it('asks when a 2-step Back from a covering screen would skip over the dirty editor', async () => {
+        // A covered screen is frozen and cannot show its confirm, so only the
+        // focused guard holds: a skip past the covered editor goes through.
+        it('lets a 2-step Back from a covering screen through, past the dirty editor', async () => {
+            const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
             const { result } = coveredEditor()
             await userGo(-2)
             await settle()
-            expect(result.current.isConfirming).toBe(true)
-            expect(routerSaw).not.toHaveBeenCalled()
-            // Back where the user was, on the covering screen, not on the editor's entry.
-            expect(here()).toBe('/over')
-
-            await act(async () => result.current.discard())
-            await settle()
+            expect(result.current.isConfirming).toBe(false)
+            expect(routerSaw).toHaveBeenCalledTimes(1)
+            expect(browser.guardMoves).toEqual([])
             expect(here()).toBe('/list')
+            expect(leaveGuardWarnings(warn)).toHaveLength(0)
+        })
+
+        // A switch to a package tab visited before is a replace, not a push:
+        // the tab's screen takes over the editor's slot, key and all. A
+        // regression guard only: the removed covered hold let this move
+        // through too.
+        it('lets a browser Back through when a tab switch replaced the dirty editor entry', async () => {
+            const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+            visit('list', '/list')
+            visit('editor', '/editor')
+            const editor = screenAt('/editor')
+            const { result } = renderGuard(editor, true)
+            await settle()
+            expect(takenEntries()).toEqual([`key:${entryId('editor')}`])
+            editor.focused = false
+            replaceCurrent('/tab')
+
+            await userGo(-1)
+            await settle()
+            expect(result.current.isConfirming).toBe(false)
+            expect(routerSaw).toHaveBeenCalledTimes(1)
+            expect(browser.guardMoves).toEqual([])
+            expect(here()).toBe('/list')
+            expect(leaveGuardWarnings(warn)).toHaveLength(0)
         })
 
         /**
@@ -766,26 +790,6 @@ describe('with the shared listener installed', () => {
             expect(result.current.isConfirming).toBe(false)
             expect(routerSaw).toHaveBeenCalledTimes(1)
             expect(leaveGuardWarnings(warn)).toHaveLength(0)
-        })
-
-        // No browser move comes first: a covered guard holds a skip only by
-        // its own entry, so this asks only if the in-app return made over2 it.
-        it('takes the slot the in-app return replaced as its own, so a skip over it while covered asks', async () => {
-            const dropped = droppedEditor()
-            await settle()
-
-            dropped.editor.focused = false
-            visit('over3', '/over3')
-            await userGo(-2)
-            await settle()
-            expect(dropped.result.current.isConfirming).toBe(true)
-            expect(routerSaw).not.toHaveBeenCalled()
-            expect(here()).toBe('/over3')
-
-            await act(async () => dropped.result.current.discard())
-            await settle()
-            expect(here()).toBe('/over1')
-            expect(routerSaw).toHaveBeenCalledTimes(1)
         })
 
         it('lets an in-app Back from a sub-screen to the editor through, and keeps the slot it took', async () => {
@@ -866,39 +870,6 @@ describe('with the shared listener installed', () => {
             expect(here()).toBe('/over1')
             expect(leaveGuardWarnings(warn).map(([, message]) => message)).toEqual([
                 'browser move not held: its entry left the history',
-            ])
-        })
-
-        // The not-held warnings share one once-only flag. A move another
-        // guard holds is not let through, so it must neither log nor use up
-        // the flag. The focused guard here never takes an entry (its path and
-        // URL never match), so the move is the covered guard's alone to hold.
-        it('logs no not-held warning for a move a covered guard holds, and keeps the warning for a later move', async () => {
-            const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
-            visit('list', '/list')
-            visit('editor', '/editor')
-            const editor = screenAt('/editor')
-            const covered = renderGuard(editor, true)
-            editor.focused = false
-            // The top screen's path and URL never match, so it takes no entry.
-            visit('doc', '/files/a', '/elsewhere/a')
-            renderGuard(screenAt('/files/a'), true)
-
-            await userGo(-2)
-            await settle()
-            expect(covered.result.current.isConfirming).toBe(true)
-            expect(routerSaw).not.toHaveBeenCalled()
-            expect(here()).toBe('/elsewhere/a')
-            expect(leaveGuardWarnings(warn)).toHaveLength(0)
-
-            await act(async () => covered.result.current.cancel())
-            covered.rerender({ dirty: false })
-            await userGo(-1)
-            await settle()
-            expect(routerSaw).toHaveBeenCalledTimes(1)
-            expect(here()).toBe('/editor')
-            expect(leaveGuardWarnings(warn).map(([, message]) => message)).toEqual([
-                'browser move not held: the URL never showed the screen',
             ])
         })
     })

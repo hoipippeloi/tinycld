@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import { isPackageLinked, login, skipWithoutFormsStub } from './helpers'
+import { login, skipWithoutFormsStub } from './helpers'
 
 /**
  * The forms builder (Settings → Forms) end to end, against the forms-host
@@ -246,54 +246,6 @@ async function entryUrl(page: Page, offset: number): Promise<string> {
     }, offset)
     if (!url) throw new Error(`no history entry ${offset} steps from here`)
     return url
-}
-
-/**
- * Opens a search-alpha stub record from the search palette, which pushes the
- * stub's screen over the settings screen; the forms editor stays mounted
- * under it. Focus leaves any input first, because '/' typed into an input
- * does not open the palette.
- */
-async function openSearchResultOver(page: Page) {
-    await page.evaluate(() => {
-        const focused = document.activeElement
-        if (focused instanceof HTMLElement) focused.blur()
-    })
-    await page.keyboard.press('/')
-    await expect(page.getByRole('dialog', { name: 'Search' })).toBeVisible()
-    await page.keyboard.type('search-alpha: onboarding')
-    const row = page.getByRole('option').filter({ hasText: 'Alpha onboarding subtitle' })
-    await expect(row).toBeVisible()
-    await row.click()
-    await expect(page.getByTestId('search-alpha-detail')).toHaveText('alpha-1')
-}
-
-/**
- * The browser-Back steps that need a screen over the dirty editor (the
- * search-alpha stub's record). Starts and ends on the dirty editor.
- */
-async function expectCoveringScreenSteps(page: Page, editorUrl: string) {
-    const discardTitle = page.getByText('Discard changes?', { exact: true })
-    const backNote = canvas(page).getByTestId('form-field-back_note')
-
-    // A screen pushed over the dirty editor owns its own Back: Back
-    // from it returns to the editor with no dialog and the field kept.
-    await openSearchResultOver(page)
-    await expect(page).not.toHaveURL(editorUrl)
-    await page.goBack()
-    await expect(page.getByTestId('form-editor')).toBeVisible()
-    await expect(page).toHaveURL(editorUrl)
-    await expect(discardTitle).toHaveCount(0)
-    await expect(backNote).toBeVisible()
-
-    // Browser Forward (to the search result) leaves the dirty editor
-    // too, so it asks first; Cancel keeps the editor's URL and the field.
-    await page.goForward()
-    await expect(discardTitle).toBeVisible()
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(discardTitle).toBeHidden()
-    await expect(page).toHaveURL(editorUrl)
-    await expect(backNote).toBeVisible()
 }
 
 test.describe('Forms builder', () => {
@@ -659,18 +611,6 @@ test.describe('Forms builder', () => {
             await expect(discardTitle).toBeHidden()
             await expect(page).toHaveURL(editorUrl)
             await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
-
-            // The covering screen is the search-alpha stub's record; without
-            // the stub only these steps are skipped, not the whole test.
-            if (isPackageLinked('search-alpha')) {
-                await expectCoveringScreenSteps(page, editorUrl)
-            } else {
-                test.info().annotations.push({
-                    type: 'skipped steps',
-                    description:
-                        'search-alpha stub not scaffolded: the covering-screen Back and the browser Forward steps did not run',
-                })
-            }
 
             // The guard is not left half way: the next browser Back still asks.
             await page.goBack()

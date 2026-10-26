@@ -42,11 +42,19 @@ type Held = { kind: 'action'; action: NavigationAction } | { kind: 'browser'; de
  * buttons leave a dirty screen without asking. In-app moves, reload and tab
  * close still ask there.
  *
- * With the Navigation API, a browser move off a dirty screen, focused or
- * covered, goes through when that screen has no entry to put the user back
- * on: its URL never showed the screen's path, so it never took one, or the
- * browser dropped its entry (session history has a cap). A move also goes
- * through inside the short pass window after a confirmed in-app move (see
+ * Only the focused screen's guard holds a browser move. A move made while
+ * another screen covers the dirty one (a screen pushed over it, or another
+ * package's tab) goes through, even when it removes the dirty screen: a
+ * covered screen is frozen (`freezeOnBlur`), so it cannot show its confirm,
+ * and a switch to a package tab visited before replaces the dirty screen's
+ * history entry instead of pushing one, so that entry then shows the tab's
+ * URL: a hold would put the user back on the tab, not on the dirty screen.
+ *
+ * With the Navigation API, a browser move off the focused dirty screen goes
+ * through when that screen has no entry to put the user back on: its URL
+ * never showed the screen's path, so it never took one, or the browser
+ * dropped its entry (session history has a cap). A move also goes through
+ * inside the short pass window after a confirmed in-app move (see
  * `Expected`). Guards look for a dropped entry when they arm and at each
  * popstate that no guard caused or waits for (`registry.expected` is null);
  * a guard then takes the next entry that shows its screen while it is
@@ -56,8 +64,8 @@ type Held = { kind: 'action'; action: NavigationAction } | { kind: 'browser'; de
  * at the popstate of the next browser move, too late to hold it. The first
  * move let through because the focused screen has no entry, whether it never
  * took one or the browser dropped it, logs one warning in the page's life
- * (`forms.leave-guard`). Later ones, the covered case, and moves in the pass
- * window log nothing.
+ * (`forms.leave-guard`). Later ones, moves made while the dirty screen is
+ * covered, and moves in the pass window log nothing.
  */
 export function useLeaveGuard(isDirty: boolean) {
     const navigation = useNavigation()
@@ -119,11 +127,6 @@ type Expected =
 
 const IN_APP_PASS_MS = 500
 
-interface SeenEntry {
-    key: string
-    lastKey: string | undefined
-}
-
 interface GuardRegistry {
     /** The armed guards, most recently armed last (a re-arm moves a guard to the end). */
     armed: ArmedGuard[]
@@ -136,15 +139,6 @@ interface GuardRegistry {
      * it dropped and no entry has been taken since.
      */
     hasWarnedNoEntry: boolean
-    /**
-     * The Navigation API entry the browser was on when the `popstate`
-     * listener or `arm()` last looked, and the newest entry then. The module
-     * sees pushes too (a guard waiting for its entry watches
-     * `currententrychange`), but only the listener and `arm()` write this, so
-     * a push may come after it. A push always lands on a new newest entry,
-     * so the two still tell where a move started.
-     */
-    lastSeen: SeenEntry | null
     /** The newest module's handler, which the installed listener calls. */
     onPopState: (event: PopStateEvent) => void
 }
@@ -159,7 +153,6 @@ globalHost.__tinycldLeaveGuards ??= {
     isInstalled: false,
     hasWarned: false,
     hasWarnedNoEntry: false,
-    lastSeen: null,
     onPopState: () => {},
 }
 const registry = globalHost.__tinycldLeaveGuards
@@ -182,19 +175,6 @@ function navigationApi(): Navigation | undefined {
 function indexOfKey(api: Navigation, key: string | null): number | undefined {
     if (!key) return undefined
     return api.entries().find(e => e.key === key)?.index
-}
-
-function noteCurrentEntry(api: Navigation) {
-    const now = api.currentEntry
-    registry.lastSeen = now ? { key: now.key, lastKey: api.entries().at(-1)?.key } : null
-}
-
-/** The index of the entry a move started on, from what the listener last saw. */
-function startIndex(api: Navigation, from: SeenEntry | null): number | undefined {
-    const entries = api.entries()
-    const newest = entries.at(-1)
-    if (!from || from.lastKey !== newest?.key) return newest?.index
-    return indexOfKey(api, from.key)
 }
 
 function trimSlash(path: string) {
@@ -321,14 +301,11 @@ registry.onPopState = (event: PopStateEvent) => {
             event.stopImmediatePropagation()
             expected.guard.hold(expected.delta)
         }
-        if (api) noteCurrentEntry(api)
         return
     }
     if (!api) return
     for (const guard of registry.armed) seekEntry(guard, api)
-    const from = registry.lastSeen
-    noteCurrentEntry(api)
-    if (holdForFocused(api) || holdForCovered(api, from)) {
+    if (holdForFocused(api)) {
         event.stopImmediatePropagation()
         return
     }
@@ -346,27 +323,6 @@ function holdForFocused(api: Navigation): boolean {
     return true
 }
 
-/**
- * A screen covered by others is not left by a move between the screens
- * above it, but a move that skips to an entry below its own leaves it too.
- * The nearest such screen asks; the URL goes back to where the user was.
- */
-function holdForCovered(api: Navigation, from: SeenEntry | null): boolean {
-    const now = api.currentEntry
-    if (!now) return false
-    let nearest: { guard: ArmedGuard; index: number } | null = null
-    for (const guard of registry.armed) {
-        if (guard.isFocused()) continue
-        const index = indexOfKey(api, guard.entryKey.current)
-        if (index === undefined || index <= now.index) continue
-        if (!nearest || index > nearest.index) nearest = { guard, index }
-    }
-    const start = startIndex(api, from)
-    if (!nearest || start === undefined || start <= nearest.index) return false
-    restore(nearest.guard, now.index - start)
-    return true
-}
-
 /** Puts the browser back where the user was before a move of `delta` steps, then the guard asks. */
 function restore(guard: ArmedGuard, delta: number) {
     awaitPopState({ kind: 'restore', guard, delta })
@@ -381,7 +337,6 @@ function arm(guard: ArmedGuard, api: Navigation) {
         })
     }
     registry.armed.push(guard)
-    noteCurrentEntry(api)
     seekEntry(guard, api)
 }
 
@@ -406,8 +361,10 @@ function passInAppMove() {
 /**
  * Holds the browser's Back and Forward buttons on web while the screen is
  * dirty, where the browser has the Navigation API. The guard stays armed
- * while another screen covers this one; the listener reads the focus at the
- * event (a frozen screen, freezeOnBlur, may not have rendered its blur yet).
+ * while another screen covers this one, so each popstate still finds a drop
+ * of its entry, but it holds only while focused; the listener reads
+ * the focus at the event (a frozen screen, freezeOnBlur, may not have
+ * rendered its blur yet).
  */
 function useBrowserHistoryGuard(isDirty: boolean, setHeld: Dispatch<SetStateAction<Held | null>>) {
     const navigation = useNavigation()
