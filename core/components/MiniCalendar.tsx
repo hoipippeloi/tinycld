@@ -56,7 +56,11 @@ export function MiniCalendar({ selectedDate, onDateSelect }: MiniCalendarProps) 
     return (
         <View className="px-3 py-2">
             <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-foreground" style={{ fontSize: 15, fontWeight: '600' }}>
+                <Text
+                    className="text-foreground"
+                    style={{ fontSize: 15, fontWeight: '600', flexShrink: 1 }}
+                    numberOfLines={1}
+                >
                     {monthLabel}
                 </Text>
                 <View className="flex-row gap-2">

@@ -16,6 +16,11 @@ export interface DateFieldProps {
     accessibilityLabel?: string
 }
 
+// MiniCalendar's day columns are percentage widths, so it has no natural width
+// and fills whatever holds it; an unsized popover stretches it across the
+// window. 300 gives each column about 39px around its 28px day circle.
+const CALENDAR_WIDTH = 300
+
 function toDate(value: string | null): Date {
     if (!value) return new Date()
     const [y, m, d] = value.slice(0, 10).split('-').map(Number)
@@ -61,6 +66,7 @@ export function DateField({
                 isOpen={isOpen}
                 onOpenChange={setIsOpen}
                 presentation="auto"
+                width={CALENDAR_WIDTH}
                 title="Pick a date"
                 trigger={
                     <Pressable
