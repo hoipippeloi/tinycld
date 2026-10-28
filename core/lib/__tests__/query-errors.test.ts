@@ -1,8 +1,8 @@
+import { reportQueryError } from '@tinycld/core/lib/query-errors'
+import { captureExceptionToSentry } from '@tinycld/core/lib/sentry'
+import { ServerUnreachableError } from '@tinycld/core/lib/server-fetch'
 import { ClientResponseError } from 'pocketbase'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { reportQueryError } from '@tinycld/core/lib/query-errors'
-import { ServerUnreachableError } from '@tinycld/core/lib/server-fetch'
-import { captureExceptionToSentry } from '@tinycld/core/lib/sentry'
 
 vi.mock('@tinycld/core/lib/sentry', () => ({
     captureExceptionToSentry: vi.fn(),
@@ -29,7 +29,11 @@ describe('reportQueryError', () => {
     })
 
     it('does not report a fetch that could not reach the server', () => {
-        reportQueryError(new ServerUnreachableError(new TypeError('Network request failed')), queryKey, vi.fn())
+        reportQueryError(
+            new ServerUnreachableError(new TypeError('Network request failed')),
+            queryKey,
+            vi.fn()
+        )
         reportQueryError(
             responseError(0, new ServerUnreachableError(new TypeError('Failed to fetch'))),
             queryKey,

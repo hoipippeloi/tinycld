@@ -5,12 +5,12 @@ import { captureException } from '@tinycld/core/lib/errors'
 import { log } from '@tinycld/core/lib/logger'
 import { buildPackageStores } from '@tinycld/core/lib/packages/derive-stores'
 import { ACTIVE_PKG_STATUSES, isActivePkg } from '@tinycld/core/lib/packages/registry-predicates'
+import { reportQueryError } from '@tinycld/core/lib/query-errors'
 import {
     createRealtimeConnection,
     releaseOnPageHide,
 } from '@tinycld/core/lib/realtime-event-source'
 import { reloadLoadedStores } from '@tinycld/core/lib/reload-loaded-stores'
-import { reportQueryError } from '@tinycld/core/lib/query-errors'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
 import { acceptServerRow } from '@tinycld/core/lib/server-rows'
 import { syncBreadcrumbs } from '@tinycld/core/lib/sync-status-breadcrumbs'
