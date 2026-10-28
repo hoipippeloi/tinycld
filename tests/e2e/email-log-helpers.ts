@@ -24,11 +24,6 @@ export function readEmailLog(): CapturedEmail[] {
         .map(l => JSON.parse(l) as CapturedEmail)
 }
 
-export function clearEmailLog(): void {
-    fs.mkdirSync(path.dirname(EMAIL_LOG_PATH), { recursive: true })
-    fs.writeFileSync(EMAIL_LOG_PATH, '')
-}
-
 interface WaitOptions {
     timeoutMs?: number
     intervalMs?: number
@@ -36,7 +31,10 @@ interface WaitOptions {
 }
 
 // waitForEmailTo polls the log until an email matching the recipient (and
-// optionally subject) shows up. Returns the matched email.
+// optionally subject) shows up. Returns the matched email. The log is shared by
+// every parallel worker, so a test finds its email by a recipient no other
+// test uses, and never clears the log: a clear in one worker deleted another
+// worker's email before it was read.
 export async function waitForEmailTo(
     recipientEmail: string,
     opts: WaitOptions = {}

@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { clearEmailLog, extractFirstLink, waitForEmailTo } from './email-log-helpers'
+import { extractFirstLink, waitForEmailTo } from './email-log-helpers'
 import { appShell, clearSession, createInvitedUser, type InvitedUser } from './helpers'
 import { totpCode } from './totp-helpers'
 
@@ -86,7 +86,6 @@ test.describe('admin sign-in help', () => {
     })
 
     test('emails a reset link to another address', async ({ page }) => {
-        clearEmailLog()
         const elsewhere = `${invited.username}@elsewhere.example`
         await openMember(page)
         await page.getByTestId('member-send-reset').click()
