@@ -2,9 +2,13 @@ package coreserver
 
 import (
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/getsentry/sentry-go"
@@ -124,6 +128,36 @@ func TestSentryMiddlewareSkipsClientErrors(t *testing.T) {
 
 	if events := get(); len(events) != 0 {
 		t.Fatalf("expected zero captured events for a 4xx, got %d: %+v", len(events), events)
+	}
+}
+
+// A client that closes the connection before the response is written makes
+// the write fail with a broken pipe or a reset. That is not a server error.
+func TestSentryMiddlewareSkipsClientDisconnect(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	writeErr := func(errno syscall.Errno) error {
+		return fmt.Errorf("jsontext: write error: %w", &net.OpError{
+			Op: "write", Net: "unix", Err: os.NewSyscallError("write", errno),
+		})
+	}
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/epipe", func(re *core.RequestEvent) error { return writeErr(syscall.EPIPE) })
+		g.GET("/test/reset", func(re *core.RequestEvent) error { return writeErr(syscall.ECONNRESET) })
+	}
+	for _, url := range []string{"/test/epipe", "/test/reset"} {
+		runScenario(t, mount, &tests.ApiScenario{
+			Name:            url,
+			Method:          http.MethodGet,
+			URL:             url,
+			ExpectedStatus:  http.StatusBadRequest,
+			ExpectedContent: []string{`"status":400`},
+		})
+	}
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events for a client disconnect, got %d: %+v", len(events), events)
 	}
 }
 

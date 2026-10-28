@@ -2,11 +2,13 @@ package coreserver
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -107,6 +109,9 @@ func sentryMiddleware(re *core.RequestEvent) error {
 		if errors.As(err, &apiErr) && apiErr.Status < 500 {
 			return err
 		}
+		if clientDisconnected(re.Request.Context(), err) {
+			return err
+		}
 		captureErr := err
 		if apiErr != nil {
 			if raw, ok := apiErr.RawData().(error); ok {
@@ -129,6 +134,18 @@ func sentryMiddleware(re *core.RequestEvent) error {
 	}
 
 	return nil
+}
+
+// clientDisconnected reports whether err only says that the client went away
+// before the response was written: a write to a socket the client closed, or
+// a request the client cancelled. The server did nothing wrong, so these get
+// no Sentry event. A context.Canceled counts only when the request's own
+// context is done, so a cancellation from inside the server is still reported.
+func clientDisconnected(ctx context.Context, err error) bool {
+	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	return errors.Is(err, context.Canceled) && ctx.Err() != nil
 }
 
 // errorBodySniffer wraps an http.ResponseWriter to capture the first chunk
