@@ -42,10 +42,24 @@ describe('checkForUpdate', () => {
         const fetchFn = vi.fn().mockResolvedValue({
             status: 200,
             ok: true,
+            headers: new Headers({ 'content-type': 'application/json; charset=utf-8' }),
             json: async () => MANIFEST,
         })
         const result = await checkForUpdate(deps({ fetchFn }))
         expect(result).toEqual(MANIFEST)
+    })
+
+    // A proxy in front of a self-hosted server (a sign-in portal) can answer
+    // the update check with an HTML page and a 200. That is not an update.
+    it('returns null when a proxy answers 200 with HTML', async () => {
+        const fetchFn = vi.fn().mockResolvedValue({
+            status: 200,
+            ok: true,
+            headers: new Headers({ 'content-type': 'text/html' }),
+            json: () =>
+                Promise.reject(new SyntaxError('JSON Parse error: Unexpected character: <')),
+        })
+        await expect(checkForUpdate(deps({ fetchFn }))).resolves.toBeNull()
     })
 
     it('throws on a non-204 error status', async () => {
