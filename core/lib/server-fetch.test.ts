@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { serverFetch } from './server-fetch'
+import { ServerUnreachableError, serverFetch } from './server-fetch'
 
 function readOnly(retryAfter = '1') {
     return new Response(JSON.stringify({ code: 'read_only', message: 'updating' }), {
@@ -46,5 +46,22 @@ describe('serverFetch', () => {
         await serverFetch('/api/x')
 
         expect(first).toHaveBeenCalledTimes(1)
+    })
+
+    it('marks a fetch that could not reach the server', async () => {
+        const cause = new TypeError('Network request failed')
+        vi.spyOn(globalThis, 'fetch').mockRejectedValue(cause)
+
+        const err = await serverFetch('/api/x').catch((e: unknown) => e)
+
+        expect(err).toBeInstanceOf(ServerUnreachableError)
+        expect((err as Error).cause).toBe(cause)
+    })
+
+    it('passes an aborted fetch through unchanged', async () => {
+        const abort = new DOMException('The operation was aborted.', 'AbortError')
+        vi.spyOn(globalThis, 'fetch').mockRejectedValue(abort)
+
+        await expect(serverFetch('/api/x')).rejects.toBe(abort)
     })
 })
