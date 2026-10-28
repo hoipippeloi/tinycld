@@ -109,7 +109,7 @@ func sentryMiddleware(re *core.RequestEvent) error {
 		if errors.As(err, &apiErr) && apiErr.Status < 500 {
 			return err
 		}
-		if clientDisconnected(re.Request.Context(), err) {
+		if clientDisconnected(re.Request.Context(), err) || answeredBeforeError(status) {
 			return err
 		}
 		captureErr := err
@@ -147,6 +147,16 @@ func clientDisconnected(ctx context.Context, err error) bool {
 		return true
 	}
 	return ctx.Err() != nil
+}
+
+// answeredBeforeError reports whether the handler wrote its own answer, a
+// bodiless 204 or a 4xx, before it returned an error. PocketBase does this on
+// purpose: an unknown email in a password reset gets a 204 so that no one can
+// probe which emails have accounts, and an MFA sign-in gets its 401 first. The
+// error is only for the request log. A 2xx with a body is not included: an
+// error then can be a failure part-way through the body.
+func answeredBeforeError(status int) bool {
+	return status == http.StatusNoContent || (status >= 400 && status < 500)
 }
 
 // errorBodySniffer wraps an http.ResponseWriter to capture the first chunk
