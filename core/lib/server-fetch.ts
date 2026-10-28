@@ -20,9 +20,28 @@ export const serverFetch: Fetch = withReadOnlyRetry(
     withUnreachableMarked(withNativeUploadBodies((url, config) => fetch(url, config)))
 )
 
-// withUnreachableMarked passes a fetch through unchanged.
-export function withUnreachableMarked(fetchImpl: Fetch): Fetch {
-    return fetchImpl
+// ServerUnreachableError is a fetch that never reached the server: the device
+// is offline or the server is down. A bug can also throw a TypeError, so the
+// platform's own error ("Network request failed", "Failed to fetch") cannot
+// tell the two apart; marking the failure here can. The message is the
+// platform's, so text shown to the user does not change.
+export class ServerUnreachableError extends Error {
+    constructor(cause: unknown) {
+        super(cause instanceof Error ? cause.message : String(cause), { cause })
+        this.name = 'ServerUnreachableError'
+    }
 }
 
-export class ServerUnreachableError extends Error {}
+function isAbort(error: unknown): boolean {
+    return (error as { name?: unknown } | null)?.name === 'AbortError'
+}
+
+// withUnreachableMarked rethrows a rejected fetch as ServerUnreachableError.
+// An abort is the caller's own cancel and passes through unchanged.
+export function withUnreachableMarked(fetchImpl: Fetch): Fetch {
+    return (url, config) =>
+        fetchImpl(url, config).catch((error: unknown) => {
+            if (isAbort(error)) throw error
+            throw new ServerUnreachableError(error)
+        })
+}
