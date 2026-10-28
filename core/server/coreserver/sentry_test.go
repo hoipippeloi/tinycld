@@ -1,6 +1,7 @@
 package coreserver
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -158,6 +159,34 @@ func TestSentryMiddlewareSkipsClientDisconnect(t *testing.T) {
 
 	if events := get(); len(events) != 0 {
 		t.Fatalf("expected zero captured events for a client disconnect, got %d: %+v", len(events), events)
+	}
+}
+
+// HTTP/2 reports a client that left with errors no caller can match
+// ("http2: stream closed", "client disconnected"), but it cancels the request
+// context first. Any error once that context is done is the client leaving.
+func TestSentryMiddlewareSkipsErrorAfterClientLeft(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/stream-closed", func(re *core.RequestEvent) error {
+			ctx, cancel := context.WithCancel(re.Request.Context())
+			re.Request = re.Request.WithContext(ctx)
+			cancel()
+			return fmt.Errorf("jsontext: write error: %w", errors.New("http2: stream closed"))
+		})
+	}
+	runScenario(t, mount, &tests.ApiScenario{
+		Name:            "error after the request context is done",
+		Method:          http.MethodGet,
+		URL:             "/test/stream-closed",
+		ExpectedStatus:  http.StatusBadRequest,
+		ExpectedContent: []string{`"status":400`},
+	})
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events after the client left, got %d: %+v", len(events), events)
 	}
 }
 
