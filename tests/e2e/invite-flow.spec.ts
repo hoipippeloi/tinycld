@@ -1,6 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import { authStorageKey } from './auth-key-helpers'
-import { clearEmailLog, waitForEmailTo } from './email-log-helpers'
+import { waitForEmailTo } from './email-log-helpers'
 import {
     appShell,
     clearSession,
@@ -84,8 +84,6 @@ test.describe('Invite flow', () => {
     const invitePassword = 'BrandNewPass1!'
 
     test('owner invites user, user sets password, logs out, logs back in', async ({ page }) => {
-        clearEmailLog()
-
         // --- 1. Owner signs in and sends an invite ---
         await login(page)
 
@@ -166,7 +164,6 @@ test.describe('Invite flow', () => {
     })
 
     test('an invite with an email address emails the link to it', async ({ page }) => {
-        clearEmailLog()
         const username = `inviteemail${Date.now()}`
         const address = `new-hire-${Date.now()}@example.com`
 
@@ -193,7 +190,6 @@ test.describe('Invite flow', () => {
     })
 
     test('admin sends invite link to an alternate email address', async ({ page }) => {
-        clearEmailLog()
         const altInviteUsername = `inviteealt${Date.now()}`
         const altEmail = `personal-${Date.now()}@example.com`
 
