@@ -56,7 +56,8 @@ describe('checkForUpdate', () => {
             status: 200,
             ok: true,
             headers: new Headers({ 'content-type': 'text/html' }),
-            json: () => Promise.reject(new SyntaxError('JSON Parse error: Unexpected character: <')),
+            json: () =>
+                Promise.reject(new SyntaxError('JSON Parse error: Unexpected character: <')),
         })
         await expect(checkForUpdate(deps({ fetchFn }))).resolves.toBeNull()
     })
