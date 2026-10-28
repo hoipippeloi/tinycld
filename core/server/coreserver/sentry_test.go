@@ -190,6 +190,53 @@ func TestSentryMiddlewareSkipsErrorAfterClientLeft(t *testing.T) {
 	}
 }
 
+// PocketBase answers a password reset for an unknown email with 204, so no
+// one can probe which emails have accounts, and then returns an error for the
+// request log. The client got its answer: that is not a server error.
+func TestSentryMiddlewareSkipsPasswordResetForUnknownEmail(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	runScenario(t, func(*router.RouterGroup[*core.RequestEvent]) {}, &tests.ApiScenario{
+		Name:           "password reset for an unknown email",
+		Method:         http.MethodPost,
+		URL:            "/api/collections/users/request-password-reset",
+		Body:           strings.NewReader(`{"email":"nobody@example.com"}`),
+		ExpectedStatus: http.StatusNoContent,
+	})
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events for an anti-enumeration 204, got %d: %+v", len(events), events)
+	}
+}
+
+// An error after a 2xx with a body can be a failure part-way through the
+// body, so it is still reported.
+func TestSentryMiddlewareCapturesErrorAfterBody(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/partial", func(re *core.RequestEvent) error {
+			if err := re.String(http.StatusOK, "partial"); err != nil {
+				return err
+			}
+			return errors.New("failed after the body")
+		})
+	}
+	runScenario(t, mount, &tests.ApiScenario{
+		Name:            "error after a 200 body",
+		Method:          http.MethodGet,
+		URL:             "/test/partial",
+		ExpectedStatus:  http.StatusOK,
+		ExpectedContent: []string{"partial"},
+	})
+
+	if events := get(); len(events) != 1 {
+		t.Fatalf("expected 1 captured event for an error after a body, got %d", len(events))
+	}
+}
+
 func TestSentryMiddlewareCapturesPanic(t *testing.T) {
 	get, cleanup := captureSentry(t)
 	defer cleanup()
