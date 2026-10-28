@@ -45,10 +45,10 @@ require (
 	github.com/skyterra/y-crdt v0.0.0-20260224023949-c0cb10d3f33e
 	github.com/spf13/cobra v1.10.2
 	github.com/yuin/goldmark v1.8.2
-	golang.org/x/crypto v0.57.0
+	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.46.0
-	golang.org/x/net v0.60.0
-	golang.org/x/text v0.42.0
+	golang.org/x/net v0.62.0
+	golang.org/x/text v0.43.0
 	modernc.org/sqlite v1.57.0
 	tinycld.org/core/backup/format v0.0.0
 )
@@ -94,8 +94,8 @@ require (
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.0 // indirect
