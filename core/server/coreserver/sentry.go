@@ -137,15 +137,16 @@ func sentryMiddleware(re *core.RequestEvent) error {
 }
 
 // clientDisconnected reports whether err only says that the client went away
-// before the response was written: a write to a socket the client closed, or
-// a request the client cancelled. The server did nothing wrong, so these get
-// no Sentry event. A context.Canceled counts only when the request's own
-// context is done, so a cancellation from inside the server is still reported.
+// before the response was written. The server did nothing wrong, so these get
+// no Sentry event. A write to a socket the client closed fails with a broken
+// pipe or a reset. HTTP/2 instead fails with errors no caller can match
+// ("http2: stream closed", "client disconnected"), but it cancels the
+// request's context first, so a done context marks the client as gone.
 func clientDisconnected(ctx context.Context, err error) bool {
 	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
 		return true
 	}
-	return errors.Is(err, context.Canceled) && ctx.Err() != nil
+	return ctx.Err() != nil
 }
 
 // errorBodySniffer wraps an http.ResponseWriter to capture the first chunk
