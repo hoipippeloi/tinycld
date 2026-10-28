@@ -17,5 +17,12 @@ import { type Fetch, withReadOnlyRetry } from '@tinycld/core/lib/read-only-retry
 // `globalThis.fetch` is read per call, not captured at module load, so a test
 // or polyfill that replaces it later still takes effect.
 export const serverFetch: Fetch = withReadOnlyRetry(
-    withNativeUploadBodies((url, config) => fetch(url, config))
+    withUnreachableMarked(withNativeUploadBodies((url, config) => fetch(url, config)))
 )
+
+// withUnreachableMarked passes a fetch through unchanged.
+export function withUnreachableMarked(fetchImpl: Fetch): Fetch {
+    return fetchImpl
+}
+
+export class ServerUnreachableError extends Error {}
