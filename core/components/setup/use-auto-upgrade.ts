@@ -81,9 +81,14 @@ export function useAutoUpgrade(pb: PocketBase, enabled = true) {
     })
 
     const pause = pauses[0]
+    const isEnabled = isOn(byKey.get(KEY_ENABLED)?.value)
+    const available = statusQuery.data?.status.available ?? false
     return {
         isReady,
-        isOn: isOn(byKey.get(KEY_ENABLED)?.value),
+        isOn: isEnabled,
+        // A stored "on" with no server support changes nothing, so it must not
+        // take the version pickers away.
+        locksVersions: isEnabled && available,
         window: byKey.get(KEY_WINDOW)?.value ?? DEFAULT_WINDOW,
         windowManaged: statusQuery.data?.windowManaged ?? false,
         status: statusQuery.data?.status,

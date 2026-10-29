@@ -43,6 +43,10 @@ async function adminFetch<T>(pb: PocketBase, path: string, init?: RequestInit): 
     return res.json() as Promise<T>
 }
 
+// A stable empty set, so a locked screen does not re-run the compat check on
+// every render.
+const NO_TARGETS: Record<string, string> = {}
+
 // usePackageVersions owns the version discovery + selection + compat/apply
 // mutation state for the merged Packages screen, keeping the JSX declarative.
 // Selection (the staged target per slug) lives in the version-staging store;
@@ -52,10 +56,15 @@ async function adminFetch<T>(pb: PocketBase, path: string, init?: RequestInit): 
 // (the dashboard keeps every tab's component mounted). Deferring it avoids
 // firing the discovery — which shells out to `git ls-remote` server-side — until
 // it's actually needed.
-export function usePackageVersions(pb: PocketBase, enabled = true) {
+//
+// `isLocked` (automatic updates are on) hides the staged set: whichever path
+// turned the switch on — this tab, another admin, the setup wizard — nothing
+// staged before it can be applied behind the locked pickers.
+export function usePackageVersions(pb: PocketBase, enabled = true, isLocked = false) {
     // Staged version targets live in a store so the row selects, the apply
     // footer, and the per-row "staged" lock all share one source of truth.
-    const targets = useVersionStagingStore(s => s.targets)
+    const stagedTargets = useVersionStagingStore(s => s.targets)
+    const targets = isLocked ? NO_TARGETS : stagedTargets
     const setTargetInStore = useVersionStagingStore(s => s.setTarget)
     const setAllTargets = useVersionStagingStore(s => s.setAll)
     const clearTargets = useVersionStagingStore(s => s.clear)

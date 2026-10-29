@@ -55,6 +55,7 @@ import {
     progressActionFor,
 } from './InstallProgressModal'
 import { PackageStatusBadge } from './PackageStatusBadge'
+import { useAutoUpgrade } from './use-auto-upgrade'
 import {
     type CompatViolation,
     type PackageVersionInfo,
@@ -111,7 +112,8 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
 
     // Version discovery + the staging/compat/apply solver. Lives alongside the
     // lifecycle list so a package's version sits on its own row.
-    const vm = usePackageVersions(pb, isVisible)
+    const au = useAutoUpgrade(pb, isVisible)
+    const vm = usePackageVersions(pb, isVisible, au.locksVersions)
     const versionBySlug = new Map(vm.versions.map(v => [v.slug, v]))
 
     // The registry list is a live pbtsdb query: pbtsdb subscribes to PocketBase
@@ -223,7 +225,7 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                 }
             />
 
-            <AutoUpgradeSection pb={pb} isVisible={isVisible} />
+            <AutoUpgradeSection au={au} isVisible={isVisible} />
 
             <InstallPackageModal
                 isOpen={showInstall}
@@ -253,10 +255,12 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                         isLoading={vm.isLoading}
                         hasUpdates={vm.hasUpdates}
                         pendingCount={vm.pendingChanges.length}
+                        isLocked={au.locksVersions}
                         onSelectAll={vm.selectAllUpdates}
                         onClear={vm.clearSelection}
                     />
                 </View>
+                <VersionLockNotice isVisible={au.locksVersions} />
                 <View className="rounded-xl border overflow-hidden bg-surface-secondary border-border">
                     <PackageList
                         packages={packages}
@@ -267,6 +271,7 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                         onUninstallStarted={handleUninstallStarted}
                         versionBySlug={versionBySlug}
                         targets={vm.targets}
+                        isVersionLocked={au.locksVersions}
                         onSetTarget={vm.setTarget}
                     />
                     <ViolationList violations={vm.violations} isChecking={vm.isChecking} />
@@ -304,6 +309,7 @@ function PackageList({
     onUninstallStarted,
     versionBySlug,
     targets,
+    isVersionLocked,
     onSetTarget,
 }: {
     packages: PkgRecord[]
@@ -314,6 +320,7 @@ function PackageList({
     onUninstallStarted: (jobId: string) => void
     versionBySlug: Map<string, PackageVersionInfo>
     targets: Record<string, string>
+    isVersionLocked: boolean
     onSetTarget: (slug: string, version: string) => void
 }) {
     const surfaceBg = useThemeColor('surface-secondary')
@@ -396,7 +403,12 @@ function PackageList({
                             ) : null}
                         </View>
                     </View>
-                    <RowVersion info={info} target={target} onSetTarget={onSetTarget} />
+                    <RowVersion
+                        info={info}
+                        target={target}
+                        isLocked={isVersionLocked}
+                        onSetTarget={onSetTarget}
+                    />
                     <PackageActions
                         pkg={pkg}
                         pb={pb}
@@ -449,15 +461,17 @@ function PackageList({
 
 // RowVersion is the per-row version cell. A package with >1 available version
 // gets the interactive picker + change flag; a single-version package
-// (unmanaged sources) shows just its static version, no dropdown — there's
-// nothing to stage.
+// (unmanaged sources), or any package while automatic updates are on, shows
+// just its static version, no dropdown — there's nothing to stage.
 function RowVersion({
     info,
     target,
+    isLocked,
     onSetTarget,
 }: {
     info?: PackageVersionInfo
     target?: string
+    isLocked: boolean
     onSetTarget: (slug: string, version: string) => void
 }) {
     if (!info) {
@@ -467,9 +481,13 @@ function RowVersion({
     const options = buildVersionOptions(info)
     const direction: RowDirection = stagedDirection(info, target)
 
-    if (options.length <= 1) {
+    if (isLocked || options.length <= 1) {
         return (
-            <View style={{ width: 150 }} className="items-end">
+            <View
+                testID={`version-static-${info.slug}`}
+                style={{ width: 150 }}
+                className="items-end"
+            >
                 <Text
                     className="text-muted-foreground"
                     style={{ fontFamily: 'monospace', fontSize: 13 }}
@@ -483,6 +501,7 @@ function RowVersion({
     return (
         <View style={{ width: 150 }} className="gap-1">
             <RowVersionSelect
+                testID={`version-select-${info.slug}`}
                 options={options}
                 value={target ?? info.current}
                 direction={direction}
@@ -602,12 +621,14 @@ function StageActions({
     isLoading,
     hasUpdates,
     pendingCount,
+    isLocked,
     onSelectAll,
     onClear,
 }: {
     isLoading: boolean
     hasUpdates: boolean
     pendingCount: number
+    isLocked: boolean
     onSelectAll: () => void
     onClear: () => void
 }) {
@@ -619,21 +640,44 @@ function StageActions({
                     <ButtonText>Clear ({pendingCount})</ButtonText>
                 </Button>
             )}
-            <StageAllButton hasUpdates={hasUpdates} onPress={onSelectAll} />
+            <StageAllButton hasUpdates={hasUpdates} isLocked={isLocked} onPress={onSelectAll} />
         </View>
     )
 }
 
-function StageAllButton({ hasUpdates, onPress }: { hasUpdates: boolean; onPress: () => void }) {
+function StageAllButton({
+    hasUpdates,
+    isLocked,
+    onPress,
+}: {
+    hasUpdates: boolean
+    isLocked: boolean
+    onPress: () => void
+}) {
     if (!hasUpdates) {
         return (
             <Text className="text-sm font-semibold text-foreground">Everything is up to date</Text>
         )
     }
     return (
-        <Button onPress={onPress} size="sm" variant="outline">
+        <Button
+            testID="stage-all-updates"
+            onPress={onPress}
+            size="sm"
+            variant="outline"
+            isDisabled={isLocked}
+        >
             <ButtonText>Stage all updates</ButtonText>
         </Button>
+    )
+}
+
+function VersionLockNotice({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <Text testID="version-lock-notice" className="text-sm text-muted-foreground">
+            Automatic updates are on. Turn them off to choose versions.
+        </Text>
     )
 }
 
