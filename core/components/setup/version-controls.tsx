@@ -57,11 +57,13 @@ export function RowVersionSelect({
     value,
     direction,
     onChange,
+    testID,
 }: {
     options: { label: string; value: string }[]
     value: string
     direction: RowDirection
     onChange: (v: string) => void
+    testID?: string
 }) {
     const fgColor = useThemeColor('foreground')
     const mutedColor = useThemeColor('muted-foreground')
@@ -89,6 +91,7 @@ export function RowVersionSelect({
         <Menu
             trigger={
                 <Pressable
+                    testID={testID}
                     className={`flex-row items-center justify-between gap-2 px-3 py-2 rounded-lg border ${triggerBg}`}
                     style={{ borderColor: triggerBorder }}
                 >

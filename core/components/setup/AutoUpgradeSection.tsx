@@ -2,15 +2,14 @@ import { Panel, PanelIntro, SaveRow } from '@tinycld/core/components/settings/sy
 import { ButtonText, ServerActionButton } from '@tinycld/core/ui/button'
 import { FormErrorSummary, TextInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { Switch } from '@tinycld/core/ui/switch'
-import type PocketBase from 'pocketbase'
 import { Text, View } from 'react-native'
 import { formatTarget, KEY_WINDOW, statusLine, windowSchema } from './auto-upgrade-logic'
-import { useAutoUpgrade } from './use-auto-upgrade'
+import type { useAutoUpgrade } from './use-auto-upgrade'
 
 const SWITCH_LABEL = 'Automatically upgrade packages when new versions are available'
 const formSchema = z.object({ window: windowSchema })
 
-type AutoUpgrade = ReturnType<typeof useAutoUpgrade>
+export type AutoUpgrade = ReturnType<typeof useAutoUpgrade>
 
 function WindowEditor({ au, isVisible }: { au: AutoUpgrade; isVisible: boolean }) {
     const {
@@ -102,8 +101,7 @@ function BlockedRow({
     )
 }
 
-export function AutoUpgradeSection({ pb, isVisible }: { pb: PocketBase; isVisible: boolean }) {
-    const au = useAutoUpgrade(pb, isVisible)
+export function AutoUpgradeSection({ au, isVisible }: { au: AutoUpgrade; isVisible: boolean }) {
     if (!isVisible) return null
     const available = au.status?.available ?? false
     const line = au.status ? statusLine(au.status) : ''

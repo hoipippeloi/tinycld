@@ -49,6 +49,9 @@ for any package.
 
 ## To update one or more packages
 
+If **Automatically upgrade packages** is on, the version pickers and **Stage all
+updates** are locked. Turn the switch off to choose versions yourself.
+
 1. Open **Settings → Packages**. Rows with a newer version available show an
    **Update** badge.
 2. For each package you want to change, pick a target version from its row's
@@ -129,8 +132,11 @@ inside the **update window** (02:00–05:00 server time unless you change it). T
 must be at least 60 minutes long. It can cross midnight, for example 23:30–00:30. It
 takes the newest stable version of each package, including major versions, when the
 whole set is compatible. It never installs a prerelease (for example `1.0.0-rc.1`); to
-use one, pick it from the version list yourself. If a major version does not fit, it
+use one, turn automatic updates off and pick it from the version list. If a major version does not fit, it
 installs the others and leaves the major version for later.
+
+While it is on, you cannot stage versions by hand. Turning it on clears any versions
+you staged.
 
 The status line under the switch shows the result of the last check and when the next
 check runs. When the switch is off, or the server is set up not to run checks, it shows

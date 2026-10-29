@@ -17,6 +17,7 @@ import {
     KEY_WINDOW,
 } from './auto-upgrade-logic'
 import { useSystemSettings } from './system-settings-store'
+import { useVersionStagingStore } from './version-staging-store'
 
 async function fetchStatus(pb: PocketBase): Promise<AutoUpgradeStatusResponse> {
     const res = await serverFetch(`${PB_SERVER_ADDR}/api/admin/packages/auto-upgrade/status`, {
@@ -81,20 +82,29 @@ export function useAutoUpgrade(pb: PocketBase, enabled = true) {
     })
 
     const pause = pauses[0]
+    const isEnabled = isOn(byKey.get(KEY_ENABLED)?.value)
+    const available = statusQuery.data?.status.available ?? false
     return {
         isReady,
-        isOn: isOn(byKey.get(KEY_ENABLED)?.value),
+        isOn: isEnabled,
+        // A stored "on" with no server support changes nothing, so it must not
+        // take the version pickers away.
+        locksVersions: isEnabled && available,
         window: byKey.get(KEY_WINDOW)?.value ?? DEFAULT_WINDOW,
         windowManaged: statusQuery.data?.windowManaged ?? false,
         status: statusQuery.data?.status,
         pause: pause ? { reason: pause.reason, target: targetOf(pause.target) } : undefined,
         blocked: blockedRows.map(r => ({ ...r, target: targetOf(r.target) })),
         // The server's status depends on the switch, so it is fetched again.
-        setOn: (next: boolean) =>
+        setOn: (next: boolean) => {
+            // The pickers lock when this turns on; a set staged by hand must
+            // not stay applicable behind them.
+            if (next) useVersionStagingStore.getState().clear()
             upsert.mutate(
                 { key: KEY_ENABLED, value: String(next), isSecret: false },
                 { onSuccess: () => queryClient.invalidateQueries({ queryKey: STATUS_KEY }) }
-            ),
+            )
+        },
         saveWindow: upsert,
         clearBlocked: (id: string) => clear.mutate(id),
     }

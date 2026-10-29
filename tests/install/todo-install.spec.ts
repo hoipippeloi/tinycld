@@ -828,6 +828,18 @@ async function openTodoAsOwner(page: Page): Promise<Page> {
     return appPage
 }
 
+// Automatic updates are on for a new server, and while they are on the version
+// pickers are locked. The notice shows only in that state, so it is the signal.
+async function unlockVersionPickers(page: Page) {
+    // The lock waits on the server's status; an empty status line means it has
+    // not loaded, and the notice could still appear.
+    await expect(page.getByTestId('autoupgrade-status')).not.toHaveText('', { timeout: 30_000 })
+    const notice = page.getByTestId('version-lock-notice')
+    if (!(await notice.isVisible())) return
+    await page.getByTestId('autoupgrade-switch').click()
+    await expect(notice).toBeHidden({ timeout: 15_000 })
+}
+
 // Sets a package row's target version on the Packages screen and applies it.
 // Versions were merged into Packages: each package row carries its own version
 // picker (an anchored Menu / RowVersionSelect) whose options read `v<version>` /
@@ -863,6 +875,7 @@ async function applyVersionChange(
     // with a generous budget for a cold ls-remote before touching the picker.
     const slugCell = page.getByText(slug, { exact: true })
     await expect(slugCell.first()).toBeVisible({ timeout: 90_000 })
+    await unlockVersionPickers(page)
     // Row container = the nearest ancestor div that holds BOTH this slug cell and a
     // `(current)` version trigger — i.e. the package row. Filtering ancestors by
     // `has:` both descendants pins the right row without depending on the exact
