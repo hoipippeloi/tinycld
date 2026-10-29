@@ -42,3 +42,6 @@ forkReviews:
     - fork: react-native-drax
       reviewed: 2026-10-06
       days: 90
+    - fork: '@shopify/flash-list'
+      reviewed: 2026-10-29
+      days: 90
