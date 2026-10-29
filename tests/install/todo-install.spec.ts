@@ -988,13 +988,17 @@ test.describe('todo version change', () => {
 
         await loginAsSuperuser(page)
 
-        // Login lands on the Packages tab. 'Install package' opens a modal; fill
+        // Login lands on the Packages tab. 'Install New Package' opens a modal; fill
         // the package source field, then submit with the modal's 'Install' button.
         // Buttons are gluestack Button (role=button); the field exposes a role via
         // TextInput's accessibilityLabel.
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page.getByRole('textbox', { name: 'Package source', exact: true }).fill(TODO_SPEC_V1)
         await page.getByRole('button', { name: 'Install', exact: true }).click()
+
+        // While the job runs the screen is read-only: no second install can start.
+        await expect(page.getByTestId('package-job-busy-notice')).toBeVisible()
+        await expect(page.getByRole('button', { name: 'Install New Package' })).toBeDisabled()
 
         // The progress modal must actually advance — proves the live query on
         // pkg_install_log is picking up the server's throttled writes. The early
@@ -1047,7 +1051,7 @@ test.describe('todo version change', () => {
         // ignores it until the buggy install's row lands.
         const priorId = await latestOpId(page, 'todo')
 
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page
             .getByRole('textbox', { name: 'Package source', exact: true })
             .fill(TODO_SPEC_BUGGY_SERVER)
@@ -1096,7 +1100,7 @@ test.describe('todo version change', () => {
         await loginAsSuperuserWithRetry(page)
         const priorId = await latestOpId(page, 'todo')
 
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page
             .getByRole('textbox', { name: 'Package source', exact: true })
             .fill(TODO_SPEC_BUGGY_MIGRATION)
@@ -1138,7 +1142,7 @@ test.describe('todo version change', () => {
         await loginAsSuperuserWithRetry(page)
         const priorId = await latestOpId(page, 'todo')
 
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page
             .getByRole('textbox', { name: 'Package source', exact: true })
             .fill(TODO_SPEC_BUGGY_FE)
