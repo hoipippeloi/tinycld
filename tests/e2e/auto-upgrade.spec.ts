@@ -38,18 +38,34 @@ test.describe('automatic updates', () => {
         await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 })
 
         const notice = page.getByTestId('version-lock-notice')
+        const selects = page.locator('[data-testid^="version-select-"]')
         await expect(notice).toHaveText(
             'Automatic updates are on. Turn them off to choose versions.'
         )
-        await expect(page.locator('[data-testid^="version-select-"]')).toHaveCount(0)
+        await expect(selects).toHaveCount(0)
 
+        // Off: the pickers come back. Discovery lists remote tags, so allow
+        // for a cold ls-remote.
         await toggle.click()
         await expect(toggle).toHaveAttribute('aria-checked', 'false')
         await expect(notice).toBeHidden()
+        await expect(selects.first()).toBeVisible({ timeout: 60_000 })
+
+        // Stage a version, then turn the switch on: the staged set must not
+        // stay applicable behind the locked pickers.
+        await selects.first().click()
+        await page.getByRole('menuitem').filter({ hasNotText: '(current)' }).first().click()
+        const apply = page.getByText(/^Apply \d+ change/)
+        await expect(apply).toBeVisible()
+
+        await toggle.click()
+        await expect(toggle).toHaveAttribute('aria-checked', 'true')
+        await expect(notice).toBeVisible()
+        await expect(selects).toHaveCount(0)
+        await expect(apply).toBeHidden()
 
         await page.setViewportSize({ width: 390, height: 844 })
-        await page.getByTestId('autoupgrade-switch').click()
-        await expect(page.getByTestId('autoupgrade-switch')).toHaveAttribute('aria-checked', 'true')
         await expect(page.getByTestId('version-lock-notice')).toBeVisible()
+        await expect(selects).toHaveCount(0)
     })
 })

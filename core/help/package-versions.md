@@ -135,8 +135,8 @@ whole set is compatible. It never installs a prerelease (for example `1.0.0-rc.1
 use one, turn automatic updates off and pick it from the version list. If a major version does not fit, it
 installs the others and leaves the major version for later.
 
-While it is on, you cannot stage versions by hand. Turning it on clears any versions
-you staged.
+While it is on, you cannot stage versions by hand, and versions you staged before
+cannot be applied. Turn the switch off to see and apply them again.
 
 The status line under the switch shows the result of the last check and when the next
 check runs. When the switch is off, or the server is set up not to run checks, it shows

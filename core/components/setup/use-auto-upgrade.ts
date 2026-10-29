@@ -17,7 +17,6 @@ import {
     KEY_WINDOW,
 } from './auto-upgrade-logic'
 import { useSystemSettings } from './system-settings-store'
-import { useVersionStagingStore } from './version-staging-store'
 
 async function fetchStatus(pb: PocketBase): Promise<AutoUpgradeStatusResponse> {
     const res = await serverFetch(`${PB_SERVER_ADDR}/api/admin/packages/auto-upgrade/status`, {
@@ -96,15 +95,11 @@ export function useAutoUpgrade(pb: PocketBase, enabled = true) {
         pause: pause ? { reason: pause.reason, target: targetOf(pause.target) } : undefined,
         blocked: blockedRows.map(r => ({ ...r, target: targetOf(r.target) })),
         // The server's status depends on the switch, so it is fetched again.
-        setOn: (next: boolean) => {
-            // The pickers lock when this turns on; a set staged by hand must
-            // not stay applicable behind them.
-            if (next) useVersionStagingStore.getState().clear()
+        setOn: (next: boolean) =>
             upsert.mutate(
                 { key: KEY_ENABLED, value: String(next), isSecret: false },
                 { onSuccess: () => queryClient.invalidateQueries({ queryKey: STATUS_KEY }) }
-            )
-        },
+            ),
         saveWindow: upsert,
         clearBlocked: (id: string) => clear.mutate(id),
     }

@@ -829,15 +829,15 @@ async function openTodoAsOwner(page: Page): Promise<Page> {
 }
 
 // Automatic updates are on for a new server, and while they are on the version
-// pickers are locked. The notice shows only in that state, so it is the signal.
+// pickers are locked. The switch is enabled only once both the stored setting
+// and the server status have loaded, so its state is final from then on.
 async function unlockVersionPickers(page: Page) {
-    // The lock waits on the server's status; an empty status line means it has
-    // not loaded, and the notice could still appear.
-    await expect(page.getByTestId('autoupgrade-status')).not.toHaveText('', { timeout: 30_000 })
-    const notice = page.getByTestId('version-lock-notice')
-    if (!(await notice.isVisible())) return
-    await page.getByTestId('autoupgrade-switch').click()
-    await expect(notice).toBeHidden({ timeout: 15_000 })
+    const toggle = page.getByTestId('autoupgrade-switch')
+    await expect(toggle).toBeEnabled({ timeout: 30_000 })
+    if ((await toggle.getAttribute('aria-checked')) !== 'true') return
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect(page.getByTestId('version-lock-notice')).toBeHidden({ timeout: 15_000 })
 }
 
 // Sets a package row's target version on the Packages screen and applies it.

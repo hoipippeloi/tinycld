@@ -112,8 +112,8 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
 
     // Version discovery + the staging/compat/apply solver. Lives alongside the
     // lifecycle list so a package's version sits on its own row.
-    const vm = usePackageVersions(pb, isVisible)
     const au = useAutoUpgrade(pb, isVisible)
+    const vm = usePackageVersions(pb, isVisible, au.locksVersions)
     const versionBySlug = new Map(vm.versions.map(v => [v.slug, v]))
 
     // The registry list is a live pbtsdb query: pbtsdb subscribes to PocketBase
