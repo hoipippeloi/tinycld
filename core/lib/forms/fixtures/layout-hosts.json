@@ -1,0 +1,92 @@
+{
+    "hosts": [
+        {
+            "pkgSlug": "gizmos",
+            "key": "gizmos:gadget",
+            "label": "Gadget",
+            "collection": "gizmos_gadgets",
+            "formColumn": "form",
+            "fieldsColumn": "fields",
+            "columns": ["name", "first", "last", "due", "notes", "form", "fields"],
+            "builtin": [
+                {
+                    "key": "name",
+                    "label": "Name",
+                    "kind": "text",
+                    "storage": "column",
+                    "required": true,
+                    "multiple": false,
+                    "collaborative": false,
+                    "chrome": "cell",
+                    "decimals": 0
+                },
+                {
+                    "key": "first",
+                    "label": "First",
+                    "kind": "text",
+                    "storage": "column",
+                    "required": false,
+                    "multiple": false,
+                    "collaborative": false,
+                    "chrome": "cell",
+                    "decimals": 0
+                },
+                {
+                    "key": "last",
+                    "label": "Last",
+                    "kind": "text",
+                    "storage": "column",
+                    "required": false,
+                    "multiple": false,
+                    "collaborative": false,
+                    "chrome": "cell",
+                    "decimals": 0
+                },
+                {
+                    "key": "due",
+                    "label": "Due",
+                    "kind": "date",
+                    "storage": "column",
+                    "required": false,
+                    "multiple": false,
+                    "collaborative": false,
+                    "chrome": "cell",
+                    "decimals": 0
+                },
+                {
+                    "key": "notes",
+                    "label": "Notes",
+                    "kind": "textarea",
+                    "storage": "column",
+                    "required": false,
+                    "multiple": false,
+                    "collaborative": false,
+                    "chrome": "cell",
+                    "decimals": 0
+                }
+            ],
+            "layout": {
+                "pages": [
+                    { "key": "details", "title": "Details" },
+                    { "key": "more", "title": "More" }
+                ],
+                "fields": {
+                    "first": { "width": "half" },
+                    "last": { "width": "half" },
+                    "notes": { "page": "more" }
+                },
+                "rules": [
+                    {
+                        "key": "hide_due",
+                        "match": "all",
+                        "when": [{ "field": "name", "op": "is_empty" }],
+                        "actions": [
+                            { "action": "hide", "field": "due" },
+                            { "action": "set_value", "field": "notes", "value": null }
+                        ]
+                    }
+                ]
+            }
+        }
+    ]
+}

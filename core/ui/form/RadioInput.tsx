@@ -17,6 +17,8 @@ export type RadioInputProps<T extends FieldValues = Record<string, unknown>> = {
     /** The caller renders the error itself (a form cell does), so the input only colours its border. */
     hideError?: boolean
     disabled?: boolean
+    /** `segmented` lays short labels side by side; `list` stacks them with descriptions. */
+    layout?: 'list' | 'segmented'
     wrapperProps?: ViewProps
 }
 
@@ -52,6 +54,7 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
     hint,
     hideError = false,
     disabled = false,
+    layout = 'list',
     wrapperProps = {},
 }: RadioInputProps<T>) {
     const {
@@ -59,8 +62,29 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
         fieldState: { error },
     } = useController({ name, control })
     const hasError = !!error
+    const isSegmented = layout === 'segmented'
     const rows = options.map(option => {
         const isSelected = field.value === option.value
+        if (isSegmented) {
+            return (
+                <Pressable
+                    key={option.value}
+                    testID={`${name}-${option.value}`}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: isSelected, disabled }}
+                    disabled={disabled}
+                    accessibilityLabel={option.label}
+                    onPress={() => field.onChange(option.value)}
+                    className={`flex-1 items-center rounded-md border py-2 ${isSelected ? 'border-primary bg-primary' : 'border-border bg-background'}`}
+                >
+                    <Text
+                        className={`text-sm font-medium ${isSelected ? 'text-primary-foreground' : 'text-foreground'}`}
+                    >
+                        {option.label}
+                    </Text>
+                </Pressable>
+            )
+        }
         return (
             <Pressable
                 key={option.value}
@@ -85,7 +109,13 @@ export function RadioInput<T extends FieldValues = Record<string, unknown>>({
     return (
         <View className="mb-3 gap-1.5" {...wrapperProps}>
             <Text className="text-sm font-semibold text-foreground">{label}</Text>
-            <View accessibilityRole="radiogroup">{rows}</View>
+            <View
+                accessibilityRole="radiogroup"
+                accessibilityLabel={label}
+                className={isSegmented ? 'flex-row gap-1.5' : ''}
+            >
+                {rows}
+            </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
             {hasError && !hideError ? (
                 <Text className="text-xs text-danger">{error.message}</Text>

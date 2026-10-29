@@ -5,7 +5,12 @@ import type { Command } from './runners'
 // member scripts). Inherit stdio. Resolve with the exit code.
 export function runCommand(cmd: Command): Promise<number> {
     return new Promise(resolve => {
-        const child = spawn(cmd.bin, cmd.args, { cwd: cmd.cwd, stdio: 'inherit', shell: false })
+        const child = spawn(cmd.bin, cmd.args, {
+            cwd: cmd.cwd,
+            env: { ...process.env, ...cmd.env },
+            stdio: 'inherit',
+            shell: false,
+        })
         child.on('exit', code => resolve(code ?? 1))
         // Say WHY the spawn failed. A bare `resolve(1)` here exits the whole
         // CLI non-zero with no output at all — the runner never started, so it

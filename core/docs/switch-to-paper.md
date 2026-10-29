@@ -139,7 +139,7 @@ Critical path — all form screens depend on these.
 | `ui/form/TextInput.tsx` | Tamagui `Input` → Paper `TextInput` (mode: "outlined"). YStack→Column, XStack→Row, SizableText→AppText. Paper TextInput has built-in `error` prop and `label` prop — simplifies the component. |
 | `ui/form/TextAreaInput.tsx` | Tamagui `TextArea` → Paper `TextInput` with `multiline`. Same wrapper migration. |
 | `ui/form/NumberInput.tsx` | Tamagui `Button` → Paper `IconButton` for +/- controls. RN TextInput stays. |
-| `ui/form/SelectInput.tsx` | Tamagui `Button` options → Paper `SegmentedButtons` or `Chip` group. |
+| `ui/form/ButtonGroup.tsx` | Tamagui `Button` options → Paper `SegmentedButtons` or `Chip` group. |
 | `ui/form/Toggle.tsx` | RN `Switch` → Paper `Switch`. XStack/YStack→Row/Column. |
 | `ui/form/FormErrorSummary.tsx` | YStack+SizableText → Column+Paper Text. `$red2`→`theme.colors.errorContainer`. |
 | `ui/form/index.ts` | No changes needed (re-exports stay stable). |
@@ -393,7 +393,7 @@ After Phase 7 (complete):
 - `ui/form/TextInput.tsx` — Input, SizableText, useTheme, XStack, YStack
 - `ui/form/TextAreaInput.tsx` — TextArea, SizableText, useTheme, XStack, YStack
 - `ui/form/NumberInput.tsx` — Button, SizableText, useTheme, XStack, YStack
-- `ui/form/SelectInput.tsx` — Button, SizableText, XStack, YStack
+- `ui/form/ButtonGroup.tsx` — Button, SizableText, XStack, YStack
 - `ui/form/Toggle.tsx` — SizableText, useTheme, XStack
 - `ui/form/FormErrorSummary.tsx` — SizableText, YStack
 
@@ -731,7 +731,7 @@ import { PaperProvider } from 'react-native-paper'
 | `Snackbar` | `visible`, `onDismiss`, `action`, `duration` | |
 | `Banner` | `visible`, `actions`, `icon` | |
 | `ProgressBar` | `progress`, `indeterminate`, `color` | |
-| `SegmentedButtons` | `value`, `onValueChange`, `buttons` | For SelectInput replacement |
+| `SegmentedButtons` | `value`, `onValueChange`, `buttons` | For ButtonGroup replacement |
 
 ### useTheme() API
 ```tsx

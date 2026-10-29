@@ -1,10 +1,15 @@
 package coreserver
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/getsentry/sentry-go"
@@ -124,6 +129,111 @@ func TestSentryMiddlewareSkipsClientErrors(t *testing.T) {
 
 	if events := get(); len(events) != 0 {
 		t.Fatalf("expected zero captured events for a 4xx, got %d: %+v", len(events), events)
+	}
+}
+
+// A client that closes the connection before the response is written makes
+// the write fail with a broken pipe or a reset. That is not a server error.
+func TestSentryMiddlewareSkipsClientDisconnect(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	writeErr := func(errno syscall.Errno) error {
+		return fmt.Errorf("jsontext: write error: %w", &net.OpError{
+			Op: "write", Net: "unix", Err: os.NewSyscallError("write", errno),
+		})
+	}
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/epipe", func(re *core.RequestEvent) error { return writeErr(syscall.EPIPE) })
+		g.GET("/test/reset", func(re *core.RequestEvent) error { return writeErr(syscall.ECONNRESET) })
+	}
+	for _, url := range []string{"/test/epipe", "/test/reset"} {
+		runScenario(t, mount, &tests.ApiScenario{
+			Name:            url,
+			Method:          http.MethodGet,
+			URL:             url,
+			ExpectedStatus:  http.StatusBadRequest,
+			ExpectedContent: []string{`"status":400`},
+		})
+	}
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events for a client disconnect, got %d: %+v", len(events), events)
+	}
+}
+
+// HTTP/2 reports a client that left with errors no caller can match
+// ("http2: stream closed", "client disconnected"), but it cancels the request
+// context first. Any error once that context is done is the client leaving.
+func TestSentryMiddlewareSkipsErrorAfterClientLeft(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/stream-closed", func(re *core.RequestEvent) error {
+			ctx, cancel := context.WithCancel(re.Request.Context())
+			re.Request = re.Request.WithContext(ctx)
+			cancel()
+			return fmt.Errorf("jsontext: write error: %w", errors.New("http2: stream closed"))
+		})
+	}
+	runScenario(t, mount, &tests.ApiScenario{
+		Name:            "error after the request context is done",
+		Method:          http.MethodGet,
+		URL:             "/test/stream-closed",
+		ExpectedStatus:  http.StatusBadRequest,
+		ExpectedContent: []string{`"status":400`},
+	})
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events after the client left, got %d: %+v", len(events), events)
+	}
+}
+
+// PocketBase answers a password reset for an unknown email with 204, so no
+// one can probe which emails have accounts, and then returns an error for the
+// request log. The client got its answer: that is not a server error.
+func TestSentryMiddlewareSkipsPasswordResetForUnknownEmail(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	runScenario(t, func(*router.RouterGroup[*core.RequestEvent]) {}, &tests.ApiScenario{
+		Name:           "password reset for an unknown email",
+		Method:         http.MethodPost,
+		URL:            "/api/collections/users/request-password-reset",
+		Body:           strings.NewReader(`{"email":"nobody@example.com"}`),
+		ExpectedStatus: http.StatusNoContent,
+	})
+
+	if events := get(); len(events) != 0 {
+		t.Fatalf("expected zero captured events for an anti-enumeration 204, got %d: %+v", len(events), events)
+	}
+}
+
+// An error after a 2xx with a body can be a failure part-way through the
+// body, so it is still reported.
+func TestSentryMiddlewareCapturesErrorAfterBody(t *testing.T) {
+	get, cleanup := captureSentry(t)
+	defer cleanup()
+
+	mount := func(g *router.RouterGroup[*core.RequestEvent]) {
+		g.GET("/test/partial", func(re *core.RequestEvent) error {
+			if err := re.String(http.StatusOK, "partial"); err != nil {
+				return err
+			}
+			return errors.New("failed after the body")
+		})
+	}
+	runScenario(t, mount, &tests.ApiScenario{
+		Name:            "error after a 200 body",
+		Method:          http.MethodGet,
+		URL:             "/test/partial",
+		ExpectedStatus:  http.StatusOK,
+		ExpectedContent: []string{"partial"},
+	})
+
+	if events := get(); len(events) != 1 {
+		t.Fatalf("expected 1 captured event for an error after a body, got %d", len(events))
 	}
 }
 

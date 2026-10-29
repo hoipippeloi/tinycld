@@ -73,6 +73,25 @@ describe('mergeFormHosts', () => {
             mergeFormHosts([{ slug: 'gizmos', hosts: [{ ...widget, builtin: [] }] }])
         ).toThrow(/builtin/)
     })
+    it('keeps a host layout, so server/form_hosts.json carries it to Go', () => {
+        const layout = {
+            pages: [
+                { key: 'details', title: 'Details' },
+                { key: 'more', title: 'More' },
+            ],
+            fields: { name: { width: 'half' } },
+            rules: [
+                {
+                    key: 'show_more',
+                    match: 'all',
+                    when: [{ field: 'name', op: 'is_empty' }],
+                    actions: [{ action: 'show', page: 'more' }],
+                },
+            ],
+        }
+        const merged = mergeFormHosts([{ slug: 'gizmos', hosts: [{ ...widget, layout }] }])
+        expect(merged.hosts[0].layout).toEqual(layout)
+    })
     it('rejects a duplicate key across packages', () => {
         expect(() =>
             mergeFormHosts([
@@ -80,5 +99,46 @@ describe('mergeFormHosts', () => {
                 { slug: 'gizmos', hosts: [widget] },
             ])
         ).toThrow(/duplicate/)
+    })
+})
+
+describe('mergeFormHosts with computed and table built-ins', () => {
+    it('keeps expression, decimals and columns on the emitted host', () => {
+        const merged = mergeFormHosts([
+            {
+                slug: 'gizmos',
+                hosts: [
+                    {
+                        key: 'gizmos:invoice',
+                        label: 'Invoice',
+                        collection: 'gizmos_invoices',
+                        formColumn: 'form',
+                        fieldsColumn: 'fields',
+                        columns: ['subtotal', 'form', 'fields'],
+                        builtin: [
+                            {
+                                key: 'lines',
+                                label: 'Lines',
+                                kind: 'table',
+                                storage: 'rows',
+                                columns: [{ key: 'qty', kind: 'number', label: 'Qty' }],
+                            },
+                            {
+                                key: 'subtotal',
+                                label: 'Subtotal',
+                                kind: 'computed',
+                                storage: 'column',
+                                decimals: 2,
+                                expression: { sumOf: [{ var: 'lines' }, 'qty'] },
+                            },
+                        ],
+                    },
+                ],
+            },
+        ])
+        const builtins = merged.hosts[0].builtin
+        expect(builtins[0].columns?.[0].key).toBe('qty')
+        expect(builtins[1].expression).toEqual({ sumOf: [{ var: 'lines' }, 'qty'] })
+        expect(builtins[1].decimals).toBe(2)
     })
 })

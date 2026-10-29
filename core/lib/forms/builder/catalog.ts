@@ -30,6 +30,7 @@ export function catalogFieldFor(
     const base = { key, label: field.label }
     switch (kind) {
         case 'number':
+        case 'computed':
             return { ...base, type: 'number' }
         case 'date':
             return { ...base, type: 'date' }
@@ -95,10 +96,12 @@ export const ACTION_LABELS: Record<ActionKind, string> = {
 }
 
 /** Kinds the builder has no value editor for, so it cannot author a set_value on them. */
-const NO_VALUE_EDITOR = new Set(['checklist', 'file', 'custom'])
+const NO_VALUE_EDITOR = new Set(['checklist', 'file', 'custom', 'table'])
 
 export function actionsFor(targetKind: string | 'page'): ActionKind[] {
     if (targetKind === 'page' || targetKind === 'section') return ['show', 'hide']
+    // The engine recomputes a calculated value, so requiring or setting it means nothing.
+    if (targetKind === 'computed') return ['show', 'hide']
     if (targetKind === 'select') return ['show', 'hide', 'require', 'set_options', 'set_value']
     if (NO_VALUE_EDITOR.has(targetKind)) return ['show', 'hide', 'require']
     return ['show', 'hide', 'require', 'set_value']

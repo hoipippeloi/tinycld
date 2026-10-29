@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    availableUpdates,
     compareVersions,
     detectDowngrade,
     type PackageVersionInfo,
@@ -51,5 +52,22 @@ describe('detectDowngrade', () => {
         // silently treated as a safe upgrade. This is the H1/M3 safety default.
         const i = info({ current: 'weird-build', available: [] })
         expect(detectDowngrade(i, 'also-weird')).toBe(true)
+    })
+})
+
+describe('availableUpdates', () => {
+    it('maps each slug with a newer release to that release', () => {
+        expect(
+            availableUpdates([
+                info({ slug: 'gizmos', latest: '1.3.0', hasUpdate: true }),
+                info({ slug: 'widgets', current: '2.0.0', latest: '2.0.0', hasUpdate: false }),
+            ])
+        ).toEqual({ gizmos: '1.3.0' })
+    })
+    it('skips a package flagged hasUpdate with no latest release', () => {
+        expect(availableUpdates([info({ latest: '' })])).toEqual({})
+    })
+    it('returns an empty map when everything is current', () => {
+        expect(availableUpdates([info({ hasUpdate: false })])).toEqual({})
     })
 })

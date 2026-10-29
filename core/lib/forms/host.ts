@@ -1,5 +1,17 @@
 import { z } from 'zod'
-import { CUSTOM_KINDS, type FormDefinition, keySchema } from './definition'
+import { computedIssues } from './computed-validation'
+import {
+    CUSTOM_KINDS,
+    type DefinitionIssue,
+    definitionSchema,
+    FIELD_WIDTHS,
+    type FormDefinition,
+    hostColumnSchema,
+    keySchema,
+    ruleSchema,
+    validateDefinitionForHost,
+} from './definition'
+import { computeExprSchema } from './expression'
 
 export const BUILTIN_KINDS = [...CUSTOM_KINDS, 'custom', 'section'] as const
 export type BuiltinKind = (typeof BUILTIN_KINDS)[number]
@@ -23,6 +35,11 @@ const builtinSchema = z
          * still draws the labelled cell.
          */
         chrome: z.enum(['cell', 'bare']).default('cell'),
+        /** A computed built-in: the formula the engine and the server evaluate. */
+        expression: computeExprSchema.optional(),
+        decimals: z.number().int().min(0).max(6).default(0),
+        /** A table built-in: its columns. Rows live in the host's own collection. */
+        columns: z.array(hostColumnSchema).min(1).optional(),
     })
     .superRefine((b, ctx) => {
         if (b.kind === 'section' && b.storage !== 'none')
@@ -45,7 +62,116 @@ const builtinSchema = z
                 path: ['collaborative'],
                 message: 'only markdown and richtext can be collaborative',
             })
+        if (b.kind === 'computed') {
+            if (b.expression === undefined)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['expression'],
+                    message: 'a computed built-in needs an expression',
+                })
+            if (b.storage !== 'column')
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['storage'],
+                    message: 'a computed built-in is stored in a column',
+                })
+        } else if (b.expression !== undefined) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['expression'],
+                message: 'only a computed built-in has an expression',
+            })
+        }
+        if (b.kind === 'table') {
+            if (!b.columns)
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['columns'],
+                    message: 'a table built-in needs columns',
+                })
+            if (b.storage !== 'rows')
+                ctx.addIssue({
+                    code: 'custom',
+                    path: ['storage'],
+                    message: 'a table built-in keeps its rows in the host table',
+                })
+        } else if (b.columns) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['columns'],
+                message: 'only a table built-in has columns',
+            })
+        }
     })
+
+/**
+ * The host's default form: its pages, a page and width per built-in (absent
+ * means the first page, full width), and its rules. It seeds the first default
+ * form, and every new form an admin starts from Settings → Forms → New form
+ * (use-form-admin.ts starts from `defaultDefinitionFor`). Mirrored in Go
+ * (server/forms HostLayout). A page has no description, because the Go page
+ * has none and both seeds must write the same definition.
+ */
+export const hostLayoutSchema = z.object({
+    pages: z.array(z.object({ key: keySchema, title: z.string().trim().min(1).max(120) })).min(1),
+    fields: z
+        .record(
+            keySchema,
+            z.object({ page: keySchema.optional(), width: z.enum(FIELD_WIDTHS).optional() })
+        )
+        .default({}),
+    rules: z.array(ruleSchema).default([]),
+})
+export type FormHostLayout = z.infer<typeof hostLayoutSchema>
+const ruleListSchema = z.array(ruleSchema)
+
+type IssueSink = (path: (string | number)[], message: string) => void
+
+/** Every key a layout names must be a built-in of the host or a page of the layout. */
+function layoutIssues(layout: FormHostLayout, builtins: Set<string>, report: IssueSink) {
+    const pages = new Set<string>()
+    layout.pages.forEach((p, i) => {
+        if (pages.has(p.key)) report(['pages', i, 'key'], `duplicate layout page key ${p.key}`)
+        pages.add(p.key)
+    })
+    for (const [key, placed] of Object.entries(layout.fields)) {
+        if (!builtins.has(key)) report(['fields', key], `${key} is not a built-in field`)
+        if (placed.page !== undefined && !pages.has(placed.page))
+            report(['fields', key, 'page'], `${placed.page} is not a layout page`)
+    }
+    layout.rules.forEach((rule, ri) => {
+        rule.when.forEach((c, ci) => {
+            if (!builtins.has(c.field))
+                report(['rules', ri, 'when', ci, 'field'], `${c.field} is not a built-in field`)
+        })
+        rule.actions.forEach((a, ai) => {
+            if (a.field !== undefined && !builtins.has(a.field))
+                report(['rules', ri, 'actions', ai, 'field'], `${a.field} is not a built-in field`)
+            if ('page' in a && a.page !== undefined && !pages.has(a.page))
+                report(['rules', ri, 'actions', ai, 'page'], `${a.page} is not a layout page`)
+        })
+    })
+}
+
+/**
+ * The layout seeds forms, so the definition it seeds must pass the same
+ * checks a saved form passes. Each issue is reported where the layout causes
+ * it: a seeded field's index maps back to its built-in key.
+ */
+function seededIssues(host: FormHostDef, report: IssueSink) {
+    const parsed = definitionSchema.safeParse(defaultDefinitionFor(host))
+    const issues: DefinitionIssue[] = parsed.success
+        ? validateDefinitionForHost(parsed.data, host)
+        : parsed.error.issues.map(issue => ({
+              path: issue.path.filter((p): p is string | number => typeof p !== 'symbol'),
+              message: issue.message,
+          }))
+    for (const issue of issues) {
+        const [head, index, ...rest] = issue.path
+        const builtin = head === 'fields' && typeof index === 'number' ? host.builtin[index] : null
+        report(builtin ? ['fields', builtin.key, ...rest] : issue.path, issue.message)
+    }
+}
 
 export const hostDefSchema = z
     .object({
@@ -79,6 +205,8 @@ export const hostDefSchema = z
             .optional(),
         /** Built-in key a new custom field lands before; absent means the page end. */
         insertCustomBefore: z.string().min(1).optional(),
+        /** The first seeded default form's layout; absent means one full-width page. */
+        layout: hostLayoutSchema.optional(),
     })
     .superRefine((host, ctx) => {
         const keys = new Set<string>()
@@ -97,12 +225,27 @@ export const hostDefSchema = z
                     message: 'collaborative builtins need a collaborative fragment template',
                 })
         })
+        const computeFields = host.builtin.map(b => ({
+            key: b.key,
+            kind: b.kind,
+            expression: b.expression,
+            columns: b.columns,
+        }))
+        for (const issue of computedIssues(computeFields, ['builtin']))
+            ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message })
         if (host.insertCustomBefore && !keys.has(host.insertCustomBefore))
             ctx.addIssue({
                 code: 'custom',
                 path: ['insertCustomBefore'],
                 message: 'insertCustomBefore must name a built-in key',
             })
+        if (!host.layout) return
+        const report: IssueSink = (path, message) =>
+            ctx.addIssue({ code: 'custom', path: ['layout', ...path], message })
+        layoutIssues(host.layout, keys, report)
+        // zod runs this refinement on a host that already failed (an empty page
+        // list, an unknown key), which the seeded form would only repeat or break on.
+        if (ctx.issues.length === 0) seededIssues(host, report)
     })
 
 /** Parsed host with defaults applied. Every consumer of parsed data uses these types. */
@@ -116,20 +259,34 @@ export function findBuiltin(host: FormHostDef, key: string): FormHostBuiltin | u
     return host.builtin.find(b => b.key === key)
 }
 
+/**
+ * The host's default form: the first seeded form and every new form started
+ * from Settings → Forms → New form. Mirrored in Go (server/forms
+ * defaultDefinition); both seeds write the same definition. Pages and rules
+ * are copies, so an edit to one result never reaches the host or the next one.
+ */
 export function defaultDefinitionFor(host: FormHostDef): FormDefinition {
+    const pages = host.layout?.pages.map(p => ({ key: p.key, title: p.title })) ?? [
+        { key: 'main', title: host.label },
+    ]
+    const first = pages[0].key
     return {
         version: 1,
-        pages: [{ key: 'main', title: host.label }],
-        fields: host.builtin.map(b => ({
-            key: b.key,
-            kind: 'builtin',
-            page: 'main',
-            label: b.label,
-            width: 'full',
-            required: b.required,
-            hidden: false,
-        })),
-        rules: [],
+        pages,
+        fields: host.builtin.map(b => {
+            const placed = host.layout?.fields[b.key]
+            return {
+                key: b.key,
+                kind: 'builtin',
+                page: placed?.page ?? first,
+                label: b.label,
+                width: placed?.width ?? 'full',
+                required: b.required,
+                hidden: false,
+            }
+        }),
+        // A zod parse builds new objects and arrays all the way down; Hermes has no structuredClone.
+        rules: host.layout ? ruleListSchema.parse(host.layout.rules) : [],
         defaults: {},
         submit: { required: [] },
     }

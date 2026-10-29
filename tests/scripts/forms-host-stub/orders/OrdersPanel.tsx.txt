@@ -1,0 +1,245 @@
+import { eq } from '@tanstack/db'
+import { useLiveQuery } from '@tanstack/react-db'
+import { useAuth } from '@tinycld/core/lib/auth'
+import { toDateString } from '@tinycld/core/lib/dates'
+import type { EvalContext } from '@tinycld/core/lib/forms/logic'
+import { planTableWrites, tableRowsOf } from '@tinycld/core/lib/forms/table-rows'
+import { useFormHost } from '@tinycld/core/lib/forms/use-form-hosts'
+import type { SplitValues, TableRow } from '@tinycld/core/lib/forms/values'
+import { useMutation } from '@tinycld/core/lib/mutations'
+import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
+import { useStore } from '@tinycld/core/lib/pocketbase'
+import { useRecord } from '@tinycld/core/lib/use-record'
+import type { Schema } from '@tinycld/core/types/pbSchema'
+import { Button, ButtonText } from '@tinycld/core/ui/button'
+import {
+    FormRenderer,
+    type PatchResult,
+    useFormCreate,
+    useFormEdit,
+    useHostUi,
+} from '@tinycld/core/ui/forms'
+import { newRecordId } from 'pbtsdb/core'
+import { useMemo, useState } from 'react'
+import { Pressable, Text, View } from 'react-native'
+import { type LineRecord, lineMapper } from './line-mapper'
+
+const HOST_KEY = 'forms-stub:order'
+
+type OrderRecord = Schema['forms_stub_orders']['type']
+type Screen = { kind: 'list' } | { kind: 'new' } | { kind: 'edit'; id: string }
+
+function useEvalContext(): EvalContext {
+    const { user } = useAuth()
+    return useMemo(() => ({ today: toDateString(new Date()), userId: user.id }), [user.id])
+}
+
+const fieldsChange = (fields: Record<string, unknown>) =>
+    Object.keys(fields).length > 0 ? { fields } : {}
+
+function Loading() {
+    return <Text className="text-muted-foreground mt-4">Loading…</Text>
+}
+
+function SavedNote({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <Text testID="forms-stub-order-saved" className="text-muted-foreground mt-2">
+            Saved
+        </Text>
+    )
+}
+
+function OrderList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) => void }) {
+    const [ordersCollection] = useStore('forms_stub_orders')
+    const { data } = useLiveQuery(query =>
+        query.from({ order: ordersCollection }).orderBy(({ order }) => order.created, 'asc')
+    )
+    const items = (data ?? []).map(order => (
+        <Pressable
+            key={order.id}
+            onPress={() => onOpen(order.id)}
+            accessibilityRole="button"
+            testID={`forms-stub-order-${order.id}`}
+            className="py-2"
+        >
+            <Text className="text-foreground">{order.name}</Text>
+        </Pressable>
+    ))
+    return (
+        <View className="mt-4 gap-2">
+            <Button onPress={onNew} testID="forms-stub-order-new">
+                <ButtonText>New order</ButtonText>
+            </Button>
+            <View testID="forms-stub-order-list">{items}</View>
+        </View>
+    )
+}
+
+function NewOrder({ host, onDone }: { host: FormHost; onDone: () => void }) {
+    const context = useEvalContext()
+    const ui = useHostUi(host)
+    const create = useFormCreate(host, undefined, context)
+    const lineColumns = host.builtin.find(b => b.key === 'lines')?.columns ?? []
+    const [ordersCollection, linesCollection] = useStore(
+        'forms_stub_orders',
+        'forms_stub_order_lines'
+    )
+    const save = useMutation({
+        mutationFn: function* (split: SplitValues) {
+            const id = newRecordId()
+            yield ordersCollection.insert({
+                id,
+                name: String(split.columns.name ?? ''),
+                subtotal: Number(split.columns.subtotal ?? 0),
+                form: create.formId,
+                fields: split.fields,
+            })
+            const plan = planTableWrites([], split.tables.lines ?? [], lineColumns)
+            for (const { row, position } of plan.insert)
+                yield linesCollection.insert({
+                    id: row.id,
+                    order: id,
+                    ...lineMapper.toRecord(row, position),
+                })
+        },
+        onSuccess: onDone,
+        onError: create.onError,
+    })
+    const onCreate = async () => {
+        const split = await create.submit()
+        if (split) save.mutate(split)
+    }
+    if (!create.definition) return <Loading />
+    return (
+        <View className="mt-4">
+            <FormRenderer
+                host={host}
+                ui={ui}
+                definition={create.definition}
+                layout="sections"
+                form={create.form}
+                context={context}
+                schemaRef={create.schemaRef}
+            />
+            <Button onPress={onCreate} isDisabled={save.isPending} testID="forms-stub-order-create">
+                <ButtonText>Create</ButtonText>
+            </Button>
+        </View>
+    )
+}
+
+interface OrderEditorProps {
+    host: FormHost
+    order: OrderRecord
+    /** Undefined until the line query is ready. */
+    lineRecords: LineRecord[] | undefined
+    onBack: () => void
+}
+
+function OrderEditor({ host, order, lineRecords, onBack }: OrderEditorProps) {
+    const context = useEvalContext()
+    const ui = useHostUi(host)
+    const [ordersCollection, linesCollection] = useStore(
+        'forms_stub_orders',
+        'forms_stub_order_lines'
+    )
+    // The rows go in only once loaded: an absent table leaves the stored subtotal alone.
+    const tables: Record<string, TableRow[]> = lineRecords
+        ? { lines: tableRowsOf(lineRecords, lineMapper) }
+        : {}
+    // The spread gives the row type the index signature useFormEdit's record takes.
+    const edit = useFormEdit(host, { ...order }, context, {}, tables)
+    const save = useMutation({
+        mutationFn: function* (result: PatchResult) {
+            const changes = { ...result.columns, ...fieldsChange(result.fields) }
+            if (Object.keys(changes).length > 0)
+                yield ordersCollection.update(order.id, draft => {
+                    Object.assign(draft, changes)
+                })
+            const plan = result.tableWrites.lines
+            if (!plan) return
+            for (const { row, position } of plan.insert)
+                yield linesCollection.insert({
+                    id: row.id,
+                    order: order.id,
+                    ...lineMapper.toRecord(row, position),
+                })
+            for (const { row, position } of plan.update)
+                yield linesCollection.update(row.id, draft => {
+                    Object.assign(draft, lineMapper.toRecord(row, position))
+                })
+            if (plan.remove.length > 0) yield linesCollection.delete(plan.remove)
+        },
+        onSuccess: (_data, result) => edit.markSaved(result.written),
+        onError: edit.onError,
+    })
+    const onSave = async () => {
+        const result = await edit.patch()
+        if (result) save.mutate(result)
+    }
+    if (!edit.definition) return <Loading />
+    return (
+        <View className="mt-4">
+            <FormRenderer
+                host={host}
+                ui={ui}
+                definition={edit.definition}
+                layout="sections"
+                form={edit.form}
+                context={context}
+                schemaRef={edit.schemaRef}
+                recordId={order.id}
+            />
+            <View className="flex-row gap-2 mt-2">
+                <Button variant="outline" onPress={onBack} testID="forms-stub-order-back">
+                    <ButtonText>Back</ButtonText>
+                </Button>
+                <Button onPress={onSave} isDisabled={save.isPending} testID="forms-stub-order-save">
+                    <ButtonText>Save</ButtonText>
+                </Button>
+            </View>
+            <SavedNote isVisible={save.isSuccess} />
+        </View>
+    )
+}
+
+function EditOrder({
+    host,
+    orderId,
+    onBack,
+}: {
+    host: FormHost
+    orderId: string
+    onBack: () => void
+}) {
+    const [ordersCollection, linesCollection] = useStore(
+        'forms_stub_orders',
+        'forms_stub_order_lines'
+    )
+    const { record: order } = useRecord(ordersCollection, orderId)
+    const { data: lineRecords, isReady } = useLiveQuery(
+        query => query.from({ line: linesCollection }).where(({ line }) => eq(line.order, orderId)),
+        [orderId]
+    )
+    if (!order) return <Loading />
+    const loaded = isReady ? (lineRecords ?? []) : undefined
+    return <OrderEditor host={host} order={order} lineRecords={loaded} onBack={onBack} />
+}
+
+/** The Order host's list, create and edit screens, all on the stub's landing page. */
+export function OrdersPanel() {
+    const host = useFormHost(HOST_KEY)
+    // Which order the panel shows: local UI state that nothing else reads.
+    const [screen, setScreen] = useState<Screen>({ kind: 'list' })
+    const toList = () => setScreen({ kind: 'list' })
+    if (!host) return null
+    if (screen.kind === 'new') return <NewOrder host={host} onDone={toList} />
+    if (screen.kind === 'edit') return <EditOrder host={host} orderId={screen.id} onBack={toList} />
+    return (
+        <OrderList
+            onNew={() => setScreen({ kind: 'new' })}
+            onOpen={id => setScreen({ kind: 'edit', id })}
+        />
+    )
+}

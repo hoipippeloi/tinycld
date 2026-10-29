@@ -86,10 +86,13 @@ The engine (`core/ui/overlay/`, internal) owns:
 ## Popover
 
 ```tsx
-<Popover trigger={<DueChip due={due} />} placement="bottom-start">
+<Popover trigger={<DueChip due={due} />} placement="bottom-start" width={300}>
     <MiniCalendar selectedDate={due} onDateSelect={pick} />
 </Popover>
 ```
+
+- `MiniCalendar` has no natural width, so a Popover that holds it needs a
+  `width`.
 
 - `trigger` is cloned with `onPress` and a ref; it must be a Pressable-like
   element. Controlled use: `isOpen`, `onOpenChange`, and `anchor` — a trigger

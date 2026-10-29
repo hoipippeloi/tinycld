@@ -16,10 +16,12 @@ interface PickMenuProps {
     purpose: string
     items: PickItem[]
     testID: string
+    /** `touch` gives the chip a 44pt-tall target for primary form controls. */
+    size?: 'compact' | 'touch'
 }
 
 /** A chip that opens a short menu of choices; each row's test id is `${testID}-${id}`. */
-export function PickMenu({ label, purpose, items, testID }: PickMenuProps) {
+export function PickMenu({ label, purpose, items, testID, size = 'compact' }: PickMenuProps) {
     const muted = useThemeColor('muted-foreground')
     const rows = items.map(item => (
         <Menu.Item
@@ -32,7 +34,12 @@ export function PickMenu({ label, purpose, items, testID }: PickMenuProps) {
     ))
     const trigger = (
         <Pressable
-            className="flex-row items-center gap-1 border border-border rounded-md px-2 py-1"
+            className={
+                size === 'touch'
+                    ? 'min-w-40 flex-row items-center justify-between gap-2 border border-border rounded-md px-3'
+                    : 'flex-row items-center gap-1 border border-border rounded-md px-2 py-1'
+            }
+            style={size === 'touch' ? { minHeight: 44 } : undefined}
             accessibilityLabel={`${purpose}: ${label}`}
             testID={testID}
         >

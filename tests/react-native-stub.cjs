@@ -196,6 +196,7 @@ module.exports = {
     AccessibilityInfo: {
         isScreenReaderEnabled: () => Promise.resolve(false),
         setAccessibilityFocus: () => {},
+        sendAccessibilityEvent: () => {},
     },
     // gluestack's Modal subscribes to the keyboard for its bottom inset and
     // dismisses it on open; a dialog cannot mount under the stub without both.

@@ -36,7 +36,13 @@ function setUp(patchResult: PatchResult | null) {
 
 describe('useAutoPatch', () => {
     it('patches once after the last change settles and marks the written keys saved', async () => {
-        const split = { columns: { name: 'b' }, fields: { sev: 'high' }, rows: {} }
+        const split = {
+            columns: { name: 'b' },
+            fields: { sev: 'high' },
+            rows: {},
+            tables: {},
+            tableWrites: {},
+        }
         const written = { name: 'b', sev: 'high' }
         const { hook, save, markSaved, patch } = setUp({ ...split, written })
         act(() => hook.result.current.setValue('name', 'b', { shouldDirty: true }))
@@ -73,6 +79,8 @@ describe('useAutoPatch', () => {
                 columns: { name: 'x' },
                 fields: {},
                 rows: {},
+                tables: {},
+                tableWrites: {},
                 written: { name: 'x' },
             })
         )
@@ -122,6 +130,8 @@ describe('useAutoPatch', () => {
                 columns: { name: 'b' },
                 fields: {},
                 rows: {},
+                tables: {},
+                tableWrites: {},
                 written: { name: 'b' },
             })
         )
@@ -141,7 +151,7 @@ describe('useAutoPatch', () => {
     })
 
     it('flushes a pending change when the screen unmounts', async () => {
-        const split = { columns: { name: 'b' }, fields: {}, rows: {} }
+        const split = { columns: { name: 'b' }, fields: {}, rows: {}, tables: {}, tableWrites: {} }
         const { hook, save } = setUp({ ...split, written: { name: 'b' } })
         act(() => hook.result.current.setValue('name', 'b', { shouldDirty: true }))
         hook.unmount()

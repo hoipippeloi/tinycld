@@ -31,6 +31,25 @@ type Field struct {
 	Min           *float64 `json:"min,omitempty"`
 	Max           *float64 `json:"max,omitempty"`
 	MaxLength     *int     `json:"maxLength,omitempty"`
+	Expression    any      `json:"expression,omitempty"`
+	Decimals      int      `json:"decimals,omitempty"`
+	Columns       []Column `json:"columns,omitempty"`
+}
+
+// Column is a table field's column; a mirror of columnSchema in
+// core/lib/forms/definition.ts.
+type Column struct {
+	Key        string   `json:"key"`
+	Kind       string   `json:"kind"`
+	Label      string   `json:"label"`
+	Required   bool     `json:"required"`
+	Hidden     bool     `json:"hidden"`
+	Options    []Option `json:"options,omitempty"`
+	Expression any      `json:"expression,omitempty"`
+	Decimals   int      `json:"decimals,omitempty"`
+	Min        *float64 `json:"min,omitempty"`
+	Max        *float64 `json:"max,omitempty"`
+	MaxLength  *int     `json:"maxLength,omitempty"`
 }
 
 type Page struct {
@@ -50,6 +69,21 @@ type Action struct {
 	Page    string   `json:"page,omitempty"`
 	Options []Option `json:"options,omitempty"`
 	Value   any      `json:"value,omitempty"`
+}
+
+// MarshalJSON writes a set_value's value even when it is null, as the client
+// does (its schema defaults the value to null), so both seeds write the same
+// JSON (core/lib/forms/fixtures/layout-definition.json). Every other action
+// has no value and leaves it out.
+func (a Action) MarshalJSON() ([]byte, error) {
+	type plain Action
+	if a.Action != "set_value" {
+		return json.Marshal(plain(a))
+	}
+	return json.Marshal(struct {
+		plain
+		Value any `json:"value"`
+	}{plain(a), a.Value})
 }
 
 type Rule struct {
@@ -108,6 +142,8 @@ var operatorsByKind = map[string][]string{
 	"checklist": {"all_done", "any_open", "is_empty"},
 	"file":      {"is_empty", "not_empty"},
 	"custom":    {"is_empty", "not_empty"},
+	"computed":  {"eq", "neq", "gt", "lt", "gte", "lte", "is_empty", "not_empty"},
+	"table":     {"is_empty", "not_empty"},
 	"section":   {},
 }
 
@@ -208,12 +244,18 @@ func ValidateDefinition(def *Definition, host *Host) validation.Errors {
 		if f.Collaborative && host.Collab == nil {
 			return defErr(host.Label+" does not support collaborative fields", "fields", i, "collaborative")
 		}
+		if errs := fieldComputeErrors(f, i); errs != nil {
+			return errs
+		}
 		kinds[f.Key] = f.Kind
 	}
 	for _, b := range host.Builtins {
 		if !seenBuiltin[b.Key] {
 			return defErr("missing built-in field "+b.Key, "fields")
 		}
+	}
+	if errs := computeCrossErrors(def, host); errs != nil {
+		return errs
 	}
 	ruleKeys := map[string]bool{}
 	for ri, r := range def.Rules {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isManagedPrefix } from '../../use-managed-settings'
+import { searchHelpTopics } from '../search'
 import type { HelpGroup } from '../types'
 
 // The filter use-help-topics applies. Tested against the same rule rather than
@@ -66,5 +67,21 @@ describe('help topic filtering', () => {
         const byId = new Map(visible.flatMap(g => g.topics).map(t => [t.id, t]))
         expect(byId.get('gizmos:provider-setup')).toBeUndefined()
         expect(byId.get('gizmos:custom-domains')).toBeDefined()
+    })
+})
+
+describe('help search and images', () => {
+    const withImage = {
+        ...topic('gizmos', 'img'),
+        title: 'Images',
+        body: 'Step one ![Create invoice screen](images/zebra-1.png)',
+    }
+
+    it('matches image alt text', () => {
+        expect(searchHelpTopics([withImage], 'invoice screen')).toHaveLength(1)
+    })
+
+    it('does not match the image file path', () => {
+        expect(searchHelpTopics([withImage], 'zebra')).toHaveLength(0)
     })
 })

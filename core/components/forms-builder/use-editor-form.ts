@@ -39,7 +39,16 @@ export function toDraft(definition: FormDefinition): DraftDefinition {
 }
 
 // A cleared optional input holds '' rather than nothing; the schema wants the prop absent.
-const CLEARABLE = new Set(['description', 'placeholder', 'min', 'max', 'step', 'maxLength', 'rows'])
+const CLEARABLE = new Set([
+    'description',
+    'placeholder',
+    'min',
+    'max',
+    'step',
+    'maxLength',
+    'rows',
+    'decimals',
+])
 
 function withoutCleared<F extends object>(field: F): F {
     const kept = Object.entries(field).filter(
@@ -84,6 +93,9 @@ export function fromDraft(draft: DraftDefinition, host: FormHostDef): DraftDefin
         defaults: typedDefaults(draft, host),
         fields: draft.fields.map(draftField => {
             const field = withoutCleared(draftField)
+            // A cleared column Minimum or Maximum is '' too.
+            if (field.kind === 'table')
+                return { ...field, columns: field.columns.map(withoutCleared) }
             if (field.kind !== 'file') return field
             const { acceptText, ...rest } = field
             if (acceptText === undefined) return rest

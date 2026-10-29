@@ -141,6 +141,12 @@ and admins get one email that names the conflicting packages. The email is sent 
 only when the conflict changes, or as a reminder after 7 days. The pause clears itself
 when a compatible set is available.
 
+**Failed updates.** If the new versions cannot be built (for example, a download
+fails), nothing changes and your packages stay on their current versions. The owner
+and admins get one email that names the versions and the error. The server tries
+again in each update window. The email is sent again only when a different set of
+versions fails, or as a reminder after 7 days.
+
 **Blocked updates.** If an update fails its health check after the restart, the server
 rolls it back to the previous version and blocks that set of versions. The owner and
 admins get one email. A blocked set is not tried again until you select **Clear** next

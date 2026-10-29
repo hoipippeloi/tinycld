@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
-import { clearEmailLog, extractFirstLink, waitForEmailTo } from './email-log-helpers'
+import { extractFirstLink, waitForEmailTo } from './email-log-helpers'
 import { appShell, clearSession, createInvitedUser, type InvitedUser } from './helpers'
 
 // Drives the full self-service password-reset flow from the login modal:
@@ -23,7 +23,6 @@ test.describe('password reset', () => {
             closeInvitee = created.close
         }
 
-        clearEmailLog()
         const NEW_PASSWORD = 'ResetPass9!'
 
         // Drive the reset from the invitee's own (signed-out) session.

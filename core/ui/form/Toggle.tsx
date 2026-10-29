@@ -6,10 +6,14 @@ export type ToggleProps<T extends FieldValues = Record<string, unknown>> = {
     name: Path<T>
     control: Control<T>
     label: string
+    /** Keeps `label` as the switch's accessible name but does not draw it, as in a table cell under its header. */
+    hideLabel?: boolean
     hint?: string
     /** The caller renders the error itself (a form cell does), so the input only colours its border. */
     hideError?: boolean
     disabled?: boolean
+    /** Called after the form value changes, so a caller can clear dependent fields in the change event itself. */
+    onValueChange?: (value: boolean) => void
     /** Defaults to `name`, as on the other form inputs. */
     testID?: string
     wrapperProps?: ViewProps
@@ -19,9 +23,11 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
     name,
     control,
     label,
+    hideLabel = false,
     hint,
     hideError = false,
     disabled = false,
+    onValueChange,
     testID,
     wrapperProps = {},
 }: ToggleProps<T>) {
@@ -35,10 +41,15 @@ export function Toggle<T extends FieldValues = Record<string, unknown>>({
     return (
         <View className="gap-1.5 mb-3" {...wrapperProps}>
             <View className="flex-row items-center justify-between gap-2">
-                <Text className="text-sm font-semibold text-foreground">{label}</Text>
+                {hideLabel ? null : (
+                    <Text className="text-sm font-semibold text-foreground">{label}</Text>
+                )}
                 <Switch
                     value={Boolean(field.value)}
-                    onValueChange={field.onChange}
+                    onValueChange={next => {
+                        field.onChange(next)
+                        onValueChange?.(next)
+                    }}
                     disabled={disabled}
                     accessibilityLabel={label}
                     testID={testID ?? name}

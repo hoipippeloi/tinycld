@@ -40,7 +40,7 @@ function Harness({
     /** A validation error already on the field, as after a failed submit. */
     error?: string
 }) {
-    const { control } = useForm<FormValues>({
+    const { control, getValues } = useForm<FormValues>({
         defaultValues: { [field.key]: initial ?? (field.kind === 'number' ? 0 : '') },
         errors: error ? { [field.key]: { type: 'manual', message: error } } : undefined,
     })
@@ -53,6 +53,7 @@ function Harness({
                 ui={ui}
                 field={field}
                 control={control}
+                getValues={getValues}
                 mode={mode}
                 recordId={recordId}
                 collab={collab}

@@ -35,4 +35,19 @@ describe('PickMenu', () => {
         fireEvent.click(q('t-b') as HTMLElement)
         expect(onSelect).toHaveBeenCalledTimes(1)
     })
+
+    it('gives the touch size a 44pt minimum height', () => {
+        render(
+            <OverlayProvider>
+                <PickMenu
+                    label="Bug"
+                    purpose="Type"
+                    testID="t"
+                    size="touch"
+                    items={[{ id: 'a', label: 'Bug', onSelect: vi.fn() }]}
+                />
+            </OverlayProvider>
+        )
+        expect((q('t') as HTMLElement).style.minHeight).toBe('44px')
+    })
 })

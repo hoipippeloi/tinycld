@@ -164,11 +164,7 @@ func realtimeSendLeaveMessages(app core.App, client subscriptions.Client, subs m
 			continue
 		}
 
-		msg := subscriptions.Message{Name: sub, Data: data}
-
-		routine.FireAndForget(func() {
-			client.Send(msg)
-		})
+		realtimeSend(client, subscriptions.Message{Name: sub, Data: data}) // fork: see realtime_send_tinycld.go
 	}
 }
 

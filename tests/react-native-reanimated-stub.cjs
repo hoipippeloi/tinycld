@@ -41,8 +41,30 @@ const Animated = {
     delay: () => noopAnimation,
 }
 
+// Every shared value is recorded with the values it has held, so a test can
+// observe where an animation started. Identity is stable across renders, as in
+// the real library. `sharedValueLog` is test-only and reset by the test.
+const sharedValueLog = []
+
+function makeShared(initial) {
+    const history = [initial]
+    let current = initial
+    const shared = {
+        history,
+        get value() {
+            return current
+        },
+        set value(next) {
+            current = next
+            history.push(next)
+        },
+    }
+    sharedValueLog.push(shared)
+    return shared
+}
+
 function useSharedValue(initial) {
-    return { value: initial }
+    return React.useState(() => makeShared(initial))[0]
 }
 
 function useAnimatedStyle() {
@@ -135,6 +157,7 @@ module.exports = {
     useAnimatedReaction,
     cancelAnimation,
     makeMutable,
+    sharedValueLog,
     interpolate: (v) => v,
     Extrapolation: { CLAMP: 'CLAMP', EXTEND: 'EXTEND', IDENTITY: 'IDENTITY' },
 }

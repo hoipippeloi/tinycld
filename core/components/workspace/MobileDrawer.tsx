@@ -135,6 +135,7 @@ export function MobileDrawer({ isVisible }: MobileDrawerProps) {
                         ]}
                     >
                         <Pressable
+                            testID="mobile-drawer-backdrop"
                             className="flex-1"
                             style={{
                                 backgroundColor: overlayBg,
@@ -143,6 +144,7 @@ export function MobileDrawer({ isVisible }: MobileDrawerProps) {
                         />
                     </Animated.View>
                     <Animated.View
+                        testID="mobile-drawer-panel"
                         style={[
                             {
                                 position: 'absolute',

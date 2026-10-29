@@ -1,83 +1,93 @@
+import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Menu } from '@tinycld/core/ui/menu'
+import { ChevronDown } from 'lucide-react-native'
 import { type Control, type FieldValues, type Path, useController } from 'react-hook-form'
 import { Pressable, Text, View, type ViewProps } from 'react-native'
-
-export type SelectOption = {
-    label: string
-    value: string
-}
+import type { SelectOption } from './ButtonGroup'
 
 export type SelectInputProps<T extends FieldValues = Record<string, unknown>> = {
     name: Path<T>
     control: Control<T>
     label: string
+    /** Keeps `label` as the trigger's accessible name but does not draw it, as in a table cell under its header. */
+    hideLabel?: boolean
     options: SelectOption[]
     hint?: string
     /** The caller renders the error itself (a form cell does), so the input only colours its border. */
     hideError?: boolean
-    horizontal?: boolean
     disabled?: boolean
+    /** Called after the form value changes to a different option, so a caller can clear dependent fields in the change event itself. */
+    onValueChange?: (value: string) => void
     wrapperProps?: ViewProps
+    /** Shown in the trigger while no option matches the value. */
+    placeholder?: string
+    /** Item test ids are `${testID}-${value}`. */
+    testID?: string
 }
 
 export function SelectInput<T extends FieldValues = Record<string, unknown>>({
     name,
     control,
     label,
+    hideLabel = false,
     options,
     hint,
     hideError = false,
-    horizontal = false,
     disabled = false,
+    onValueChange,
     wrapperProps = {},
+    placeholder = '',
+    testID,
 }: SelectInputProps<T>) {
+    const muted = useThemeColor('muted-foreground')
     const {
         field,
         fieldState: { error },
     } = useController({ name, control })
 
     const hasError = !!error
+    const showError = hasError && !hideError
+    const shown = options.find(option => option.value === field.value)?.label ?? placeholder
+
+    const choose = (value: string) => {
+        const changed = field.value !== value
+        field.onChange(value)
+        if (changed) onValueChange?.(value)
+    }
+
+    const trigger = (
+        <Pressable
+            className={`flex-row items-center justify-between gap-2 border rounded-md px-3 ${showError ? 'border-danger' : 'border-border'}`}
+            style={{ minHeight: 44 }}
+            accessibilityLabel={`${label}: ${shown}`}
+            disabled={disabled}
+            aria-disabled={disabled}
+            accessibilityState={{ disabled }}
+            testID={testID}
+        >
+            <Text className="text-foreground text-sm">{shown}</Text>
+            <ChevronDown size={12} color={muted} />
+        </Pressable>
+    )
 
     return (
         <View className="gap-1.5 mb-3" {...wrapperProps}>
-            {label ? <Text className="text-sm font-semibold text-foreground">{label}</Text> : null}
-            <View
-                accessibilityRole="radiogroup"
-                accessibilityLabel={label}
-                className={horizontal ? 'flex-row gap-2 flex-wrap' : 'flex-col gap-1'}
-            >
-                {options.map(option => {
-                    const isSelected = field.value === option.value
-                    return (
-                        <Pressable
-                            key={option.value}
-                            accessibilityLabel={option.label}
-                            onPress={() => field.onChange(option.value)}
-                            disabled={disabled}
-                            accessibilityRole="radio"
-                            // A radio's state is "checked"; ARIA ignores aria-selected
-                            // on it, so a reader would call every option unchecked.
-                            accessibilityState={{ checked: isSelected, disabled }}
-                            aria-checked={isSelected}
-                            aria-disabled={disabled}
-                            className={`border rounded-lg py-2 px-4 items-center ${isSelected ? 'border-primary bg-primary' : 'border-border bg-transparent'}`}
-                            style={{
-                                flex: horizontal ? 1 : undefined,
-                                minWidth: horizontal ? 80 : undefined,
-                            }}
-                        >
-                            <Text
-                                className={`text-sm font-medium ${isSelected ? 'text-primary-foreground' : 'text-foreground'}`}
-                            >
-                                {option.label}
-                            </Text>
-                        </Pressable>
-                    )
-                })}
-            </View>
-            {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
-            {hasError && !hideError ? (
-                <Text className="text-xs text-danger">{error.message}</Text>
+            {label && !hideLabel ? (
+                <Text className="text-sm font-semibold text-foreground">{label}</Text>
             ) : null}
+            <Menu presentation="popover" trigger={trigger}>
+                {options.map(option => (
+                    <Menu.Item
+                        key={option.value}
+                        label={option.label}
+                        isSelected={option.value === field.value}
+                        onSelect={() => choose(option.value)}
+                        testID={testID ? `${testID}-${option.value}` : undefined}
+                    />
+                ))}
+            </Menu>
+            {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}
+            {showError ? <Text className="text-xs text-danger">{error.message}</Text> : null}
         </View>
     )
 }

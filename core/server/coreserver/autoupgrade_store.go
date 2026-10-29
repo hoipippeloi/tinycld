@@ -77,6 +77,54 @@ func clearPause(app core.App) error {
 	return nil
 }
 
+// recordFailure keeps the one failed row in step with the latest failed
+// automatic build. A failed build changes nothing and is tried again each
+// window, so a repeat of the same set is silent until the 7-day reminder.
+func recordFailure(app core.App, fp string, target map[string]string, reason string, now time.Time, notify func(notice)) error {
+	row, err := app.FindFirstRecordByFilter("autoupgrade_state", "kind = 'failed'")
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		col, cErr := stateCollection(app)
+		if cErr != nil {
+			return cErr
+		}
+		row = core.NewRecord(col)
+		row.Set("kind", "failed")
+		row.Set("fingerprint", "")
+	}
+	same := row.GetString("fingerprint") == fp
+	if !notifyDue(row.GetDateTime("last_notified").Time(), same, now) {
+		return nil
+	}
+	if !same {
+		row.Set("first_seen", now)
+	}
+	row.Set("fingerprint", fp)
+	row.Set("target", target)
+	row.Set("reason", reason)
+	row.Set("last_notified", now)
+	if err := app.Save(row); err != nil {
+		return err
+	}
+	notify(failedNotice(target, reason, same))
+	return nil
+}
+
+func clearFailure(app core.App) error {
+	rows, err := app.FindRecordsByFilter("autoupgrade_state", "kind = 'failed'", "", 0, 0)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if err := app.Delete(r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // recordBlocked writes one blocked row per rolled-back job. The install log id
 // makes it idempotent: a boot that runs the reconcile twice sends one email.
 func recordBlocked(app core.App, fp string, target map[string]string, reason, installLogID string, now time.Time, notify func(notice)) error {

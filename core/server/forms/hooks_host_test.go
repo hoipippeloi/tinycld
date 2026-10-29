@@ -379,7 +379,12 @@ func TestHostHook_DateValuesMatchTheStoredShape(t *testing.T) {
 // request-only hooks run through the real record API.
 func (e *env) openWidgets(t *testing.T) {
 	t.Helper()
-	col, err := e.app.FindCollectionByNameOrId("gizmos_widgets")
+	e.openCollection(t, "gizmos_widgets")
+}
+
+func (e *env) openCollection(t *testing.T, name string) {
+	t.Helper()
+	col, err := e.app.FindCollectionByNameOrId(name)
 	if err != nil {
 		t.Fatal(err)
 	}

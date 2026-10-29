@@ -6,10 +6,11 @@
  * Why a stub: the forms builder (Settings → Forms) only appears when a
  * package declares a form host, and core must not name a package. App-shell
  * CI installs no feature package, so without a host the builder e2e
- * (tests/e2e/forms-builder.spec.ts) has nothing to edit. The stub declares
- * one host, `forms-stub:widget` ("Widget"), over a minimal collection, which
+ * (tests/e2e/forms-builder.spec.ts) has nothing to edit. The stub's
+ * `forms-stub:widget` host ("Widget") sits over a minimal collection, which
  * is exactly the surface the builder needs: built-in fields, a form relation
- * and a JSON column for custom values.
+ * and a JSON column for custom values. Its `forms-stub:order` host ("Order")
+ * adds a table built-in kept in a rows collection, for the renderer e2e.
  *
  * Unlike scaffold-shortcut-stub.ts this script writes every file itself
  * rather than starting from a bootstrap preset: no preset ships a migration,
@@ -26,13 +27,19 @@
  * Idempotent: re-running re-emits the sources, and installs only when the
  * stub is not yet a workspace member.
  *
- * Fixture identifiers the spec asserts on (keep in sync with
- * tests/e2e/forms-builder.spec.ts): host label "Widget", built-in keys
- * `name`, `notes`, `due`.
+ * Fixture identifiers the specs assert on (keep in sync with
+ * tests/e2e/forms-builder.spec.ts and tests/e2e/forms-table.spec.ts): host
+ * "Widget" with built-in keys `name`, `notes`, `due`; host "Order"
+ * (`forms-stub:order`) with built-ins `name`, `lines` (a table: item, qty,
+ * rate, amount) and `subtotal`, drawn by the OrdersPanel on the landing page.
+ *
+ * The Order host's sources are kept as `.txt` templates in
+ * tests/scripts/forms-host-stub/ and copied as they are, so they need no
+ * escaping inside this script and no tooling in this repo reads them as code.
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -43,6 +50,19 @@ const COLLECTION = 'forms_stub_widgets'
 // Must sort after core's 2090000000_create_forms.js: the widgets collection
 // holds a relation to `forms`, which has to exist when this migration runs.
 const MIGRATION = '2090000100_forms_stub_widgets.js'
+const ORDERS = 'forms_stub_orders'
+const LINES = 'forms_stub_order_lines'
+const TEMPLATES_DIR = resolve(fileURLToPath(import.meta.url), '..', 'forms-host-stub')
+/** Template (under TEMPLATES_DIR) → path in the stub, copied as is. */
+const TEMPLATES: [string, string][] = [
+    ['forms-ui.tsx.txt', `tinycld/${STUB_SLUG}/forms-ui.tsx`],
+    ['orders/line-mapper.ts.txt', `tinycld/${STUB_SLUG}/orders/line-mapper.ts`],
+    ['orders/OrdersPanel.tsx.txt', `tinycld/${STUB_SLUG}/orders/OrdersPanel.tsx`],
+    [
+        'pb-migrations/2090000200_forms_stub_orders.js.txt',
+        'pb-migrations/2090000200_forms_stub_orders.js',
+    ],
+]
 
 // Every subprocess finishes in well under a minute; a bound turns a rare
 // wedge into a loud failure instead of a silent runner burn.
@@ -69,7 +89,7 @@ function writePackage(stubDir: string): void {
             './package.json': './package.json',
             './manifest': './manifest.ts',
             './forms': `${src}/forms.ts`,
-            './forms-ui': `${src}/forms-ui.ts`,
+            './forms-ui': `${src}/forms-ui.tsx`,
             './collections': `${src}/collections.ts`,
             './types': `${src}/types.ts`,
             './screens/*': `${src}/screens/*.tsx`,
@@ -188,7 +208,15 @@ export function registerCollections(newCollection: ReturnType<typeof createColle
         omitOnInsert: ['created', 'updated'] as const,
         ...onDemand,
     })
-    return { ${COLLECTION} }
+    const ${ORDERS} = newCollection('${ORDERS}', {
+        omitOnInsert: ['created', 'updated'] as const,
+        ...onDemand,
+    })
+    const ${LINES} = newCollection('${LINES}', {
+        omitOnInsert: ['created', 'updated'] as const,
+        ...onDemand,
+    })
+    return { ${COLLECTION}, ${ORDERS}, ${LINES} }
 }
 `
     )
@@ -196,7 +224,10 @@ export function registerCollections(newCollection: ReturnType<typeof createColle
         join(dir, 'types.ts'),
         `import type { Schema } from '@tinycld/core/types/pbSchema'
 
-export type FormsStubSchema = Pick<Schema, '${COLLECTION}'>
+export type FormsStubSchema = Pick<
+    Schema,
+    '${COLLECTION}' | '${ORDERS}' | '${LINES}'
+>
 `
     )
     write(
@@ -217,23 +248,58 @@ const hosts: FormHostDefInput[] = [
             { key: 'due', label: 'Due', kind: 'date', storage: 'column' },
         ],
     },
+    {
+        key: '${STUB_SLUG}:order',
+        label: 'Order',
+        collection: '${ORDERS}',
+        formColumn: 'form',
+        fieldsColumn: 'fields',
+        columns: ['name', 'subtotal', 'form', 'fields'],
+        builtin: [
+            { key: 'name', label: 'Name', kind: 'text', storage: 'column', required: true },
+            {
+                key: 'lines',
+                label: 'Lines',
+                kind: 'table',
+                storage: 'rows',
+                columns: [
+                    {
+                        key: 'item',
+                        label: 'Item',
+                        kind: 'text',
+                        required: true,
+                        component: 'ItemPicker',
+                    },
+                    { key: 'qty', label: 'Qty', kind: 'number' },
+                    { key: 'rate', label: 'Rate', kind: 'number' },
+                    {
+                        key: 'amount',
+                        label: 'Amount',
+                        kind: 'computed',
+                        decimals: 2,
+                        expression: { mul: [{ var: 'qty' }, { var: 'rate' }] },
+                    },
+                ],
+            },
+            {
+                key: 'subtotal',
+                label: 'Subtotal',
+                kind: 'computed',
+                storage: 'column',
+                decimals: 2,
+                expression: { sumOf: [{ var: 'lines' }, 'amount'] },
+            },
+        ],
+    },
 ]
 
 export default hosts
 `
     )
     write(
-        join(dir, 'forms-ui.ts'),
-        `import type { FormHostUi } from '@tinycld/core/lib/forms/host-ui'
-
-const ui: FormHostUi = { components: {} }
-
-export default ui
-`
-    )
-    write(
         join(dir, 'screens', 'index.tsx'),
         `import { Text, View } from 'react-native'
+import { OrdersPanel } from '../orders/OrdersPanel'
 
 export default function FormsStubIndex() {
     return (
@@ -241,11 +307,19 @@ export default function FormsStubIndex() {
             <Text className="text-foreground" testID="forms-stub-landing">
                 Forms stub landing
             </Text>
+            <OrdersPanel />
         </View>
     )
 }
 `
     )
+}
+
+function copyTemplates(stubDir: string): void {
+    for (const [from, to] of TEMPLATES)
+        write(join(stubDir, to), readFileSync(join(TEMPLATES_DIR, from), 'utf8'))
+    // forms-ui is a .tsx template now; a stub scaffolded before that still has the old .ts.
+    rmSync(join(stubDir, 'tinycld', STUB_SLUG, 'forms-ui.ts'), { force: true })
 }
 
 /** Registers the stub in package.json workspaces and pnpm-workspace.yaml; true when either changed. */
@@ -328,6 +402,7 @@ function main(): void {
     writeManifest(stubDir)
     writeMigration(stubDir)
     writeSources(stubDir)
+    copyTemplates(stubDir)
     if (ensureMember(wsRoot)) install(wsRoot)
     regenerateConfig(wsRoot)
     console.log(`[scaffold-forms-host-stub] done — ${STUB_DIR}/ ready at ${stubDir}`)

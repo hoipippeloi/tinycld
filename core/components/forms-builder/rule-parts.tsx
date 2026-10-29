@@ -1,8 +1,10 @@
-import type { DraftDefinition } from '@tinycld/core/lib/forms/builder'
+import { coerceLiteral, type DraftDefinition } from '@tinycld/core/lib/forms/builder'
 import type { SelectOption } from '@tinycld/core/lib/forms/definition'
 import { type FormHostDef, findBuiltin } from '@tinycld/core/lib/forms/host'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { PlainInput } from '@tinycld/core/ui/PlainInput'
 import { X } from 'lucide-react-native'
+import { useState } from 'react'
 import { type Control, get, useFormState } from 'react-hook-form'
 import { Pressable, Text, View } from 'react-native'
 import { firstMessage } from './editor-errors'
@@ -81,7 +83,13 @@ export function RemoveButton({
 }) {
     const fg = useThemeColor('foreground')
     return (
-        <Pressable onPress={onPress} accessibilityLabel={label} testID={testID} className="p-1">
+        <Pressable
+            onPress={onPress}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            testID={testID}
+            className="p-1"
+        >
             <X size={14} color={fg} />
         </Pressable>
     )
@@ -103,5 +111,73 @@ export function InlineError({ control, name, testID }: InlineErrorProps) {
         <Text className="w-full text-xs text-danger" accessibilityRole="alert" testID={testID}>
             {message}
         </Text>
+    )
+}
+
+interface NumberTextProps {
+    value: number | null
+    onChange: (value: number | null) => void
+    label: string
+    placeholder?: string
+    /** What the owner stores for text that is not a number yet; null unless it stores 0. */
+    emptyAs?: number | null
+    testID: string
+}
+
+const textOf = (value: number | null) => (value === null ? '' : String(value))
+
+function readNumber(text: string, emptyAs: number | null): number | null {
+    const n = coerceLiteral('number', text)
+    return text.trim() !== '' && typeof n === 'number' ? n : emptyAs
+}
+
+/** A typed number; anything that is not one yet ('', '-') is `emptyAs`. */
+export function NumberText({
+    value,
+    onChange,
+    label,
+    placeholder,
+    emptyAs = null,
+    testID,
+}: NumberTextProps) {
+    const placeholderColor = useThemeColor('field-placeholder')
+    // The typed text is local, so "-" and "1." can pass on their way to a number.
+    const [text, setText] = useState(textOf(value))
+    // A reset or a reload replaces the value under the text: then show the value,
+    // so the input never shows a number the draft does not hold.
+    const shown = readNumber(text, emptyAs) === value ? text : textOf(value)
+    const change = (next: string) => {
+        setText(next)
+        onChange(readNumber(next, emptyAs))
+    }
+    return (
+        <PlainInput
+            value={shown}
+            onChangeText={change}
+            keyboardType="numeric"
+            placeholder={placeholder}
+            placeholderTextColor={placeholderColor}
+            className={RULE_INPUT_CLASS}
+            accessibilityLabel={label}
+            testID={testID}
+        />
+    )
+}
+
+/** A label over a value that cannot be edited here, such as a key or a kind. */
+export function ReadOnlyRow({
+    label,
+    value,
+    testID,
+}: {
+    label: string
+    value: string
+    testID: string
+}) {
+    return (
+        <View className="mb-3" testID={testID}>
+            <Text className="text-sm font-semibold text-foreground">{label}</Text>
+            <Text className="text-muted-foreground">{value}</Text>
+        </View>
     )
 }

@@ -151,14 +151,14 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
     hasHydrated: false,
 
     initAuth: () => {
-        // Hydrate auth and preload server data BEFORE flipping isLoggedIn.
-        // The previous order set user first and then awaited preloads, which
-        // left a window where components mounted with isLoggedIn=true against
-        // empty TanStack DB collections — rendering as "everything empty"
-        // until the user signed out and back in. We also wrap everything so
-        // a failed preload (timeout, transient 5xx, EventSource hiccup) can't
-        // strand the app with hasHydrated=false forever.
+        // Open the app as soon as the session is known. Everything the first
+        // screens need arrives through their own live queries, so the store
+        // warm-up runs in the background exactly as it does after sign-in
+        // (adoptAuthResponse); awaiting it here held the app on a blank screen
+        // for the warm-up's whole duration. Everything is wrapped so a failure
+        // (timeout, transient 5xx) can't strand the app with hasHydrated=false.
         const hydrate = async () => {
+            let currentUser: AuthenticatedUser | null = null
             try {
                 await authStoreReady
 
@@ -170,18 +170,25 @@ export const useAuthStore = create<AuthStoreState>()((set, get) => ({
                 // getUserFromAuthStore then returns null and the app gates to
                 // login instead of a broken half-session.
                 await refreshAuth()
-
-                const currentUser = getUserFromAuthStore()
-
-                if (currentUser) {
-                    await preloadStores()
-                    set({ user: currentUser })
-                }
+                currentUser = getUserFromAuthStore()
             } catch (err) {
                 captureException('auth-store.initAuth.hydrate', err)
-            } finally {
-                set({ hasHydrated: true })
             }
+
+            const record = pb.authStore.record as Users | null
+            if (currentUser && record) {
+                // Only a head start, as in beginSession: the user's own live
+                // queries fetch the record anyway, so a failed seed is reported
+                // and never signs the user out.
+                try {
+                    await seedUser(record)
+                } catch (err) {
+                    captureException('auth-store.initAuth.seedUser', err)
+                }
+            }
+
+            set({ user: currentUser, hasHydrated: true })
+            if (currentUser) warmStores()
         }
 
         hydrate()

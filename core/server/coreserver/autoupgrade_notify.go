@@ -32,6 +32,16 @@ func blockedNotice(target map[string]string, reason string, reminder bool) notic
 	return notice{Subject: subject, BodyText: body}
 }
 
+func failedNotice(target map[string]string, reason string, reminder bool) notice {
+	subject := "An automatic update could not be installed"
+	if reminder {
+		subject = "Reminder: an automatic update still cannot be installed"
+	}
+	body := fmt.Sprintf("The update to %s could not be installed:\n\n%s\n\nNothing changed: your packages stay on their current versions. The update is tried again in each update window.",
+		formatTarget(target), reason)
+	return notice{Subject: subject, BodyText: body}
+}
+
 // notifyAdmins emails n to every owner and admin. The error joins the
 // failures; a caller that only informs may drop it, since send logs each one.
 // No recipient is an error too: a caller that records delivery (a notice

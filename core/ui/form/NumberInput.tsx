@@ -1,4 +1,5 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
+import { Minus, Plus } from 'lucide-react-native'
 import { useState } from 'react'
 import { type Control, type FieldValues, type Path, useController } from 'react-hook-form'
 import { Pressable, TextInput as RNTextInput, Text, View, type ViewProps } from 'react-native'
@@ -17,6 +18,10 @@ export type NumberInputProps<T extends FieldValues = Record<string, unknown>> = 
     disabled?: boolean
     /** Accepts fractions. Off by default, so an integer field stays integer. */
     allowDecimal?: boolean
+    /** Shown while empty: say what empty means ("No limit"). */
+    placeholder?: string
+    /** A narrow stepper that sits at the start of its row instead of filling it. */
+    isCompact?: boolean
     testID?: string
     /** Names the input for assistive technology when no visible label is passed. */
     accessibilityLabel?: string
@@ -45,11 +50,14 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
     max,
     disabled = false,
     allowDecimal = false,
+    placeholder,
+    isCompact = false,
     testID,
     accessibilityLabel,
     wrapperProps = {},
 }: NumberInputProps<T>) {
     const placeholderColor = useThemeColor('field-placeholder')
+    const iconColor = useThemeColor('foreground')
     const {
         field,
         fieldState: { error },
@@ -116,17 +124,21 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
 
     const canDecrement = !disabled && (min === undefined || field.value > min)
     const canIncrement = !disabled && (max === undefined || field.value < max)
+    const stepSize = isCompact ? 'size-8' : 'size-11'
+    const stepName = accessibilityLabel ?? label ?? name
 
     return (
         <View className="gap-1.5 mb-3" {...wrapperProps}>
             {label ? <Text className="text-sm font-semibold text-foreground">{label}</Text> : null}
-            <View className="flex-row items-center gap-2">
+            <View className={`flex-row items-center ${isCompact ? 'self-start gap-1.5' : 'gap-2'}`}>
                 <Pressable
                     onPress={handleDecrement}
                     disabled={!canDecrement}
-                    className={`items-center justify-center rounded-lg bg-default size-11 ${canDecrement ? 'opacity-100' : 'opacity-40'}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Decrease ${stepName}`}
+                    className={`items-center justify-center rounded-full border border-border bg-background ${stepSize} ${canDecrement ? 'opacity-100' : 'opacity-40'}`}
                 >
-                    <Text className="text-lg font-semibold text-foreground">−</Text>
+                    <Minus size={16} color={iconColor} />
                 </Pressable>
                 <RNTextInput
                     value={displayValue}
@@ -139,16 +151,19 @@ export function NumberInput<T extends FieldValues = Record<string, unknown>>({
                     editable={!disabled}
                     accessibilityLabel={accessibilityLabel ?? label}
                     testID={testID ?? name}
+                    placeholder={placeholder}
                     placeholderTextColor={placeholderColor}
-                    className={`flex-1 border rounded-lg px-3 py-2.5 text-center text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}
+                    className={`${isCompact ? 'w-20 px-2' : 'flex-1 px-3'} border rounded-lg py-2.5 text-center text-base text-foreground bg-background ${hasError ? 'border-danger' : 'border-border'}`}
                     style={iosInputCenteringStyle(16)}
                 />
                 <Pressable
                     onPress={handleIncrement}
                     disabled={!canIncrement}
-                    className={`items-center justify-center rounded-lg bg-default size-11 ${canIncrement ? 'opacity-100' : 'opacity-40'}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Increase ${stepName}`}
+                    className={`items-center justify-center rounded-full border border-border bg-background ${stepSize} ${canIncrement ? 'opacity-100' : 'opacity-40'}`}
                 >
-                    <Text className="text-lg font-semibold text-foreground">+</Text>
+                    <Plus size={16} color={iconColor} />
                 </Pressable>
             </View>
             {hint && !hasError ? <Text className="text-xs text-muted">{hint}</Text> : null}

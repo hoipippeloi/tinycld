@@ -81,6 +81,7 @@ describe('splitValues', () => {
             columns: { name: 'N', due: '2026-01-02' },
             fields: { severity: 'low', count: 2, extra: [{ id: 'e1', text: 'b', done: true }] },
             rows: { tasks: [{ id: 't1', text: 'a', done: false }] },
+            tables: {},
         })
     })
     it('omits undefined values but keeps null', () => {

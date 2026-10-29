@@ -27,7 +27,13 @@ import {
 } from './gen-cli'
 import { buildConfigSource, buildSeedsSource, type ConfigPkg } from './gen-config'
 import { emitFormHosts, loadFormHosts, mergeFormHosts } from './gen-form-hosts'
-import { buildHelpSource, type HelpGroupInput, parseFrontmatter } from './gen-help'
+import {
+    buildHelpSource,
+    collectHelpImages,
+    type HelpGroupInput,
+    parseFrontmatter,
+    validateHelpImages,
+} from './gen-help'
 import { buildPackageIconsSource } from './gen-icons'
 import { checkNotifyEventsModule } from './gen-notify'
 import { orphanPayloadFiles, planPayloadEmits, runPayloadEmits } from './gen-payload-types'
@@ -220,9 +226,14 @@ function emitHelp(features: Feature[]) {
     const helpGroups: HelpGroupInput[] = []
     for (const src of helpSources) {
         const group = readHelpGroup(src)
-        if (group) helpGroups.push(group)
+        if (!group) continue
+        validateHelpImages(group)
+        helpGroups.push(group)
     }
-    fs.writeFileSync(path.join(GENERATED_DIR, 'package-help.ts'), buildHelpSource(helpGroups))
+    fs.writeFileSync(
+        path.join(GENERATED_DIR, 'package-help.ts'),
+        buildHelpSource(helpGroups, GENERATED_DIR)
+    )
 }
 
 function readHelpGroup(src: Feature): HelpGroupInput | null {
@@ -237,7 +248,12 @@ function readHelpGroup(src: Feature): HelpGroupInput | null {
             frontmatter: parseFrontmatter(fs.readFileSync(path.join(helpDir, file), 'utf8')),
         }))
     if (topics.length === 0) return null
-    return { packageName: src.name, pkgSlug: src.manifest.slug, topics }
+    return {
+        packageName: src.name,
+        pkgSlug: src.manifest.slug,
+        topics,
+        images: collectHelpImages(helpDir),
+    }
 }
 
 // --- 6. server: migration + hook symlinks ------------------------------

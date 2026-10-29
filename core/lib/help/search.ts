@@ -1,3 +1,4 @@
+import { stripHelpImageSyntax } from './images'
 import type { HelpTopic } from './types'
 
 export interface HelpSearchResult {
@@ -60,7 +61,7 @@ export function searchHelpTopics(topics: HelpTopic[], rawQuery: string): HelpSea
         const title = topic.title.toLowerCase()
         const summary = topic.summary.toLowerCase()
         const tags = topic.tags.map(t => t.toLowerCase())
-        const body = topic.body.toLowerCase()
+        const body = stripHelpImageSyntax(topic.body).toLowerCase()
 
         let score = 0
         let allMatched = true

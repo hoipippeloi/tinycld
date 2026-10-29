@@ -16,11 +16,35 @@ every member sees the same record types.
 A form has the record's **built-in fields** and any **custom fields** an
 admin adds. A built-in field can be renamed, moved, hidden or given a
 default, but not deleted. A custom field can be text, long text, a number, a
-date, a toggle, a choice list, a person, a checklist, rich text, markdown or
-a file.
+date, a toggle, a choice list, a person, a checklist, rich text, markdown, a
+file, a **table** or a **calculated value**. The feature that owns a record
+can also give it its own table or calculated value; you can move and rename
+those, but not change their columns or formula.
 
 Each field has a width: full, half, third or quarter of the form. On a narrow
 screen a quarter becomes a half, and halves and thirds become full width.
+
+## Tables and calculated values
+
+Some records have a **table**, such as the lines of an order. Each row of a
+table has the same columns.
+
+- To add a row, select **Add row** below the table.
+- To remove a row, select the trash button at the end of the row. Its label
+  is "Remove row N", where N is the number of the row.
+- To move a row, select the up arrow button ("Move row N up") or the down
+  arrow button ("Move row N down") at the end of the row. The first row
+  cannot move up, and the last row cannot move down. With a keyboard, press
+  Tab to go to the button, then press Enter or Space. The focus stays on the
+  row, so you can press the key again to move the row more.
+
+A star after a column name shows a required column. If a required cell is
+empty when you save, the form shows an error below that cell. On a phone,
+each row shows as a card, with the column names above the values.
+
+A **calculated value**, such as a line amount or a subtotal, changes while
+you type. You cannot edit it. While the rows of a record load, the table
+shows "Loading rows…" and the totals show their saved values.
 
 ## Pages
 
@@ -55,7 +79,27 @@ An owner or admin opens **Settings → Forms**. With one record type the list op
 
 ## Editing a form
 
-The editor shows the form as users see it. Select a field to edit its label, width, requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page: a chip with its label follows the pointer and a bar shows where it lands. On a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+The editor shows the form as users see it. Select a field to edit its label, width (Full, Half, Third or Quarter), requirement, default and kind-specific settings in the panel. Drag a field by its handle to move it, also onto another page: a chip with its label follows the pointer and a bar shows where it lands. On a phone or a tablet, hold the handle for a moment before you drag. To move a field without dragging, use **Page**, **Move up** and **Move down** in its panel. **Add field** at the end of a page asks for the field's label, then adds a field of the chosen kind and opens its panel. **Add page** appends a page; a page can be deleted only when it is empty.
+
+To add a table or a calculated value, select **Add field**, then **Table** or **Calculated value** under **Tables and totals**. A new table has one text column, Item. A new calculated value starts at 0.
+
+To change the columns of a table, select the table. Its panel shows **Columns**:
+
+- To add a column, select **Add column**, select its kind (Text, Number, Toggle, Date, Choice list or Calculated), then type its name in the box that opens. Formulas refer to the column by this name, and its kind cannot be changed later.
+- To edit a column, select its name ("Edit column Qty"). Its settings open inside its own card, right under its name: **Label**, **Required**, **Hidden**, and the settings of its kind, such as **Minimum** and **Maximum** for a number, **Maximum length** for text, or **Options** for a choice list. The key and the kind are set when you add the column, and do not change.
+- To move a column, select its up or down arrow button ("Move column Qty up"). To remove a column, select its remove button ("Remove column Qty"), then confirm. A formula that uses the removed column shows it as missing. A table always keeps one column. When two columns have the same label, these buttons also give the column's place ("Remove column 3 (Price)").
+
+With a keyboard, press Tab to go to a button or a menu, then press Enter or Space.
+
+A calculated value and a Calculated column have a **Formula**. You do not type a formula. You build it from parts:
+
+1. Select the part menu, then select the kind of part: **Number**, **Field** (**Column** in the formula of a column), **Add**, **Subtract**, **Multiply**, **Divide**, **Round**, **Smallest of**, **Largest of**, **Sum of a column** or **Number of rows**.
+2. For a Number, type the number. For a Field or a Column, select which one. For Sum of a column, select the table and its column. For Number of rows, select the table.
+3. Add, Multiply, Smallest of and Largest of hold two or more parts, shown below them. Select **Add part** to add a part, and its remove button ("Remove part 2 of Add") to remove one. A screen reader reads the place of each part, for example "Number, part 2". Subtract and Divide hold two parts. Round holds one part; select its number of places.
+
+The line below **Formula** shows the formula as text, for example "= Qty × Price". **Decimal places** sets how the result is rounded. A formula can read numbers, toggles (on is 1) and other calculated values. The formula of a column can read only the other columns of the same row. Only a calculated value can add up a column of a table or count its rows.
+
+> **Note:** If two formulas read each other, the editor shows the problem below the formula. If you delete a field or a column that a formula reads, the formula shows it as "(missing)", and you cannot save the form until you change the formula.
 
 A field's key is set when it is created and never changes, so renaming a field keeps its stored values. Deleting a custom field keeps the stored values hidden and removes any rule, default or requirement that named it; the editor says what it removed.
 
@@ -63,4 +107,4 @@ The **Rules** tab lists the form's rules. Each rule has conditions ("when all of
 
 **Preview** opens the draft as a desktop sees it, with rules live; switch to Phone to see how its columns stack on a small screen. **Save** writes the form; the server checks it again and points at any field it refuses. The list above the form names each problem by its field or rule.
 
-If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, and when you reload or close the browser tab. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.
+If you leave the editor with unsaved changes, it asks before it discards them: on the Back arrow, the back gesture or button, the browser's Back and Forward buttons on the web, and when you reload or close the browser tab. The browser's buttons ask only while the editor is on screen: if you go to another screen or another TinyCld app first, a browser Back or Forward from there does not ask, so save before you leave the editor. If someone else saves the form while you edit it, the editor keeps your changes and says so; **Reload** drops your changes and shows their version.

@@ -1,3 +1,4 @@
+import { log } from '@tinycld/core/lib/logger'
 import type { Fetch } from '@tinycld/core/lib/read-only-retry'
 import type { CheckDeps, StageDeps, UpdateManifest } from './types'
 
@@ -52,8 +53,9 @@ export function isUpdateTransportAllowed(
 
 // checkForUpdate asks the connected server for a newer bundle. Returns the
 // manifest when one is available, or null when the server replies 204 (up to
-// date, runtime mismatch, or no native bundle). Network/parse errors propagate
-// to the caller, which captures them.
+// date, runtime mismatch, or no native bundle), or when something other than
+// the server answered (below). Network/parse errors propagate to the caller,
+// which captures them.
 export async function checkForUpdate(deps: CheckDeps): Promise<UpdateManifest | null> {
     const { serverUrl, platform, runtimeVersion, currentId, currentHash, fetchFn } = deps
     const url =
@@ -64,6 +66,13 @@ export async function checkForUpdate(deps: CheckDeps): Promise<UpdateManifest | 
     const res = await fetchFn(url)
     if (res.status === 204) return null
     if (!res.ok) throw new Error(`update check failed: ${res.status}`)
+    // The server answers every /api/* path with JSON, so a 200 with another
+    // type came from a proxy in front of it (a sign-in portal, for example).
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('application/json')) {
+        log.info('app-updater.check', 'the update check answer is not JSON', { contentType })
+        return null
+    }
     return (await res.json()) as UpdateManifest
 }
 

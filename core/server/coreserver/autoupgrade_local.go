@@ -252,6 +252,11 @@ func (s *localScheduler) tick(ctx context.Context) string {
 	if enabled != "true" {
 		return resultOff
 	}
+	// Before the window check: the last attempt of a window ends after the
+	// window's last tick, and its failure must not wait a day to be told.
+	if err := reportFailedAutoJob(s.app, s.now(), func(n notice) { s.notify(ctx, n) }); err != nil {
+		srvLog.Warn("auto-upgrade: failure report failed", "err", err)
+	}
 	w, err := s.window()
 	if err != nil {
 		return s.record("failed: " + err.Error())

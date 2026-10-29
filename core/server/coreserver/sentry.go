@@ -2,11 +2,13 @@ package coreserver
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -107,6 +109,9 @@ func sentryMiddleware(re *core.RequestEvent) error {
 		if errors.As(err, &apiErr) && apiErr.Status < 500 {
 			return err
 		}
+		if clientDisconnected(re.Request.Context(), err) || answeredBeforeError(status) {
+			return err
+		}
 		captureErr := err
 		if apiErr != nil {
 			if raw, ok := apiErr.RawData().(error); ok {
@@ -129,6 +134,29 @@ func sentryMiddleware(re *core.RequestEvent) error {
 	}
 
 	return nil
+}
+
+// clientDisconnected reports whether err only says that the client went away
+// before the response was written. The server did nothing wrong, so these get
+// no Sentry event. A write to a socket the client closed fails with a broken
+// pipe or a reset. HTTP/2 instead fails with errors no caller can match
+// ("http2: stream closed", "client disconnected"), but it cancels the
+// request's context first, so a done context marks the client as gone.
+func clientDisconnected(ctx context.Context, err error) bool {
+	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	return ctx.Err() != nil
+}
+
+// answeredBeforeError reports whether the handler wrote its own answer, a
+// bodiless 204 or a 4xx, before it returned an error. PocketBase does this on
+// purpose: an unknown email in a password reset gets a 204 so that no one can
+// probe which emails have accounts, and an MFA sign-in gets its 401 first. The
+// error is only for the request log. A 2xx with a body is not included: an
+// error then can be a failure part-way through the body.
+func answeredBeforeError(status int) bool {
+	return status == http.StatusNoContent || (status >= 400 && status < 500)
 }
 
 // errorBodySniffer wraps an http.ResponseWriter to capture the first chunk

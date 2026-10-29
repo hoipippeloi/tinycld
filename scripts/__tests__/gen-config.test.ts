@@ -76,7 +76,7 @@ describe('buildConfigSource', () => {
         expect(src).toContain("import type { DoodadsSchema } from '@tinycld/doodads/types'")
         expect(src).toContain('definePackageEntry<DoodadsSchema>()({')
         expect(src).toContain('registerCollections: doodadsRegister,')
-        expect(src).toContain("sidebar: lazy(() => import('@tinycld/doodads/sidebar')),")
+        expect(src).toContain("sidebar: lazyChunk(() => import('@tinycld/doodads/sidebar')),")
         expect(src).toContain('export type MergedPackageSchema = DoodadsSchema')
     })
 
@@ -84,7 +84,7 @@ describe('buildConfigSource', () => {
         const src = buildConfigSource([takeout])
         expect(src).toContain('definePackageEntry<Record<string, never>>()({')
         expect(src).toContain(
-            "Component: lazy(() => import('@tinycld/gizmo-import/settings/takeout'))"
+            "Component: lazyChunk(() => import('@tinycld/gizmo-import/settings/takeout'))"
         )
         // No schema in the merge → MergedPackageSchema falls back to Record<string, never>
         expect(src).toContain('export type MergedPackageSchema = Record<string, never>')
@@ -147,7 +147,7 @@ describe('buildConfigSource', () => {
         expect(src).toContain('systemSettings: [')
         expect(src).toContain('label: "Mail Provider"')
         expect(src).toContain(
-            "lazy(() => import('@tinycld/gizmo-import/system-settings/provider'))"
+            "lazyChunk(() => import('@tinycld/gizmo-import/system-settings/provider'))"
         )
     })
 
@@ -162,8 +162,8 @@ describe('buildConfigSource', () => {
         const src = buildConfigSource([withAccount])
         expect(src).toContain('accountSettings: [')
         expect(src).not.toMatch(/^\s+settings: \[/m)
-        expect(src).toContain("import { lazy } from 'react'")
-        expect(src).toContain("lazy(() => import('@tinycld/gizmo-import/settings/takeout'))")
+        expect(src).toContain("import { lazyChunk } from '@tinycld/core/lib/lazy-chunk'")
+        expect(src).toContain("lazyChunk(() => import('@tinycld/gizmo-import/settings/takeout'))")
     })
 
     it('rejects an unsafe accountSettings component path', () => {
@@ -213,7 +213,7 @@ describe('buildConfigSource', () => {
             manifest: { name: 'Cogs', slug: 'cogs', version: '0.1.0', description: 'd' },
         }
         const src = buildConfigSource([withProvider])
-        expect(src).not.toContain("import { lazy } from 'react'")
+        expect(src).not.toContain("import { lazyChunk } from '@tinycld/core/lib/lazy-chunk'")
         expect(src).not.toContain("from '@tinycld/cogs/provider'")
         expect(src).toContain("provider: { load: () => import('@tinycld/cogs/provider') },")
     })
@@ -289,13 +289,13 @@ describe('buildConfigSource', () => {
             },
         }
         const src = buildConfigSource([slotsPkg])
-        expect(src).toContain("import { lazy } from 'react'")
+        expect(src).toContain("import { lazyChunk } from '@tinycld/core/lib/lazy-chunk'")
         expect(src).toContain('sidebarContributions: [')
         expect(src).toContain('target: "sprockets"')
         expect(src).toContain('slot: "sidebar.after-sprockets"')
         expect(src).toContain('order: 0')
         expect(src).toContain(
-            "Component: lazy(() => import('@tinycld/sprockets-slots/sidebar-contributions/booking-pages'))"
+            "Component: lazyChunk(() => import('@tinycld/sprockets-slots/sidebar-contributions/booking-pages'))"
         )
     })
 
@@ -329,9 +329,9 @@ describe('buildConfigSource', () => {
         expect(src).toContain(
             "load: (): Promise<unknown> => import('@tinycld/gadgets/sprockets-source')"
         )
-        expect(src).not.toContain("lazy(() => import('@tinycld/gadgets/sprockets-source'))")
+        expect(src).not.toContain("lazyChunk(() => import('@tinycld/gadgets/sprockets-source'))")
         // An event source alone must not pull in the react lazy import.
-        expect(src).not.toContain("import { lazy } from 'react'")
+        expect(src).not.toContain("import { lazyChunk } from '@tinycld/core/lib/lazy-chunk'")
     })
 
     it('rejects an eventSource module subpath containing a quote', () => {

@@ -44,4 +44,23 @@ import './lib/polyfill-crypto'
 // core/lib/server-handoff-capture.ts.
 import './lib/capture-server-handoff'
 
-import 'expo-router/entry'
+// The three lines below are expo-router/entry inlined, with one change: on
+// web the route chunks for the opening URL are fetched BEFORE the first
+// render. Expo Router wraps each route in React.lazy; a chunk that is already
+// loaded resolves synchronously and mounts with no Suspense fallback, which is
+// what skips React's 300ms fallback throttle per nested layout. See
+// lib/route-prefetch.ts. `@expo/metro-runtime` must stay the first of these
+// imports (Fast Refresh on web).
+import '@expo/metro-runtime'
+import { App } from 'expo-router/build/qualified-entry'
+import { renderRootComponent } from 'expo-router/build/renderRootComponent'
+import { prefetchBootRoutes } from './lib/route-prefetch'
+
+// Native registers the root synchronously, during bundle evaluation; only the
+// web prefetch returns a promise to wait on.
+const bootRoutes = prefetchBootRoutes()
+if (bootRoutes) {
+    bootRoutes.then(() => renderRootComponent(App))
+} else {
+    renderRootComponent(App)
+}

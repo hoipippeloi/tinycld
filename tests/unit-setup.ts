@@ -41,3 +41,14 @@ vi.mock('expo-screen-orientation', () => ({
     getOrientationAsync: async () => 0,
     addOrientationChangeListener: () => ({ remove: () => {} }),
 }))
+
+// expo-router/react-navigation reaches react-native's Flow source, which Vite
+// cannot parse. A unit test runs outside any navigator, so no in-app removal
+// reaches a screen's guard: usePreventRemove is inert here. A test that drives
+// a held removal mocks it in its own file (form-editor.test.tsx). This mock
+// exports only usePreventRemove: a test whose code reads anything else from
+// the module (DarkTheme, DefaultTheme, …) must mock it in its own file with
+// those exports added.
+vi.mock('expo-router/react-navigation', () => ({
+    usePreventRemove: () => {},
+}))

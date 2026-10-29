@@ -64,6 +64,7 @@ describe('useFormCreate', () => {
             columns: { name: 'W', due: '2026-01-31' },
             fields: { severity: 'low' },
             rows: {},
+            tables: {},
         })
     })
     it('returns null and sets errors when required fields are empty', async () => {

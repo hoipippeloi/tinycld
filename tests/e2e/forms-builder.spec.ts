@@ -11,6 +11,9 @@ import { login, skipWithoutFormsStub } from './helpers'
  *   host "Widget" (forms-stub:widget); other packages may declare hosts too, in
  *   which case the host picker shows first and the spec picks this one;
  *   built-in fields `name` (required), `notes`, `due`.
+ *
+ * The table and formula tests add custom fields `parts` (a table) and
+ * `grand_total` (a calculated value); the Widget host has no column of those names.
  */
 
 const HOST_LABEL = 'Widget'
@@ -174,6 +177,77 @@ function propControl(page: Page, suffix: string): Locator {
     return properties(page).locator(`[data-testid$=".${suffix}"]`)
 }
 
+const COLUMN_NOUNS: Record<string, string> = { select: 'choice list', computed: 'calculated' }
+
+/** Adds a column to the selected table: its kind from the menu, then its label. */
+async function addColumn(page: Page, kind: string, label: string) {
+    await properties(page).getByTestId('form-column-add').click()
+    await page.getByTestId(`form-column-kind-${kind}`).click()
+    await answerPrompt(page, `Name the ${COLUMN_NOUNS[kind] ?? kind} column`, label)
+    await expect(properties(page).getByTestId('form-column-settings')).toBeVisible()
+}
+
+/** Column keys of the selected table, in order. */
+async function columnOrder(page: Page): Promise<string[]> {
+    const ids = await properties(page)
+        .locator('[data-testid^="form-column-"][data-testid$="-edit"]')
+        .evaluateAll(els => els.map(el => el.getAttribute('data-testid') ?? ''))
+    return ids.map(id => id.replace(/^form-column-/, '').replace(/-edit$/, ''))
+}
+
+/**
+ * Saves and waits for the server to store the definition. A disabled Save
+ * button alone does not show this: the button is also disabled while the
+ * write is pending, and a reload then would cancel it.
+ */
+async function saveForm(page: Page) {
+    const stored = page.waitForResponse(
+        response =>
+            response.url().includes('/api/collections/forms/records/') &&
+            response.request().method() === 'PATCH'
+    )
+    const save = page.getByTestId('form-save')
+    await save.click()
+    expect((await stored).ok()).toBe(true)
+    await expect(save).toBeDisabled()
+}
+
+const BACK_GUARD_VIEWPORTS = [
+    { name: 'desktop', size: { width: 1280, height: 800 } },
+    { name: 'phone', size: { width: 390, height: 844 } },
+] as const
+
+/** The forms list's own URL: settings/forms, with at most a query, never a form id. */
+const FORMS_LIST_URL = /\/settings\/forms\/?(\?[^/]*)?$/
+
+function formsListShown(page: Page): Locator {
+    return page.getByTestId(HOST_ROW_TEST_ID).or(page.getByTestId('forms-new'))
+}
+
+/**
+ * Adds a text field so the editor is dirty. On a phone the new field's
+ * properties open in a sheet over the editor; Escape closes it so the
+ * navigation under test reaches the editor, not the sheet.
+ */
+async function addBackNote(page: Page, viewport: 'desktop' | 'phone') {
+    const [firstPage] = await pageKeys(page)
+    await addField(page, firstPage, 'text', 'Back note')
+    await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+    if (viewport !== 'phone') return
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('form-panel-sheet')).toBeHidden()
+}
+
+/** The URL of the history entry `offset` steps from the current one (Chromium's Navigation API). */
+async function entryUrl(page: Page, offset: number): Promise<string> {
+    const url = await page.evaluate(step => {
+        const index = (window.navigation.currentEntry?.index ?? 0) + step
+        return window.navigation.entries()[index]?.url ?? null
+    }, offset)
+    if (!url) throw new Error(`no history entry ${offset} steps from here`)
+    return url
+}
+
 test.describe('Forms builder', () => {
     test.skip(skipWithoutFormsStub(), 'forms-host-stub not scaffolded in this workspace')
 
@@ -271,9 +345,7 @@ test.describe('Forms builder', () => {
         await expect(affected.getByTestId('form-field-steps')).toContainText('Require')
 
         // Save, then reload: what was saved comes back.
-        const save = page.getByTestId('form-save')
-        await save.click()
-        await expect(save).toBeDisabled()
+        await saveForm(page)
         await page.reload()
         await expect(page.getByTestId('form-editor')).toBeVisible()
         await expect(canvas(page).getByTestId('form-field-severity')).toBeVisible()
@@ -309,6 +381,92 @@ test.describe('Forms builder', () => {
         await dialog.getByTestId('form-wizard-next').click()
         await expect(steps.getByRole('alert')).toBeVisible()
         await expect(dialog).toBeVisible()
+    })
+
+    test('builds a table with a calculated column and a calculated total, saves, reloads and previews it', async ({
+        page,
+    }) => {
+        await createForm(page, 'Quote')
+        const [firstPage] = await pageKeys(page)
+
+        // A table: it starts with an Item column; add Qty, Price and a calculated Total.
+        await addField(page, firstPage, 'table', 'Parts')
+        await expect(properties(page).getByTestId('form-column-item')).toBeVisible()
+        await addColumn(page, 'number', 'Qty')
+        await addColumn(page, 'number', 'Price')
+        await addColumn(page, 'computed', 'Total')
+
+        // Total = Qty × Price, picked from menus; nothing is typed but the decimal places.
+        const column = 'form-column-formula'
+        await pick(page, `${column}-root-part`, 'mul')
+        await pick(page, `${column}-0-part`, 'field')
+        await pick(page, `${column}-1-part`, 'field')
+        await pick(page, `${column}-1-field`, 'price')
+        await expect(page.getByTestId(`${column}-summary`)).toHaveText('= Qty × Price')
+        await propControl(page, 'columns.3.decimals').fill('2')
+        await expect(canvas(page).getByTestId('form-table-parts-head-total')).toBeVisible()
+
+        // Reorder with the keyboard: Price goes above Qty.
+        await page.getByTestId('form-column-price-up').focus()
+        await page.keyboard.press('Enter')
+        await expect.poll(() => columnOrder(page)).toEqual(['item', 'price', 'qty', 'total'])
+
+        // A calculated value that adds up the Total column.
+        await addField(page, firstPage, 'computed', 'Grand total')
+        await pick(page, 'form-formula-root-part', 'sumOf')
+        await pick(page, 'form-formula-root-column', 'total')
+        await expect(page.getByTestId('form-formula-summary')).toHaveText('= sum of Total in Parts')
+        await propControl(page, 'decimals').fill('2')
+
+        // Save: the server checks the definition again. Then reload: it comes back.
+        await saveForm(page)
+        await page.reload()
+        await expect(page.getByTestId('form-editor')).toBeVisible()
+        await canvas(page)
+            .getByTestId('form-field-grand_total')
+            .getByText('Grand total', { exact: true })
+            .click()
+        await expect(page.getByTestId('form-formula-summary')).toHaveText('= sum of Total in Parts')
+        await canvas(page)
+            .getByTestId('form-field-parts')
+            .getByText('Parts', { exact: true })
+            .click()
+        await expect.poll(() => columnOrder(page)).toEqual(['item', 'price', 'qty', 'total'])
+
+        // Preview: a row's Total and the Grand total follow what is typed.
+        await page.getByTestId('form-preview').click()
+        const dialog = page.getByTestId('form-preview-dialog')
+        await dialog.getByTestId('form-input-name').fill('Bracket')
+        await dialog.getByTestId('form-table-parts-add').click()
+        const rowTestId = await dialog
+            .locator('[data-testid^="form-table-parts-row-"]')
+            .first()
+            .getAttribute('data-testid')
+        const row = (rowTestId ?? '').replace('form-table-parts-row-', '')
+        await dialog.getByTestId(`form-table-parts-${row}-qty`).fill('3')
+        await dialog.getByTestId(`form-table-parts-${row}-price`).fill('2.5')
+        await expect(dialog.getByTestId(`form-table-parts-${row}-total`)).toHaveText('7.50')
+        await expect(dialog.getByTestId('form-input-grand_total')).toHaveText('7.50')
+    })
+
+    test('names a formula that reads a removed column and does not save', async ({ page }) => {
+        await createForm(page, 'Broken quote')
+        const [firstPage] = await pageKeys(page)
+        await addField(page, firstPage, 'table', 'Parts')
+        await addColumn(page, 'number', 'Qty')
+        await addColumn(page, 'computed', 'Total')
+        await pick(page, 'form-column-formula-root-part', 'field')
+        await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= Qty')
+
+        await properties(page).getByTestId('form-column-qty-remove').click()
+        await page.getByRole('button', { name: 'Remove', exact: true }).click()
+        await expect(page.getByTestId('form-column-formula-summary')).toHaveText('= qty (missing)')
+        const save = page.getByTestId('form-save')
+        await save.click()
+        await expect(page.getByTestId('form-errors')).toContainText(
+            "Field 'Parts', column 'Total', formula: unknown column qty"
+        )
+        await expect(save).toBeEnabled()
     })
 
     test('shows where a sideways drag lands and keeps the outline inside the canvas', async ({
@@ -421,4 +579,99 @@ test.describe('Forms builder', () => {
         await expect(page.getByTestId(`forms-row-${scratchId}`)).toBeHidden()
         await expect(page.getByTestId(`forms-row-${taskId}`)).toBeVisible()
     })
+
+    for (const viewport of BACK_GUARD_VIEWPORTS) {
+        test(`asks before the browser Back button leaves a dirty form (${viewport.name})`, async ({
+            page,
+        }) => {
+            await page.setViewportSize(viewport.size)
+            const name = `Back guard ${Date.now()} ${viewport.name}`
+            await createForm(page, name)
+            await addBackNote(page, viewport.name)
+            const editorUrl = page.url()
+            const discardTitle = page.getByText('Discard changes?', { exact: true })
+            const backNote = canvas(page).getByTestId('form-field-back_note')
+
+            // A Back of two steps (the browser's long-press history menu) asks
+            // too, and Cancel puts the URL back on the editor, not one step short.
+            await page.evaluate(() => window.history.go(-2))
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+
+            // Browser Back on a dirty editor asks first and keeps the editor's URL.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await expect(page).toHaveURL(editorUrl)
+
+            // The forms editor's confirm cancels with its own label, "Cancel".
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(canvas(page).getByTestId('form-field-back_note')).toBeVisible()
+
+            // The guard is not left half way: the next browser Back still asks.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(editorUrl)
+            await expect(backNote).toBeVisible()
+
+            // Asked again, Discard lets the browser Back through to the forms list.
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(page).not.toHaveURL(editorUrl)
+
+            // Discard lets that one move through, not every later one: the
+            // editor opened again and made dirty asks on browser Back again.
+            const formId = await formIdOf(page, name)
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await addBackNote(page, viewport.name)
+            await page.goBack()
+            await expect(discardTitle).toBeVisible()
+            await expect(page).toHaveURL(editorUrl)
+            await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+
+            // Discard after a 2-step Back makes the whole move: the URL is
+            // the entry two steps back, not the forms list one step back.
+            const twoBackUrl = await entryUrl(page, -2)
+            expect(twoBackUrl).not.toBe(await entryUrl(page, -1))
+            await page.evaluate(() => window.history.go(-2))
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(discardTitle).toBeHidden()
+            await expect(page).toHaveURL(twoBackUrl)
+
+            // Forward one step is the forms list again, for the steps below.
+            await page.goForward()
+            await expect(formsListShown(page)).toBeVisible()
+
+            // A clean editor leaves on browser Back without asking.
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await expect(canvas(page).getByTestId('form-field-back_note')).toHaveCount(0)
+            await page.goBack()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(discardTitle).toHaveCount(0)
+            await expect(page).not.toHaveURL(editorUrl)
+
+            // The in-app Back still leaves after Discard, to the forms list URL.
+            await page.getByTestId(`forms-open-${formId}`).click()
+            await expect(page.getByTestId('form-editor')).toBeVisible()
+            await addBackNote(page, viewport.name)
+            await page.getByTestId('form-back').click()
+            await expect(discardTitle).toBeVisible()
+            await page.getByRole('button', { name: 'Discard', exact: true }).click()
+            await expect(formsListShown(page)).toBeVisible()
+            await expect(page).toHaveURL(FORMS_LIST_URL)
+            await expect(page).not.toHaveURL(editorUrl)
+        })
+    }
 })

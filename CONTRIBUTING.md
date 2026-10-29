@@ -442,6 +442,7 @@ That is what `fork-drift` exists for, and why a fully green scan is not full cov
 - Open the drawer to a specific topic from anywhere with `openHelp('<pkg>:<id>')` from `@tinycld/core/lib/help/open-help`. Render `<HelpIcon topic="<pkg>:<id>" />` from `@tinycld/core/components/help/HelpIcon` next to UI controls. Cross-link between topics inside markdown bodies with `[label](help://<pkg>:<id>)` — the renderer intercepts that scheme and reopens the drawer instead of navigating away.
 - Permalinks: `/a/help/[pkg]/[topic]` is a real route — shareable in conversation. The hub has full-text search (substring, weighted: title > tags > summary > body).
 - **Deployment tokens:** write `{{server-host}}` wherever a body needs the deployment's hostname (connection settings, example URLs) — the viewer substitutes the hostname the app actually talks to (`core/lib/help/tokens.ts`). It is a whole-body text replacement, so it works inside code spans and fenced blocks. Never hand-author an example hostname like `mail.example.com` for a value the reader must copy. Write `{{mail-host}}` for the host mail apps connect to (IMAP/SMTP server settings): it is the web host unless the deployment names another host (`mailhost` in core's Go server, read on the client with `useMailHost()`).
+- **Images:** put image files (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`) anywhere under the package's `help/` directory, conventionally `help/images/<topic-id>-<n>.png`, and reference them relative to `help/`: `![Create an invoice](images/invoices-1.png)`. The generator bundles them as Metro assets (web and native), so no hostname or path ends up in a topic. To support dark mode, ship `x.dark.png` next to `x.png`; the viewer picks it when the app theme is dark and falls back to `x.png` when it is absent. A missing file or a `..` segment fails `pnpm run packages:generate`. Absolute URLs (`https:`, `data:`) are left alone. Write a meaningful alt text: search matches it, and it is the accessibility label. Add a screenshot only where the screen is not obvious.
 
 ## Forms and other components
 - All form UI components live in `@tinycld/core/ui/form/` (barrel at `tinycld/core/ui/form/index.ts`) and are imported from `@tinycld/core/ui/form`
@@ -449,7 +450,7 @@ That is what `fork-drift` exists for, and why a fully green scan is not full cov
   ```tsx
   import { useForm, zodResolver, z, TextInput, FormErrorSummary } from '@tinycld/core/ui/form'
   ```
-- Available components: `TextInput`, `TextAreaInput`, `NumberInput`, `SelectInput`, `Toggle`, `FormErrorSummary`
+- Available components: `TextInput`, `TextAreaInput`, `NumberInput`, `ButtonGroup`, `Toggle`, `FormErrorSummary`
 - Each input accepts a generic `control` and type-safe `name` via `Path<T>` — pass the `control` from `useForm()` and field names are autocompleted
 - Define a Zod schema per form, pass it via `zodResolver(schema)` to `useForm()`, and let TypeScript infer the form type from `defaultValues` — do not manually specify the generic
 - Use `mode: 'onChange'` for real-time validation as the user types

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { bugDefinition } from '../../__tests__/fixtures'
-import { definitionSchema } from '../../definition'
+import { columnSchema, definitionSchema, TABLE_COLUMN_KINDS } from '../../definition'
 import {
     addField,
     addPage,
@@ -8,6 +8,7 @@ import {
     moveField,
     movePage,
     newCustomField,
+    newTableColumn,
     normalizeDraft,
     PageNotEmpty,
     referencesOf,
@@ -179,5 +180,31 @@ describe('normalizeDraft', () => {
         expect(normalized.rules).toEqual([])
         expect(normalized.defaults).toEqual({})
         expect(normalized.submit).toEqual({ required: [] })
+    })
+})
+
+describe('newTableColumn', () => {
+    it('keys a column from its label among its siblings, never as id', () => {
+        expect(newTableColumn('number', 'Unit cost', new Set(['item']))).toEqual({
+            key: 'unit_cost',
+            kind: 'number',
+            label: 'Unit cost',
+            required: false,
+            hidden: false,
+        })
+        expect(newTableColumn('text', 'Item', new Set(['item'])).key).toBe('item_2')
+        expect(newTableColumn('text', 'ID', new Set()).key).toBe('id_2')
+    })
+
+    it("fills each kind's starting settings, valid for the schema", () => {
+        expect(newTableColumn('select', 'Size', new Set())).toMatchObject({
+            options: [{ value: 'option_1', label: 'Option 1' }],
+        })
+        expect(newTableColumn('computed', 'Total', new Set())).toMatchObject({
+            expression: 0,
+            decimals: 0,
+        })
+        for (const kind of TABLE_COLUMN_KINDS)
+            expect(columnSchema.safeParse(newTableColumn(kind, 'C', new Set())).success).toBe(true)
     })
 })

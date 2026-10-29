@@ -1,7 +1,6 @@
-import type { SplitValues } from '@tinycld/core/lib/forms/values'
 import { log } from '@tinycld/core/lib/logger'
 import { useEffect, useRef } from 'react'
-import type { useFormEdit } from './use-form-edit'
+import type { PatchResult, useFormEdit } from './use-form-edit'
 
 type Edit = Pick<ReturnType<typeof useFormEdit>, 'form' | 'patch' | 'markSaved'>
 
@@ -22,7 +21,7 @@ export const AUTO_PATCH_DELAY_MS = 400
  */
 export function useAutoPatch(
     edit: Edit,
-    save: (split: SplitValues) => Promise<void>,
+    save: (split: Omit<PatchResult, 'written'>) => Promise<void>,
     delayMs = AUTO_PATCH_DELAY_MS
 ) {
     const latest = useRef({ edit, save })

@@ -5,6 +5,7 @@ import { captureException } from '@tinycld/core/lib/errors'
 import { log } from '@tinycld/core/lib/logger'
 import { buildPackageStores } from '@tinycld/core/lib/packages/derive-stores'
 import { ACTIVE_PKG_STATUSES, isActivePkg } from '@tinycld/core/lib/packages/registry-predicates'
+import { reportQueryError } from '@tinycld/core/lib/query-errors'
 import {
     createRealtimeConnection,
     releaseOnPageHide,
@@ -236,14 +237,11 @@ setLogger({
     },
 })
 
-// A global query-error handler so failed reads are observable in Sentry — useQuery
-// surfaces errors via state rather than throwing, so without this a read failure is
-// silent (the component shows its own error UI, but nothing is logged). The queryKey
-// is the grouping context. Mutations report via their own onError/handleMutationErrorsWithForm.
+// Mutations report via their own onError/handleMutationErrorsWithForm.
 const queryClient = new QueryClient({
     queryCache: new QueryCache({
         onError: (error, query) => {
-            captureException('query.error', error, { queryKey: query.queryKey })
+            reportQueryError(error, query.queryKey, () => void refreshAuth())
         },
     }),
 })

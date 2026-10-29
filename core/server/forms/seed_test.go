@@ -92,6 +92,44 @@ func TestDefaultDefinition_MatchesTheSeededFixture(t *testing.T) {
 	}
 }
 
+// The client seeds the same host from the same files
+// (core/lib/forms/__tests__/layout-definition.test.ts), so a host layout the
+// two seeds read differently fails one of the two suites.
+const (
+	layoutHostsFixturePath      = "../../lib/forms/fixtures/layout-hosts.json"
+	layoutDefinitionFixturePath = "../../lib/forms/fixtures/layout-definition.json"
+)
+
+func TestDefaultDefinition_MatchesTheLayoutFixture(t *testing.T) {
+	rawHosts, err := os.ReadFile(layoutHostsFixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defs, err := ParseHosts(rawHosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := defs.Host("gizmos:gadget")
+	if host == nil {
+		t.Fatal("the layout fixture has no gizmos:gadget host")
+	}
+	got, err := json.Marshal(defaultDefinition(host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(layoutDefinitionFixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	if err := json.Compact(&want, raw); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want.Bytes()) {
+		t.Fatalf("the seed of a host with a layout drifted from the fixture\n got: %s\nwant: %s", got, want.Bytes())
+	}
+}
+
 func TestSeedDefaults_ReconcilesBuiltinsWithTheHost(t *testing.T) {
 	e := newTestEnv(t)
 	var older []Builtin

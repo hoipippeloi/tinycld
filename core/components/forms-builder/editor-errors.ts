@@ -51,6 +51,9 @@ const FIELD_PROPS: Record<string, string> = {
     time: 'time',
     collaborative: 'collaborative editing',
     acceptText: 'accepted types',
+    columns: 'columns',
+    expression: 'formula',
+    decimals: 'decimal places',
 }
 
 function fieldLabel(draft: DraftDefinition, index: number) {
@@ -61,6 +64,12 @@ function fieldLabel(draft: DraftDefinition, index: number) {
 function labelOfKey(draft: DraftDefinition, key: string) {
     const field = draft.fields.find(f => f.key === key)
     return `Field '${field?.label ?? key}'`
+}
+
+function columnLabel(draft: DraftDefinition, fieldIndex: number, columnIndex: number) {
+    const field = draft.fields[fieldIndex]
+    const column = field?.kind === 'table' ? field.columns[columnIndex] : undefined
+    return column ? `column '${column.label}'` : `column ${columnIndex + 1}`
 }
 
 function describeRule(parts: string[]): string {
@@ -79,7 +88,7 @@ function describeRule(parts: string[]): string {
 
 /**
  * Where an editor error is, in words: "Rule 1, condition 2",
- * "Field 'Severity', options". An empty string means the form as a whole.
+ * "Field 'Severity', options", "Field 'Parts', column 'Qty', label". An empty string means the form as a whole.
  */
 export function describePath(path: string, draft: DraftDefinition): string {
     const parts = path.split('.')
@@ -89,6 +98,11 @@ export function describePath(path: string, draft: DraftDefinition): string {
         if (second === undefined || second === 'root') return 'Fields'
         const field = fieldLabel(draft, Number(second))
         if (third === undefined) return field
+        const [, , , column, prop] = parts
+        if (third === 'columns' && column !== undefined && column !== 'root') {
+            const where = `${field}, ${columnLabel(draft, Number(second), Number(column))}`
+            return prop === undefined ? where : `${where}, ${FIELD_PROPS[prop] ?? prop}`
+        }
         return `${field}, ${FIELD_PROPS[third] ?? third}`
     }
     if (head === 'pages') {
