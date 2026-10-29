@@ -36,7 +36,16 @@
     // They run on the PocketBase jsvm against server/pb_data/types.d.ts (via a
     // /// <reference> whose relative path is authored for the source location, not
     // this materialized one), not in the app's TS/React environment — so they are
-    // typechecked in their own package, never here.
-    "exclude": ["node_modules", ".expo", "dist", "server/pb_hooks", "server/embedded_assets"],
+    // typechecked in their own package, never here. server/builds holds the
+    // server's package builds: full copies of member packages, gitignored, which
+    // are typechecked in their own package too.
+    "exclude": [
+        "node_modules",
+        ".expo",
+        "dist",
+        "server/pb_hooks",
+        "server/embedded_assets",
+        "server/builds"
+    ],
     "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

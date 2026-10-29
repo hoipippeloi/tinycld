@@ -194,11 +194,16 @@ function promote(distDir: string, releasesDir: string, releaseId: string): void 
 // (OnServe runs GenerateSchemas). --releasesDir is THE switch that turns on
 // static serving; without it the server would serve only --publicDir and a
 // proxy-to-Metro would be required. IMAP_ADDR=:1193 matches dev.ts so the
-// IMAP e2e suite finds the listener.
+// IMAP e2e suite finds the listener. --hooksWatch=false: the hooks dir is the
+// workspace's shared server/pb_hooks, and PocketBase restarts itself when a
+// file there changes — a generator run anywhere in the workspace would restart
+// this server mid-run and fail the requests in flight. A run serves the hooks
+// it started with.
 function serve(opts: { port: number; dataDir: string; releasesDir: string }): ChildProcess {
     log(`serving: PB on http://localhost:${opts.port} (static, --releasesDir)`)
     const args = [
         '--dev',
+        '--hooksWatch=false',
         '--http',
         `127.0.0.1:${opts.port}`,
         '--dir',
