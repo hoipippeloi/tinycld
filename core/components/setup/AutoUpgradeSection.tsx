@@ -101,7 +101,16 @@ function BlockedRow({
     )
 }
 
-export function AutoUpgradeSection({ au, isVisible }: { au: AutoUpgrade; isVisible: boolean }) {
+export function AutoUpgradeSection({
+    au,
+    isVisible,
+    isLocked,
+}: {
+    au: AutoUpgrade
+    isVisible: boolean
+    // True while a package job runs, so automatic updates can't be switched on mid-rebuild.
+    isLocked: boolean
+}) {
     if (!isVisible) return null
     const available = au.status?.available ?? false
     const line = au.status ? statusLine(au.status) : ''
@@ -120,7 +129,7 @@ export function AutoUpgradeSection({ au, isVisible }: { au: AutoUpgrade; isVisib
                     testID="autoupgrade-switch"
                     accessibilityLabel={SWITCH_LABEL}
                     value={au.isOn}
-                    isDisabled={!available || !au.isReady}
+                    isDisabled={!available || !au.isReady || isLocked}
                     onValueChange={au.setOn}
                 />
             </View>
