@@ -69,7 +69,7 @@ func gapOps(dels, ins []block) []blockOp {
 	var ops []blockOp
 	k := 0
 	for ; k < len(dels) && k < len(ins); k++ {
-		if similarity(dels[k].key, ins[k].key) < similarEnough {
+		if !canWordDiff(dels[k], ins[k]) {
 			break
 		}
 		ops = append(ops, blockOp{kind: opChanged, from: &dels[k], to: &ins[k]})
@@ -91,10 +91,36 @@ func keys(blocks []block) []string {
 	return out
 }
 
-func similarity(a, b string) float64 {
-	wa, wb := splitWords(a), splitWords(b)
-	if len(wa)+len(wb) == 0 {
-		return 1
+// canWordDiff: a removed and an added block become one block with word
+// marks when both hold only text, the word table fits the limit, and they
+// share enough words.
+func canWordDiff(from, to block) bool {
+	if !from.plain || !to.plain || from.node.DataAtom != to.node.DataAtom {
+		return false
 	}
-	return 2 * float64(len(lcsPairs(wa, wb))) / float64(len(wa)+len(wb))
+	wa, wb := splitWords(from.key), splitWords(to.key)
+	if len(wa)*len(wb) > maxLCSCells {
+		return false
+	}
+	if len(wa)+len(wb) == 0 {
+		return true
+	}
+	return 2*float64(lcsLength(wa, wb))/float64(len(wa)+len(wb)) >= similarEnough
+}
+
+// lcsLength is the LCS length in two rows of memory.
+func lcsLength(a, b []string) int {
+	prev := make([]int, len(b)+1)
+	cur := make([]int, len(b)+1)
+	for i := len(a) - 1; i >= 0; i-- {
+		for j := len(b) - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				cur[j] = prev[j+1] + 1
+			} else {
+				cur[j] = max(prev[j], cur[j+1])
+			}
+		}
+		prev, cur = cur, prev
+	}
+	return prev[0]
 }
