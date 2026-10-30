@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 )
 
 // Failed-exchange throttling for POST /oauth/token.
@@ -69,7 +70,7 @@ var defaultTokenThrottle = &tokenThrottle{
 // exhausted its attempts for the current window. Callers answer 429 without
 // touching the database.
 func tooManyTokenFailures(app core.App, r *http.Request, grantType string) bool {
-	return defaultTokenThrottle.blocked(clientIP(app, r), grantType)
+	return defaultTokenThrottle.blocked(tokenBucketIP(app, r), grantType)
 }
 
 // noteTokenFailure records one failed exchange for this (ip, grant_type) pair.
@@ -77,7 +78,18 @@ func tooManyTokenFailures(app core.App, r *http.Request, grantType string) bool 
 // which is the expected, repeated response while a device-flow login is
 // mid-flight (RFC 8628 §3.5).
 func noteTokenFailure(app core.App, r *http.Request, grantType string) {
-	defaultTokenThrottle.noteFailure(clientIP(app, r), grantType)
+	defaultTokenThrottle.noteFailure(tokenBucketIP(app, r), grantType)
+}
+
+// tokenBucketIP is the address part of a throttle key, carrying the app's id
+// so two apps in one process never share a bucket. A nil app (a unit test)
+// has no app to name.
+func tokenBucketIP(app core.App, r *http.Request) string {
+	ip := clientIP(app, r)
+	if app == nil {
+		return ip
+	}
+	return appstate.Scoped(app, ip)
 }
 
 func (t *tokenThrottle) key(ip, grantType string) string {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 )
 
 // Failed-authentication throttling for the DAV protocols.
@@ -76,7 +77,7 @@ func TooManyFailures(app core.App, r *http.Request) bool {
 		return false
 	}
 	identifier, _, _ := r.BasicAuth()
-	return defaultThrottle.blocked(clientIP(app, r), identifier)
+	return defaultThrottle.blocked(bucketIP(app, r), identifier)
 }
 
 // NoteFailure records one failed authentication. A credential-less request is
@@ -86,7 +87,7 @@ func NoteFailure(app core.App, r *http.Request) {
 		return
 	}
 	identifier, _, _ := r.BasicAuth()
-	defaultThrottle.note(clientIP(app, r), identifier)
+	defaultThrottle.note(bucketIP(app, r), identifier)
 }
 
 // isChallenge reports whether the request supplied no Basic credentials at all.
@@ -114,7 +115,19 @@ func isChallenge(r *http.Request) bool {
 // carry those failures forward.
 func NoteSuccess(app core.App, r *http.Request) {
 	identifier, _, _ := r.BasicAuth()
-	defaultThrottle.clear(clientIP(app, r), identifier)
+	defaultThrottle.clear(bucketIP(app, r), identifier)
+}
+
+// bucketIP is the address part of a throttle key. It carries the app's id,
+// so two apps in one process never share a bucket: failures against one
+// app's users must not lock the same address out of another app. A nil app
+// (a unit test) has no app to name.
+func bucketIP(app core.App, r *http.Request) string {
+	ip := clientIP(app, r)
+	if app == nil {
+		return ip
+	}
+	return appstate.Scoped(app, ip)
 }
 
 func (t *throttle) key(ip, identifier string) string {
