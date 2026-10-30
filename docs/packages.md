@@ -897,7 +897,7 @@ runtime. The registries that exist:
 | which authorship FKs to reassign on offboarding | `offboard.RegisterReassignable` |
 | how to move ownership a flat FK rewrite cannot settle on offboarding | `offboard.RegisterHandler` |
 | which collections to audit-log | `audit.RegisterCollection` |
-| which view collections stay live, and the collections each view's SQL reads (see "Change signals and live views" below) | `changesignal.RegisterView` |
+| which view collections stay live, and the collections their SQL reads | `changesignal.RegisterView` |
 | a package membership table that carries group grants | `groups.RegisterGrantTable` |
 | join and leave events for group membership, sent after the change commits. Every listener runs, in registration order. Errors are logged, not retried; one listener's error does not stop the others. Boot sends no events, so a package reconciles its own state at boot. The event carries the app that saved the change; the registry is process global, so a listener works through `e.App`, not an app it captured | `groups.OnMembershipChange` |
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
@@ -990,15 +990,18 @@ pass.
 
 After a record of any collection is created, updated or deleted and the write
 commits, core sends a message on the realtime topic `collection/<name>`. The
-payload is the JSON object `{}`, and the fork's resumable realtime adds its
-`seq` key, so a client receives `{"seq":N}`. The message carries no record
-data: it says only that the collection changed, and when. Messages are
-coalesced per topic over 200 ms, so a batch of writes sends one, and they go
-only to signed-in realtime clients subscribed to the topic. System collections
-(`_otps`, `_mfas`, `_authOrigins`, `_externalAuths` and the rest) send no
-signal, from a hook or from `Touch`: any signed-in client may subscribe to any
-topic, and the timing of sign-in or one-time-password writes is information.
-A live report subscribes to the topic of every collection it reads and runs
+payload is `{}`. A client of the fork's resumable realtime receives
+`{"seq":N}`. The message carries no record data. It says only that the
+collection changed, and when.
+
+Messages are coalesced per topic over 200 ms, so a batch of writes sends one.
+Only signed-in realtime clients subscribed to the topic receive it. System
+collections (`_otps`, `_mfas`, `_authOrigins`, `_externalAuths` and the rest)
+send no signal, from a hook or from `Touch`. Any signed-in client may subscribe
+to any topic, and the timing of sign-in or one-time-password writes is
+information.
+
+A live report subscribes to the topic of every collection it reads. It runs
 again on a message. On the client, pbtsdb (2.1.0 and later) provides
 `subscribeTopic(pb, topic, onMessage)` and the collection option `liveTopics`.
 
