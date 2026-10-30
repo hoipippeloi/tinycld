@@ -103,8 +103,6 @@ func TestGroupByAMonthBucket(t *testing.T) {
 	requireRows(t, res, "fed", nil, nil, nil, nil)
 }
 
-// A formula column groups like a field: its value per row is the key, and
-// its group row shows the key.
 // A formula over a group column is computed where the column is a key and
 // blank where it is not (the total row), never computed from a blank.
 func TestAFormulaOverAGroupColumnIsBlankWhereThereIsNoKey(t *testing.T) {
@@ -122,6 +120,8 @@ func TestAFormulaOverAGroupColumnIsBlankWhereThereIsNoKey(t *testing.T) {
 	requireRows(t, byBand, "band2", int64(0), int64(2), int64(4), nil)
 }
 
+// A formula column groups like a field: its value per row is the key, and
+// its group row shows the key.
 func TestGroupByAFormulaColumn(t *testing.T) {
 	z := newZoo(t)
 	spec := `{"version":1,"source":"zoo.feedings","columns":[
