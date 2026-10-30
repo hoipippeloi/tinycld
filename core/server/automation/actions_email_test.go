@@ -156,15 +156,16 @@ func TestReserveEmailSend(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Cleanup(ResetRunStateForTest)
+			app := newLedgerApp(t)
 			now := time.Now()
-			emailSendLedger.Lock()
+			s := runStateFor(app)
+			s.emailMu.Lock()
 			for i := 0; i < tc.prior; i++ {
-				emailSendLedger.sends["rule-a"] = append(emailSendLedger.sends["rule-a"], now.Add(-tc.age))
+				s.emailSends["rule-a"] = append(s.emailSends["rule-a"], now.Add(-tc.age))
 			}
-			emailSendLedger.Unlock()
+			s.emailMu.Unlock()
 
-			err := reserveEmailSend("rule-a", now)
+			err := reserveEmailSend(app, "rule-a", now)
 			if tc.wantBlock && err == nil {
 				t.Error("expected the send to be blocked, got nil")
 			}
@@ -204,7 +205,7 @@ func TestReserveEmailSend_FailedSendsStillConsumeBudget(t *testing.T) {
 
 // One ledger, many workers: the reservation must hand out exactly the cap.
 func TestReserveEmailSend_ConcurrentReservationsRespectTheCap(t *testing.T) {
-	t.Cleanup(ResetRunStateForTest)
+	app := newLedgerApp(t)
 	now := time.Now()
 
 	var wg sync.WaitGroup
@@ -213,7 +214,7 @@ func TestReserveEmailSend_ConcurrentReservationsRespectTheCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if reserveEmailSend("rule-a", now) == nil {
+			if reserveEmailSend(app, "rule-a", now) == nil {
 				allowed.Add(1)
 			}
 		}()

@@ -15,7 +15,6 @@ import (
 
 func runsApp(t *testing.T) (core.App, *core.Record) {
 	t.Helper()
-	t.Cleanup(ResetRunStateForTest)
 	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 
 	u, err := app.FindFirstRecordByFilter("users", "id != ''")

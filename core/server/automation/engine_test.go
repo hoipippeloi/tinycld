@@ -18,7 +18,6 @@ import (
 func engineApp(t *testing.T) (core.App, *Engine, *core.Record) {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
-	t.Cleanup(ResetRunStateForTest)
 	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
@@ -470,7 +469,7 @@ func TestNativeWriteProvenanceStopsChain(t *testing.T) {
 		made.Set("id", core.GenerateDefaultRandomId())
 		made.Set("title", "native clone")
 		made.Set("user", u.Id)
-		return MarkEngineWrite(req, made.Id, func() error { return app.Save(made) })
+		return MarkEngineWrite(app, req, made.Id, func() error { return app.Save(made) })
 	})
 	makeRule(t, app, u.Id, "org", nil,
 		[]any{map[string]any{"ref": "tickets:boom"}}, 0, false)

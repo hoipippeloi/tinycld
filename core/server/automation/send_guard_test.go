@@ -24,7 +24,6 @@ type zooEnv struct {
 func zooEngineApp(t *testing.T) *zooEnv {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
-	t.Cleanup(ResetRunStateForTest)
 	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
@@ -202,7 +201,7 @@ func TestSendGuard_SkipDoesNotConsumeTheSendBudget(t *testing.T) {
 			t.Fatalf("send %d = %v, want a skip", i, err)
 		}
 	}
-	if err := reserveEmailSend(rule.Id, time.Now()); err != nil {
+	if err := reserveEmailSend(app, rule.Id, time.Now()); err != nil {
 		t.Fatalf("skips used the send budget: %v", err)
 	}
 }
@@ -215,13 +214,13 @@ func TestSkip_FromAnyActionIsRecordedAsSkipped(t *testing.T) {
 	rule := z.rule(t, map[string]any{"ref": "zoo:skipper"})
 	// One more fully failed run would disable the rule. A skip is not a
 	// failure, so the rule stays enabled and the streak ends.
-	failureStreaks.Store(rule.Id, autoDisableAfter-1)
+	runStateFor(z.app).failureStreaks.Store(rule.Id, autoDisableAfter-1)
 	// Checked as the run row is written, not after: a reader that finds the
 	// row must already see the streak's end, with no window between them.
 	streakAtWrite := make(chan bool, 1)
 	z.app.OnRecordAfterCreateSuccess("rule_runs").BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetString("rule") == rule.Id {
-			_, kept := failureStreaks.Load(rule.Id)
+			_, kept := runStateFor(z.app).failureStreaks.Load(rule.Id)
 			streakAtWrite <- kept
 		}
 		return e.Next()

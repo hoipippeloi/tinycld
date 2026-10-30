@@ -126,7 +126,7 @@ func (e *Engine) Start() {
 		// drain it here — otherwise it lingers and misattributes provenance
 		// (depth/source rule) to whatever later legitimate save of the same
 		// rule row happens to land next.
-		takeEngineWrite(ev.Record.Id)
+		takeEngineWrite(e.app, ev.Record.Id)
 		e.reloadScheduleFor(ev.Record)
 		return ev.Next()
 	}
@@ -137,7 +137,7 @@ func (e *Engine) Start() {
 		// enabled=true), so routing through reloadScheduleFor's field check
 		// would re-Add instead of Remove. The row is gone either way — just
 		// drop the job unconditionally.
-		takeEngineWrite(ev.Record.Id)
+		takeEngineWrite(e.app, ev.Record.Id)
 		e.app.Cron().Remove(scheduleJobID(ev.Record.Id))
 		return ev.Next()
 	})
@@ -176,7 +176,7 @@ func (e *Engine) recordHookHandler(col, op string) func(*core.RecordEvent) error
 	return func(ev *core.RecordEvent) error {
 		depth := 0
 		source := ""
-		if w, ok := takeEngineWrite(ev.Record.Id); ok {
+		if w, ok := takeEngineWrite(e.app, ev.Record.Id); ok {
 			depth = w.Depth + 1
 			source = w.RuleID
 		}

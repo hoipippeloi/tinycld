@@ -39,7 +39,7 @@ func TestTerminateCancelsRunningActionAndWaitsForIt(t *testing.T) {
 		made.Set("id", core.GenerateDefaultRandomId())
 		made.Set("title", "after cancel")
 		made.Set("user", u.Id)
-		err := MarkEngineWrite(req, made.Id, func() error {
+		err := MarkEngineWrite(a, req, made.Id, func() error {
 			wrote.Store(true)
 			return a.Save(made)
 		})
@@ -131,7 +131,7 @@ func TestActionWritesNothingAfterCancel(t *testing.T) {
 			made := core.NewRecord(thingsCol)
 			made.Set("id", core.GenerateDefaultRandomId())
 			made.Set("title", "stamped")
-			return MarkEngineWrite(req, made.Id, func() error {
+			return MarkEngineWrite(a, req, made.Id, func() error {
 				wrote = true
 				return a.Save(made)
 			})

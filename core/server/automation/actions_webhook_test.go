@@ -86,25 +86,23 @@ func TestActionPostWebhook_RejectsNon2xx(t *testing.T) {
 }
 
 func TestReserveWebhookPost_EnforcesHourlyCeiling(t *testing.T) {
-	webhookPostLedger.Lock()
-	webhookPostLedger.posts = map[string][]time.Time{}
-	webhookPostLedger.Unlock()
+	app := newLedgerApp(t)
 
 	now := time.Now()
 	for i := 0; i < maxWebhookPostsPerRulePerHour; i++ {
-		if err := reserveWebhookPost("rule1", now); err != nil {
+		if err := reserveWebhookPost(app, "rule1", now); err != nil {
 			t.Fatalf("post %d rejected early: %v", i+1, err)
 		}
 	}
-	if err := reserveWebhookPost("rule1", now); err == nil {
+	if err := reserveWebhookPost(app, "rule1", now); err == nil {
 		t.Error("expected the ceiling to reject the next post")
 	}
 	// A different rule has its own budget.
-	if err := reserveWebhookPost("rule2", now); err != nil {
+	if err := reserveWebhookPost(app, "rule2", now); err != nil {
 		t.Errorf("a second rule was blocked by the first's budget: %v", err)
 	}
 	// An hour later the window has rolled.
-	if err := reserveWebhookPost("rule1", now.Add(61*time.Minute)); err != nil {
+	if err := reserveWebhookPost(app, "rule1", now.Add(61*time.Minute)); err != nil {
 		t.Errorf("the window did not roll: %v", err)
 	}
 }

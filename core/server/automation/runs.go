@@ -4,7 +4,6 @@ package automation
 import (
 	"context"
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -119,33 +118,27 @@ func pruneRuns(app core.App, ruleID string) {
 	}
 }
 
-// failureStreaks is in-memory by design: a restart resets the streak, and
-// rule_runs is the durable record. Good enough to stop a hot broken rule.
-var failureStreaks sync.Map
-
-func ResetRunStateForTest() {
-	failureStreaks = sync.Map{}
-	emailSendLedger.Lock()
-	emailSendLedger.sends = map[string][]time.Time{}
-	emailSendLedger.Unlock()
-}
-
+// recordRunResult keeps the rule's failure streak and disables a rule that
+// fully failed autoDisableAfter times in a row. The streak is in memory, on
+// the app (runState): a restart resets it, and rule_runs is the durable
+// record. Good enough to stop a hot broken rule.
 func recordRunResult(app core.App, rule *core.Record, fullyFailed bool) {
+	streaks := &runStateFor(app).failureStreaks
 	if !fullyFailed {
-		failureStreaks.Delete(rule.Id)
+		streaks.Delete(rule.Id)
 		return
 	}
 	n := 1
-	if v, ok := failureStreaks.Load(rule.Id); ok {
+	if v, ok := streaks.Load(rule.Id); ok {
 		n = v.(int) + 1
 	}
-	failureStreaks.Store(rule.Id, n)
+	streaks.Store(rule.Id, n)
 	if n < autoDisableAfter {
 		return
 	}
-	failureStreaks.Delete(rule.Id)
+	streaks.Delete(rule.Id)
 	rule.Set("enabled", false)
-	markEngineWrite(rule.Id, rule.Id, 0)
+	markEngineWrite(app, rule.Id, rule.Id, 0)
 	if err := app.Save(rule); err != nil {
 		log.Error("auto-disable failed", "ruleID", rule.Id, "err", err)
 		return
