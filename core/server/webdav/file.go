@@ -186,8 +186,14 @@ func (f *davFile) persistWrite() error {
 		}
 
 		// The archive runs inside the guarded write, so a refused write
-		// leaves no version behind.
+		// leaves no version behind. The record is loaded again: a guard may
+		// close a live editor, whose final save changes it.
 		write := func() error {
+			fresh, err := fs.app.FindRecordById(f.existing.Collection(), f.existing.Id)
+			if err != nil {
+				return err
+			}
+			f.existing = fresh
 			if hooks.BeforeOverwrite != nil && f.existing.GetString(fields.File) != "" {
 				// Archiving the outgoing blob is best-effort: losing a version
 				// snapshot must not fail the write the user actually asked for.

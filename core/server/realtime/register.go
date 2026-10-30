@@ -338,6 +338,10 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 		return
 	}
 	defer broker.untrackConn(client)
+	// Close runs in its own goroutine: it waits for the peer's close frame.
+	client.evict = func() {
+		go func() { _ = conn.Close(websocket.StatusGoingAway, replacedCloseReason) }()
+	}
 
 	broker.join(kind, roomID, client)
 	defer func() {

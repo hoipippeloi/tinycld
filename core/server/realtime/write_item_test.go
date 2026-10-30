@@ -1,24 +1,93 @@
 package realtime
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
-func TestWriteItem_RefusesWhileARoomHasClients(t *testing.T) {
+// An open editor does not block an outside write: the write closes the
+// item's connections, waits for the room to go, and then runs.
+func TestWriteItem_ClosesTheOpenConnectionsThenWrites(t *testing.T) {
+	broker := NewBroker()
+	t.Cleanup(broker.Close)
+	opts := startTestServer(t, broker, allowAllAuth)
+	a := dialClient(t, opts, "room-w", "alice")
+	waitForRoomMembers(t, broker, "test", "room-w", 1, time.Second)
+	// A browser reads all the time, so it answers the close handshake.
+	closed := make(chan error, 1)
+	go func() {
+		_, _, err := a.conn.Read(context.Background())
+		closed <- err
+	}()
+
+	roomOpenAtWrite := true
+	err := broker.WriteItem("room-w", func() error {
+		roomOpenAtWrite = broker.lookupRoomForTest("test", "room-w") != nil
+		return nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roomOpenAtWrite {
+		t.Fatal("the write ran while the room was still open")
+	}
+	var ce websocket.CloseError
+	if err := <-closed; !errors.As(err, &ce) || ce.Code != websocket.StatusGoingAway {
+		t.Fatalf("client read ended with %v; want a going-away close", err)
+	}
+}
+
+// The room's final save runs before the write, so the write replaces a file
+// that holds the editors' last edits, and an archive of it keeps them.
+func TestWriteItem_TheRoomSavesBeforeTheWrite(t *testing.T) {
+	f := newOpenFixture(t, "write-saves-first", NewMemoryCheckpointStore())
+	f.broker.JoinForTest(f.kind, "r1", NewClientForTest("u1"))
+
+	emptiesAtWrite := 0
+	err := f.broker.WriteItem("r1", func() error {
+		f.dirtyMu.Lock()
+		defer f.dirtyMu.Unlock()
+		emptiesAtWrite = f.empties
+		return nil
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if emptiesAtWrite != 1 {
+		t.Fatalf("OnEmpty ran %d times before the write; want 1", emptiesAtWrite)
+	}
+}
+
+// A room that does not close in time fails the write, and the fence lifts
+// so the item can open again.
+func TestWriteItem_FailsWhenTheRoomDoesNotClose(t *testing.T) {
 	b := NewBroker()
 	t.Cleanup(b.Close)
-	b.JoinForTest("write-test-open", "item1", NewClientForTest("u1"))
+	swapCloseRoomsTimeoutForTest(t, 50*time.Millisecond)
+	stuck := &Client{evict: func() {}}
+	b.join("write-test-stuck", "item1", stuck)
 
 	called := false
 	err := b.WriteItem("item1", func() error { called = true; return nil })
 
-	if !errors.Is(err, ErrItemOpen) {
-		t.Fatalf("err = %v, want ErrItemOpen", err)
+	if !errors.Is(err, ErrItemBusy) {
+		t.Fatalf("err = %v, want ErrItemBusy", err)
 	}
 	if called {
-		t.Fatal("write ran while the item was open")
+		t.Fatal("write ran while the room was still open")
+	}
+	joined := make(chan struct{})
+	go func() { b.JoinForTest("write-test-stuck", "item1", NewClientForTest("u2")); close(joined) }()
+	select {
+	case <-joined:
+	case <-time.After(time.Second):
+		t.Fatal("the fence stayed up after the failed write")
 	}
 }
 
@@ -75,24 +144,14 @@ func TestWriteItem_JoinWaitsForTheWrite(t *testing.T) {
 	}
 }
 
-// JoinItemForTest holds the item open on the shared broker until leave.
-func TestJoinItemForTest_HoldsTheItemOpenUntilLeave(t *testing.T) {
+// A JoinItemForTest client leaves when a write closes the room, and its
+// own leave afterwards is harmless.
+func TestJoinItemForTest_LeavesWhenAWriteClosesTheRoom(t *testing.T) {
 	leave := JoinItemForTest("write-test-shared", "item-shared")
-	if err := WriteItem("item-shared", func() error { return nil }); !errors.Is(err, ErrItemOpen) {
-		t.Fatalf("err = %v, want ErrItemOpen while joined", err)
+	if err := WriteItem("item-shared", func() error { return nil }); err != nil {
+		t.Fatal(err)
 	}
 	leave()
-	deadline := time.Now().Add(time.Second)
-	for {
-		err := WriteItem("item-shared", func() error { return nil })
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("still refused after leave: %v", err)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
 }
 
 // A parked document still holds the state from before the write. Suspend
@@ -133,4 +192,10 @@ func TestWriteItem_KeepsTheParkedDocumentWhenTheWriteFails(t *testing.T) {
 	if f.broker.parkedCount() != 1 {
 		t.Fatal("a failed write dropped the parked document")
 	}
+}
+
+func swapCloseRoomsTimeoutForTest(t *testing.T, d time.Duration) {
+	prev := closeRoomsTimeout
+	closeRoomsTimeout = d
+	t.Cleanup(func() { closeRoomsTimeout = prev })
 }

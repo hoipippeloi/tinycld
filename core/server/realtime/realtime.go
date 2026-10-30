@@ -228,6 +228,13 @@ type Client struct {
 	room     *Room
 	joinedAt time.Time
 
+	// evict asks the connection to close, so an outside write can replace
+	// the item its room edits. Set before join.
+	evict func()
+	// leaveOnce makes a test client's leave run once, whether a write
+	// evicts it or the test leaves.
+	leaveOnce sync.Once
+
 	// authID is the connection's identity for room-kind logic. For an
 	// authenticated PB user it's the user record id; for an anonymous
 	// share-session visitor it's the anon id. Empty in tests that bypass
@@ -385,6 +392,9 @@ func (b *Broker) RouteFrameForTest(kind, roomID string, from *Client, frame []by
 // see the audience as already present. Production code must not call
 // this — real connections always flow through handleConnect.
 func (b *Broker) JoinForTest(kind, roomID string, c *Client) *Room {
+	if c.evict == nil {
+		c.evict = func() { go b.LeaveForTest(c) }
+	}
 	b.join(kind, roomID, c)
 	return b.lookupRoomForTest(kind, roomID)
 }
@@ -393,9 +403,11 @@ func (b *Broker) JoinForTest(kind, roomID string, c *Client) *Room {
 // so a consumer package's test can drive the empty-room path (the final
 // flush, the park). Production code must not call this.
 func (b *Broker) LeaveForTest(c *Client) {
-	if room := c.room; room != nil {
-		room.remove(c)
-	}
+	c.leaveOnce.Do(func() {
+		if room := c.room; room != nil {
+			room.remove(c)
+		}
+	})
 }
 
 // EvictIdleForTest runs the parking janitor's pass as of now. Production

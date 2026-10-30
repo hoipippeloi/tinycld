@@ -316,6 +316,16 @@ func closeHandle(key roomKey, handle DocHandle) {
 	}
 }
 
+func (r *Room) membersSnapshot() []*Client {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	members := make([]*Client, 0, len(r.members))
+	for c := range r.members {
+		members = append(members, c)
+	}
+	return members
+}
+
 func (r *Room) isEmpty() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -991,6 +991,68 @@ func TestOverwriteRunsInsideGuardWrite(t *testing.T) {
 	}
 }
 
+// drive's GuardWrite closes a live editor room, whose final save writes a
+// new blob onto the record before the overwrite runs. The overwrite must
+// load the record again, so it archives that blob and replaces it, not the
+// stale one it loaded at open.
+func TestOverwriteLoadsTheRecordAgainInsideGuardWrite(t *testing.T) {
+	app, alice, _ := setupTree(t)
+	allowAuthenticated(t, app)
+	src := testSource()
+
+	var savedByRoom string
+	src.Hooks.GuardWrite = func(app core.App, rec *core.Record, write func() error) error {
+		fresh, err := app.FindRecordById(rec.Collection(), rec.Id)
+		if err != nil {
+			return err
+		}
+		blob, err := filesystem.NewFileFromBytes([]byte("edited"), "doc.txt")
+		if err != nil {
+			return err
+		}
+		fresh.Set("file", blob)
+		if err := app.Save(fresh); err != nil {
+			return err
+		}
+		savedByRoom = fresh.GetString("file")
+		return write()
+	}
+	var archived string
+	src.Hooks.BeforeOverwrite = func(_ core.App, _ string, rec *core.Record) error {
+		archived = rec.GetString("file")
+		return nil
+	}
+	fs := newFS(t, app, src)
+	mkFile(t, app, alice, "doc.txt", "", "12345")
+
+	f, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("1234567890")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if archived != savedByRoom {
+		t.Fatalf("BeforeOverwrite archived %q, want the room's save %q", archived, savedByRoom)
+	}
+	r, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1234567890" {
+		t.Fatalf("stored blob = %q, want the PUT body", got)
+	}
+}
+
 // A refusal from GuardWrite fails the PUT and leaves the stored blob as it
 // was.
 func TestOverwriteFailsWhenGuardWriteRefuses(t *testing.T) {
@@ -998,10 +1060,10 @@ func TestOverwriteFailsWhenGuardWriteRefuses(t *testing.T) {
 	allowAuthenticated(t, app)
 	src := testSource()
 
-	refused := errors.New("open in an editor")
+	refused := errors.New("editors did not close")
 	src.Hooks.GuardWrite = func(core.App, *core.Record, func() error) error { return refused }
 	// A refused write must not archive a version: a client retrying its
-	// autosave against an open document would pile up copies of one file.
+	// autosave would pile up copies of one file.
 	archived := false
 	src.Hooks.BeforeOverwrite = func(core.App, string, *core.Record) error { archived = true; return nil }
 	fs := newFS(t, app, src)
