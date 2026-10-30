@@ -146,6 +146,46 @@ func TestLoadResolvesAliasesOnEveryPath(t *testing.T) {
 	}
 }
 
+func TestLoadKeepsLargeIntegersAcrossAnUpgrade(t *testing.T) {
+	withZooRegistry(t)
+	// CurrentVersion is 1, so a stand-in step is run through loadWith, which
+	// Load calls with upgradeSteps and CurrentVersion.
+	steps := map[int]upgradeStep{1: func(doc map[string]any) error { return nil }}
+	raw := `{"version":1,"source":"zoo.feedings","columns":[],
+		"filter":{"op":"eq","args":[{"path":[{"field":"id"}]},{"value":9007199254740993}]}}`
+	spec, info, err := loadWith([]byte(raw), steps, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(spec.Filter.Args[1].Value); got != "9007199254740993" {
+		t.Fatalf("value = %s, want 9007199254740993", got)
+	}
+	if info.UpgradedFrom != 1 {
+		t.Fatalf("UpgradedFrom = %d, want 1", info.UpgradedFrom)
+	}
+}
+
+func TestAliasPathLeavesKeysAloneBehindAnUnknownLink(t *testing.T) {
+	withZooRegistry(t)
+	base := &Source{
+		Key:     "zoo.test",
+		Links:   []Link{{Key: "gone", Target: "zoo.nowhere"}},
+		Aliases: map[string]string{"mass": "weight"},
+	}
+	var out []Alias
+	path := Path{{Link: "gone"}, {Field: "mass"}}
+	if got := aliasPath(base, path, &out); got != nil {
+		t.Fatalf("aliasPath = %v, want nil", got)
+	}
+	if len(out) != 0 || path[1].Field != "mass" {
+		t.Fatalf("aliased %+v, path %+v: want the key untouched", out, path)
+	}
+	spec := &Spec{Source: "zoo.nope", Columns: []Column{{ID: "a", Path: Path{{Field: "mass"}}}}}
+	if got := resolveAliases(spec); got != nil || spec.Columns[0].Path[0].Field != "mass" {
+		t.Fatalf("unknown source: aliased %+v", got)
+	}
+}
+
 func TestSpecErrorNamesEveryProblem(t *testing.T) {
 	err := invalid("columns.0.id", "an id is required")
 	if !strings.Contains(err.Error(), "columns.0.id: an id is required") {

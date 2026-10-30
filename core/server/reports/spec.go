@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -157,10 +158,14 @@ func invalid(at, message string) *SpecError {
 
 // Load reads a stored or posted spec: it upgrades an older version to
 // CurrentVersion, decodes it strictly (an unknown key is an error), and
-// replaces every aliased key with its current key. Validate checks the
-// result. A spec saved again is saved as Load returns it.
+// replaces every aliased key with its current key. A later bind step checks
+// the result. A spec saved again is saved as Load returns it.
 func Load(raw []byte) (*Spec, *LoadInfo, error) {
-	upgraded, from, err := upgrade(raw, upgradeSteps, CurrentVersion)
+	return loadWith(raw, upgradeSteps, CurrentVersion)
+}
+
+func loadWith(raw []byte, steps map[int]upgradeStep, target int) (*Spec, *LoadInfo, error) {
+	upgraded, from, err := upgrade(raw, steps, target)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -171,20 +176,30 @@ func Load(raw []byte) (*Spec, *LoadInfo, error) {
 		return nil, nil, invalid("spec", "the spec is not valid: "+err.Error())
 	}
 	info := &LoadInfo{Aliased: resolveAliases(&spec)}
-	if from != CurrentVersion {
+	if from != target {
 		info.UpgradedFrom = from
 	}
 	return &spec, info, nil
 }
 
-// upgrade runs steps from the document's version up to target.
+// upgrade runs steps from the document's version up to target. Numbers stay
+// json.Number so an integer above 2^53 survives the re-encode unchanged.
 func upgrade(raw []byte, steps map[int]upgradeStep, target int) ([]byte, int, error) {
 	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&doc); err != nil {
 		return nil, 0, invalid("spec", "the spec is not a single JSON object")
 	}
-	v, ok := doc["version"].(float64)
-	if !ok || v != float64(int(v)) || v < 1 {
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, 0, invalid("spec", "the spec is not a single JSON object")
+	}
+	n, ok := doc["version"].(json.Number)
+	if !ok {
+		return nil, 0, invalid("version", "version must be a whole number from 1")
+	}
+	v, err := n.Int64()
+	if err != nil || v < 1 {
 		return nil, 0, invalid("version", "version must be a whole number from 1")
 	}
 	from := int(v)
@@ -243,6 +258,9 @@ func aliasPath(src *Source, path Path, out *[]Alias) *Source {
 				return nil
 			}
 			src = lookupSource(l.Target)
+			if src == nil {
+				return nil
+			}
 		}
 		if hop.Field != "" {
 			hop.Field = aliasKey(src, hop.Field, out)
