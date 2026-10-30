@@ -1,5 +1,5 @@
 import { create } from '@tinycld/core/lib/store'
-import { Dimensions } from 'react-native'
+import { Dimensions, type DimensionsPayload } from 'react-native'
 
 export interface WindowSizeState {
     width: number
@@ -32,7 +32,8 @@ export const useWindowSizeStore = create<WindowSizeState>()(set => ({
 // One subscription for the entire app. Skipped under unit tests where
 // react-native is shimmed (no Dimensions.addEventListener).
 if (typeof Dimensions?.addEventListener === 'function') {
-    Dimensions.addEventListener('change', ({ window }) => {
-        useWindowSizeStore.getState().setSize(window.width, window.height)
+    // RN types the handler as a bare `Function`, so the payload is typed here.
+    Dimensions.addEventListener('change', ({ window }: DimensionsPayload) => {
+        if (window) useWindowSizeStore.getState().setSize(window.width, window.height)
     })
 }

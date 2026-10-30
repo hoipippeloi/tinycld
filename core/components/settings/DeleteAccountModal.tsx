@@ -57,7 +57,7 @@ export function useDeleteAccountForm(onClose: () => void) {
         onClose()
     }
 
-    const handleSubmit = form.handleSubmit(values => mutation.mutate(values))
+    const handleSubmit = () => void form.handleSubmit(values => mutation.mutate(values))()
 
     return {
         user,

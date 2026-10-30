@@ -44,7 +44,7 @@ function useSaveWorkspace(next: () => void) {
     })
     return {
         control: form.control,
-        onSubmit: form.handleSubmit(data => save.mutate(data)),
+        onSubmit: () => void form.handleSubmit(data => save.mutate(data))(),
         isPending: save.isPending,
     }
 }

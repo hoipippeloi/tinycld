@@ -23,6 +23,7 @@ import {
     StatusBar,
     StyleSheet,
     View,
+    type ViewInstance,
 } from 'react-native'
 import { type Placement, placePopover, type Rect, type Size, sheetSideForAnchor } from './place'
 
@@ -35,7 +36,7 @@ const ANDROID_STATUS_BAR_OFFSET = Platform.OS === 'android' ? (StatusBar.current
 export type PopoverPresentation = 'auto' | 'popover' | 'sheet'
 
 /** A trigger's ref, or a point (a right-click, a long press) in window coordinates. */
-export type PopoverAnchor = RefObject<View | null> | { x: number; y: number }
+export type PopoverAnchor = RefObject<ViewInstance | null> | { x: number; y: number }
 
 interface PopoverContextValue {
     isOpen: boolean
@@ -152,7 +153,7 @@ export function Popover({
         [isControlled, onOpenChange]
     )
     const close = useCallback(() => setOpen(false), [setOpen])
-    const triggerRef = useRef<View | null>(null)
+    const triggerRef = useRef<ViewInstance | null>(null)
     const isMobile = useBreakpoint() === 'mobile'
     const isSheet = presentation === 'sheet' || (presentation === 'auto' && isMobile)
 
@@ -258,7 +259,7 @@ function SHEET_CONTEXT(isOpen: boolean, close: () => void): PopoverContextValue 
     }
 }
 
-type PressableChildProps = { onPress?: (e: unknown) => void; ref?: React.Ref<View> }
+type PressableChildProps = { onPress?: (e: unknown) => void; ref?: React.Ref<ViewInstance> }
 
 /**
  * The trigger, cloned with the anchor ref and a composed `onPress` that
@@ -271,7 +272,7 @@ type PressableChildProps = { onPress?: (e: unknown) => void; ref?: React.Ref<Vie
  */
 function useTriggerElement(
     trigger: ReactElement | undefined,
-    triggerRef: React.MutableRefObject<View | null>,
+    triggerRef: React.MutableRefObject<ViewInstance | null>,
     isOpen: boolean,
     setOpen: (next: boolean) => void
 ): ReactNode {
@@ -283,7 +284,7 @@ function useTriggerElement(
     const child = trigger as ReactElement<PressableChildProps>
     const childOnPress = child.props.onPress
     return React.cloneElement(child, {
-        ref: triggerRef as React.Ref<View>,
+        ref: triggerRef as React.Ref<ViewInstance>,
         onPress: (e: unknown) => {
             childOnPress?.(e)
             toggle()
@@ -336,9 +337,9 @@ function OpenPopoverLayer({
     const [subSlot, setSubSlot] = useState<HTMLElement | null>(null)
     // State from a callback ref: the surface mounts inside the host a commit
     // after this component does, and effects keyed on it must run then.
-    const [surfaceNode, setSurfaceNode] = useState<View | null>(null)
-    const surfaceRef = useRef<View | null>(null)
-    const setSurfaceRef = useCallback((node: View | null) => {
+    const [surfaceNode, setSurfaceNode] = useState<ViewInstance | null>(null)
+    const surfaceRef = useRef<ViewInstance | null>(null)
+    const setSurfaceRef = useCallback((node: ViewInstance | null) => {
         surfaceRef.current = node
         setSurfaceNode(node)
     }, [])
@@ -429,7 +430,7 @@ function OpenPopoverLayer({
         return () => node.removeEventListener('keydown', handler)
     }, [surfaceNode])
 
-    const setSlotRef = useCallback((node: View | null) => {
+    const setSlotRef = useCallback((node: ViewInstance | null) => {
         if (Platform.OS !== 'web') return
         setSubSlot((node as unknown as HTMLElement | null) ?? null)
     }, [])

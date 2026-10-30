@@ -3,11 +3,11 @@ import { useCallback, useRef, useState } from 'react'
 import { type Control, type FieldValues, type Path, useController } from 'react-hook-form'
 import type { TextInputProps as RNTextInputProps } from 'react-native'
 import {
-    type NativeSyntheticEvent,
     Pressable,
     TextInput as RNTextInput,
     Text,
-    type TextInputSelectionChangeEventData,
+    type TextInputInstance,
+    type TextInputSelectionChangeEvent,
     View,
 } from 'react-native'
 import { caretAfterEdit, detectTrigger, type MentionTrigger } from './mention-input-helpers'
@@ -78,7 +78,7 @@ export function MentionInput<T extends FieldValues = Record<string, unknown>>(
     } = useController({ name, control })
 
     const placeholderColor = useThemeColor('field-placeholder')
-    const inputRef = useRef<RNTextInput | null>(null)
+    const inputRef = useRef<TextInputInstance | null>(null)
 
     const value: string = field.value || ''
 
@@ -133,7 +133,7 @@ export function MentionInput<T extends FieldValues = Record<string, unknown>>(
     )
 
     const onSelectionChange = useCallback(
-        (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+        (e: TextInputSelectionChangeEvent) => {
             const { start, end } = e.nativeEvent.selection
             lastRef.current = { ...lastRef.current, start, end }
             // A range selection has no single caret to anchor a trigger

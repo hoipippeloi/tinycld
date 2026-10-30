@@ -15,7 +15,7 @@ export function SnapshotRestoreForm({ isVisible, isBusy }: Props) {
     const { data: snapshots, error } = useSnapshots(isVisible)
     const { form, start } = useSnapshotRestore()
     const { control, handleSubmit, formState } = form
-    const onSubmit = handleSubmit(data => start.mutate(data))
+    const onSubmit = () => void handleSubmit(data => start.mutate(data))()
     const isDisabled = isBusy || start.isPending || !formState.isValid
     const options = (snapshots ?? []).map(snapshot => ({
         value: snapshot.ref,

@@ -3,7 +3,7 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { GripVertical } from 'lucide-react-native'
 import type { ReactNode } from 'react'
 import { useRef } from 'react'
-import { ScrollView, View } from 'react-native'
+import { ScrollView, type ScrollViewInstance, View } from 'react-native'
 import { DraxHandle, SortableContainer, SortableItem, useSortableList } from 'react-native-drax'
 
 interface SortableListProps<T> {
@@ -37,7 +37,7 @@ export function SortableList<T>({
     renderItem,
     isDraggable,
 }: SortableListProps<T>) {
-    const scrollRef = useRef<ScrollView>(null)
+    const scrollRef = useRef<ScrollViewInstance>(null)
     const sortable = useSortableList<T>({
         data,
         keyExtractor,

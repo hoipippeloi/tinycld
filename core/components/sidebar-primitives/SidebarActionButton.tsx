@@ -1,7 +1,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import type { LucideIcon } from 'lucide-react-native'
 import { forwardRef, useState } from 'react'
-import { Platform, Pressable, Text, View } from 'react-native'
+import { Platform, Pressable, type PressableInstance, Text, View } from 'react-native'
 
 interface SidebarActionButtonProps {
     label: string
@@ -9,7 +9,7 @@ interface SidebarActionButtonProps {
     onPress?: () => void
 }
 
-export const SidebarActionButton = forwardRef<View, SidebarActionButtonProps>(
+export const SidebarActionButton = forwardRef<PressableInstance, SidebarActionButtonProps>(
     function SidebarActionButton({ label, icon: Icon, onPress }, ref) {
         const primaryColor = useThemeColor('primary')
         const accentFgColor = useThemeColor('accent-foreground')

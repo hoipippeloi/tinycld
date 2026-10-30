@@ -1,7 +1,7 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { GripVertical } from 'lucide-react-native'
 import { useEffect, useRef } from 'react'
-import { Platform, Pressable, View } from 'react-native'
+import { Platform, Pressable, View, type ViewInstance } from 'react-native'
 
 interface DragHandleProps {
     drag: () => void
@@ -18,7 +18,7 @@ interface DragHandleProps {
 export function DragHandle({ drag, disabled, color, size = 18 }: DragHandleProps) {
     const mutedColor = useThemeColor('muted-foreground')
     const iconColor = color ?? mutedColor
-    const ref = useRef<View>(null)
+    const ref = useRef<ViewInstance>(null)
     const dragRef = useRef(drag)
     dragRef.current = drag
 

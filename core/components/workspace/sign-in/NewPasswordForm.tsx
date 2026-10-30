@@ -23,14 +23,15 @@ export function NewPasswordForm({ token, onDone }: Props) {
         resolver: zodResolver(newPasswordSchema),
         defaultValues: { password: '', passwordConfirm: '' },
     })
-    const submit = form.handleSubmit(async ({ password, passwordConfirm }) => {
-        try {
-            await confirmPasswordReset(token, password, passwordConfirm)
-            onDone()
-        } catch (error) {
-            form.setError('root', { type: 'server', message: errorToString(error) })
-        }
-    })
+    const submit = () =>
+        void form.handleSubmit(async ({ password, passwordConfirm }) => {
+            try {
+                await confirmPasswordReset(token, password, passwordConfirm)
+                onDone()
+            } catch (error) {
+                form.setError('root', { type: 'server', message: errorToString(error) })
+            }
+        })()
     const { isSubmitting, errors } = form.formState
 
     return (

@@ -1,6 +1,6 @@
 import { FormErrorSummary, TextAreaInput, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { useCallback, useState } from 'react'
-import type { NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native'
+import type { TextInputKeyPressEvent } from 'react-native'
 import { Pressable, Text, View } from 'react-native'
 import { MentionInput, type MentionSuggestion } from './MentionInput'
 
@@ -94,7 +94,7 @@ export function CommentComposer(props: CommentComposerProps) {
     // nav), so the typical flow is: type @, click picker, then press
     // Enter to send.
     const onKeyPress = useCallback(
-        (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+        (e: TextInputKeyPressEvent) => {
             if (!props.submitOnEnter) return
             const key = e.nativeEvent.key
             // Detect Shift via the underlying DOM event (web). On

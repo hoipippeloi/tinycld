@@ -1,4 +1,4 @@
-import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping'
+import { FlattenMap, originalPositionFor, type TraceMap } from '@jridgewell/trace-mapping'
 import { serverFetch } from '@tinycld/core/lib/server-fetch'
 import { parse as parseStack } from 'stacktrace-parser'
 
@@ -36,7 +36,10 @@ async function loadMap(mapUrl: string): Promise<TraceMap | null> {
             mapCache.set(mapUrl, null)
             return null
         }
-        const map = new TraceMap(await res.json())
+        // FlattenMap, not TraceMap: Metro (0.87+, Expo SDK 58) writes each chunk's
+        // map as an indexed map with `sections`, which TraceMap cannot read.
+        // FlattenMap reads both the sectioned and the plain shape.
+        const map = new FlattenMap(await res.json())
         mapCache.set(mapUrl, map)
         return map
     } catch {

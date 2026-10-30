@@ -27,7 +27,7 @@ export function SuperuserLoginForm({ login, error, isLoading }: SuperuserLoginFo
         mode: 'onChange',
     })
 
-    const onSubmit = handleSubmit(data => login(data.email, data.password))
+    const onSubmit = () => void handleSubmit(data => login(data.email, data.password))()
 
     return (
         <View

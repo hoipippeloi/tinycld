@@ -190,15 +190,10 @@ export function useUrl<P extends object = UrlParams>(): Url<P> {
     }
     const cache = useRef<{ key: string; url: Url } | null>(null)
 
+    // expo-router's container has no 'ready' event: it is ready once mounted,
+    // and the 'state' event it emits on mount covers that change.
     const subscribe = useCallback(
-        (onChange: () => void) => {
-            const offState = navigation.addListener('state', onChange)
-            const offReady = navigation.addListener('ready', onChange)
-            return () => {
-                offState()
-                offReady()
-            }
-        },
+        (onChange: () => void) => navigation.addListener('state', onChange),
         [navigation]
     )
 

@@ -10,7 +10,7 @@ import {
     useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Platform, StyleSheet, View } from 'react-native'
+import { Platform, StyleSheet, View, type ViewInstance } from 'react-native'
 import {
     applyInertSiblings,
     clearInertSiblings,
@@ -195,7 +195,7 @@ export function OverlayHost({ name }: { name: OverlayHostName }) {
     const { registerHost, unregisterHost } = useActions()
     const items = useContext(ItemsContext)
     const setRef = useCallback(
-        (node: View | null) => {
+        (node: ViewInstance | null) => {
             if (node)
                 registerHost(name, Platform.OS === 'web' ? (node as unknown as HTMLElement) : null)
         },

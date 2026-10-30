@@ -1034,7 +1034,7 @@ function EditPackageForm({
         }),
     })
 
-    const onSave = handleSubmit(data => save.mutate(data))
+    const onSave = () => void handleSubmit(data => save.mutate(data))()
 
     if (!isVisible) return null
 

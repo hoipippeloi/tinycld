@@ -12,7 +12,7 @@ import {
 import { Sheet } from '@tinycld/core/ui/sheet'
 import { X } from 'lucide-react-native'
 import { createContext, type ReactNode, type RefObject, useContext, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View, type ViewInstance } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 
 /**
@@ -149,7 +149,7 @@ function DialogLayer({
     const backdropColor = useThemeColor('overlay-backdrop')
     // State from a callback ref: the surface mounts inside the host a commit
     // after this component does, and the focus effect must run then.
-    const [surfaceNode, setSurfaceNode] = useState<View | null>(null)
+    const [surfaceNode, setSurfaceNode] = useState<ViewInstance | null>(null)
 
     // The backdrop covers the host, so an outside press is a backdrop press;
     // the layer joins the stack for the Android back button and for Escape.

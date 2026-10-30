@@ -77,7 +77,7 @@ async function copyFile(file: File, write: (bytes: Uint8Array) => void): Promise
     const handle = new File(file.uri).open(FileMode.ReadOnly)
     try {
         const size = handle.size ?? 0
-        while ((handle.offset ?? size) < size) write(handle.readBytes(CHUNK_BYTES))
+        while ((handle.offset ?? size) < size) write(handle.readBytesSync(CHUNK_BYTES))
     } finally {
         handle.close()
     }
@@ -119,7 +119,7 @@ async function prepare(
     body.create()
     const handle = body.open(FileMode.ReadWrite)
     try {
-        await writeMultipart(request.entries, boundary, bytes => handle.writeBytes(bytes), {
+        await writeMultipart(request.entries, boundary, bytes => handle.writeBytesSync(bytes), {
             isFile: isUploadFile,
             fileName: file => file.name,
             fileType: file => file.type,
