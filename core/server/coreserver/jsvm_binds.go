@@ -33,20 +33,37 @@ import (
 // beyond the vm.Set.
 type JSVMBinder func(vm *sobek.Runtime, app *pocketbase.PocketBase) error
 
+type namedBinder struct {
+	name string
+	fn   JSVMBinder
+}
+
+// binders is process-wide: a binder takes the app as an argument, so one
+// registry serves every app in the process.
 var (
 	bindersMu sync.RWMutex
-	binders   []JSVMBinder
+	binders   []namedBinder
 )
 
-// RegisterJSVMBinder adds a binder invoked on every VM via OnInit. Call it from
-// a sub-package's init or its Register(app). This must happen BEFORE
-// jsvm.Register runs, because that executes the hook files synchronously —
-// coreserver.Register calls RegisterExtras first for exactly this reason.
-// Safe for concurrent registration.
-func RegisterJSVMBinder(b JSVMBinder) {
+// RegisterJSVMBinder adds a binder invoked on every VM via OnInit, under a
+// name unique to the registering package. Call it from a sub-package's
+// Register(app). Every app in a process runs the same Register, so a second
+// registration under the same name replaces the first in place rather than
+// installing the namespace twice on every VM.
+//
+// This must happen BEFORE jsvm.Register runs, because that executes the hook
+// files synchronously — coreserver.Register calls RegisterExtras first for
+// exactly this reason. Safe for concurrent registration.
+func RegisterJSVMBinder(name string, b JSVMBinder) {
 	bindersMu.Lock()
 	defer bindersMu.Unlock()
-	binders = append(binders, b)
+	for i := range binders {
+		if binders[i].name == name {
+			binders[i].fn = b
+			return
+		}
+	}
+	binders = append(binders, namedBinder{name: name, fn: b})
 }
 
 // BuildJsvmOnInit returns the jsvm.Config.OnInit callback. It runs every
@@ -59,7 +76,7 @@ func BuildJsvmOnInit(app *pocketbase.PocketBase) func(vm *sobek.Runtime) {
 		bindersMu.RLock()
 		defer bindersMu.RUnlock()
 		for _, b := range binders {
-			if err := b(vm, app); err != nil {
+			if err := b.fn(vm, app); err != nil {
 				panic("coreserver: JS binding install failed: " + err.Error())
 			}
 		}

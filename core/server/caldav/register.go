@@ -28,7 +28,7 @@ const wellKnownPath = "/.well-known/caldav"
 // can register handlers against the four interception points. A no-op when no
 // sources are given.
 //
-// Pass coreserver.CalDAVHostBindings() as host to enable TS hooks; pass the
+// Pass coreserver.CalDAVHostBindings(app) as host to enable TS hooks; pass the
 // zero value to run pure Go.
 //
 // Returns the built Backends in source order.

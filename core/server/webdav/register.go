@@ -22,7 +22,7 @@ const basicRealm = "TinyCld WebDAV"
 // only the protocol handler, the Basic-Auth challenge, and the .well-known
 // redirect.
 //
-// Pass coreserver.WebDAVHostBindings() as host to enable TS hooks; pass the
+// Pass coreserver.WebDAVHostBindings(app) as host to enable TS hooks; pass the
 // zero value to run pure Go.
 //
 // Returns the built FileSystems in source order.
