@@ -80,6 +80,7 @@ export function SelectInput<T extends FieldValues = Record<string, unknown>>({
                     <Menu.Item
                         key={option.value}
                         label={option.label}
+                        indent={option.indent}
                         isSelected={option.value === field.value}
                         onSelect={() => choose(option.value)}
                         testID={testID ? `${testID}-${option.value}` : undefined}

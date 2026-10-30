@@ -245,3 +245,34 @@ func TestRoomEmptyCheckpointSkippedDuringDrain(t *testing.T) {
 	_ = a.conn.Close(websocket.StatusNormalClosure, "bye")
 	expectNoCheckpoint(t, calls, 300*time.Millisecond)
 }
+
+// An outside write (WriteItem: upload, restore) closes the item's rooms.
+// Their editors made the state the write replaces, so they are held for the
+// writer (TakeEditors inside write), not fired as a room-empty checkpoint
+// that would race the write and could copy the new file.
+func TestWriteItemHandsTheEditorsToTheWriter(t *testing.T) {
+	calls := recordCheckpoints(t, time.Hour)
+	broker := NewBroker()
+	t.Cleanup(broker.Close)
+	opts := checkpointKind(t, broker, RoomKindOptions{})
+	a := dialClient(t, opts, "write-room", "alice")
+	go func() { _, _, _ = a.conn.Read(context.Background()) }()
+	writeFrame(t, a, MsgDocUpdate, []byte("e1"))
+	time.Sleep(50 * time.Millisecond)
+
+	var taken editcheckpoint.Editors
+	if err := broker.WriteItem("write-room", func() error {
+		taken = broker.TakeEditors("write-room")
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(taken.UserIDs) != 1 || taken.UserIDs[0] != "alice" {
+		t.Fatalf("editors taken in the write = %+v, want [alice]", taken)
+	}
+	expectNoCheckpoint(t, calls, 300*time.Millisecond)
+	if left := broker.TakeEditors("write-room"); !left.Empty() {
+		t.Fatalf("editors left after the write = %+v", left)
+	}
+}

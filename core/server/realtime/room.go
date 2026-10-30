@@ -292,7 +292,9 @@ func (r *Room) remove(c *Client) {
 		// the room key and keep a reloading client from rejoining.
 		// Not during a drain: the database closes after the rooms, and the
 		// edits themselves are already saved.
-		if !editors.Empty() && !draining.Load() {
+		// A room closed by an outside write hands its editors to that
+		// write: a checkpoint now would race it and could copy the new file.
+		if !editors.Empty() && !draining.Load() && !r.broker.holdEditorsIfFenced(r.key.id, editors) {
 			go fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonRoomEmpty)
 		}
 		if r.serverDoc != nil {
@@ -331,6 +333,16 @@ func closeHandle(key roomKey, handle DocHandle) {
 	if err := handle.Close(); err != nil {
 		log.Warn("DocHandle.Close failed", "kind", key.kind, "roomID", key.id, "err", err)
 	}
+}
+
+func (r *Room) membersSnapshot() []*Client {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	members := make([]*Client, 0, len(r.members))
+	for c := range r.members {
+		members = append(members, c)
+	}
+	return members
 }
 
 func (r *Room) isEmpty() bool {
