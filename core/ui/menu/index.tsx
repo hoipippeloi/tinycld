@@ -413,6 +413,13 @@ function MenuRow({
             },
             onMouseLeave: onHoverOut,
         }
+        // The surface is portaled, but React still bubbles its clicks up the
+        // component tree, so a menu inside a pressable row would also press
+        // the row. A native Pressable row stops its own click; this does too.
+        const handleClick = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            activate()
+        }
         // Space as well as Enter: both activate per ARIA, and Space would
         // otherwise scroll the surface.
         const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -434,9 +441,12 @@ function MenuRow({
                     {...shared}
                     style={{ ...shared.style, textDecoration: 'none', color: 'inherit' }}
                     onClick={e => {
-                        if (e.metaKey || e.ctrlKey || e.shiftKey) return
+                        if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                            e.stopPropagation()
+                            return
+                        }
                         e.preventDefault()
-                        activate()
+                        handleClick(e)
                     }}
                 >
                     {content}
@@ -453,7 +463,7 @@ function MenuRow({
                     aria-checked={isChecked}
                     tabIndex={-1}
                     onKeyDown={handleKeyDown}
-                    onClick={activate}
+                    onClick={handleClick}
                     {...shared}
                 >
                     {content}
@@ -466,7 +476,7 @@ function MenuRow({
                 role="menuitem"
                 tabIndex={-1}
                 onKeyDown={handleKeyDown}
-                onClick={activate}
+                onClick={handleClick}
                 {...shared}
             >
                 {content}
