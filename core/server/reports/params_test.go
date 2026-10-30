@@ -19,6 +19,11 @@ func day(s string) time.Time {
 func TestRangePresetsMatchTheShell(t *testing.T) {
 	july := periodContext{today: day("2026-08-15"), fiscalStart: 7}
 	january := periodContext{today: day("2026-02-10"), fiscalStart: 1}
+	// February with a July fiscal start: today is before the fiscal start month, so the
+	// fiscal year began the previous calendar year.
+	february := periodContext{today: day("2026-02-10"), fiscalStart: 7}
+	// January with a March fiscal start: the fiscal year began in March 2025.
+	marchStart := periodContext{today: day("2026-01-15"), fiscalStart: 3}
 	cases := []struct {
 		preset   string
 		pc       periodContext
@@ -39,6 +44,20 @@ func TestRangePresetsMatchTheShell(t *testing.T) {
 		{"lastMonth", january, "2026-01-01", "2026-01-31"},
 		{"lastFiscalYear", january, "2025-01-01", "2025-12-31"},
 		{"lastQuarter", january, "2025-10-01", "2025-12-31"},
+		{"thisMonth", february, "2026-02-01", "2026-02-28"},
+		{"thisFiscalYear", february, "2025-07-01", "2026-06-30"},
+		{"thisFiscalYearToDate", february, "2025-07-01", "2026-02-10"},
+		{"thisQuarter", february, "2026-01-01", "2026-03-31"},
+		{"lastQuarter", february, "2025-10-01", "2025-12-31"},
+		{"lastFiscalYear", february, "2024-07-01", "2025-06-30"},
+		{"lastMonth", february, "2026-01-01", "2026-01-31"},
+		{"last12Months", february, "2025-02-01", "2026-01-31"},
+		{"thisFiscalYear", marchStart, "2025-03-01", "2026-02-28"},
+		{"thisQuarter", marchStart, "2025-12-01", "2026-02-28"},
+		{"lastQuarter", marchStart, "2025-09-01", "2025-11-30"},
+		{"lastFiscalYear", marchStart, "2024-03-01", "2025-02-28"},
+		{"lastMonth", marchStart, "2025-12-01", "2025-12-31"},
+		{"last12Months", marchStart, "2025-01-01", "2025-12-31"},
 	}
 	for _, c := range cases {
 		from, to := rangeDays(c.preset, c.pc)
@@ -50,15 +69,27 @@ func TestRangePresetsMatchTheShell(t *testing.T) {
 
 func TestAsOfPresetsMatchTheShell(t *testing.T) {
 	july := periodContext{today: day("2026-08-15"), fiscalStart: 7}
-	cases := map[string]string{
-		"today":               "2026-08-15",
-		"endOfLastMonth":      "2026-07-31",
-		"endOfLastQuarter":    "2026-06-30",
-		"endOfLastFiscalYear": "2026-06-30",
+	february := periodContext{today: day("2026-02-10"), fiscalStart: 7}
+	marchStart := periodContext{today: day("2026-01-15"), fiscalStart: 3}
+	cases := []struct {
+		preset string
+		pc     periodContext
+		want   string
+	}{
+		{"today", july, "2026-08-15"},
+		{"endOfLastMonth", july, "2026-07-31"},
+		{"endOfLastQuarter", july, "2026-06-30"},
+		{"endOfLastFiscalYear", july, "2026-06-30"},
+		{"endOfLastMonth", february, "2026-01-31"},
+		{"endOfLastQuarter", february, "2025-12-31"},
+		{"endOfLastFiscalYear", february, "2025-06-30"},
+		{"endOfLastMonth", marchStart, "2025-12-31"},
+		{"endOfLastQuarter", marchStart, "2025-11-30"},
+		{"endOfLastFiscalYear", marchStart, "2025-02-28"},
 	}
-	for preset, want := range cases {
-		if got := asOfDay(preset, july); got != want {
-			t.Errorf("%s = %s, want %s", preset, got, want)
+	for _, c := range cases {
+		if got := asOfDay(c.preset, c.pc); got != c.want {
+			t.Errorf("%s (today %s, fiscal start %d) = %s, want %s", c.preset, c.pc.today.Format(time.DateOnly), c.pc.fiscalStart, got, c.want)
 		}
 	}
 }
@@ -98,6 +129,38 @@ func TestResolveParamsTakesPostedThenDefaultThenUnset(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got  %+v\nwant %+v", got, want)
+	}
+}
+
+func TestResolveParamsAcceptsValidValues(t *testing.T) {
+	pc := periodContext{today: day("2026-08-15"), fiscalStart: 1}
+	choice := []Option{{Value: "hay", Label: "Hay"}, {Value: "fish", Label: "Fish"}}
+	cases := map[string]struct {
+		def   ParamDef
+		given string // "" means the param is not posted
+		want  paramValue
+	}{
+		"explicit range":               {ParamDef{ID: "p", Type: ParamDateRange}, `{"from":"2026-03-01","to":"2026-03-31"}`, paramValue{typ: ParamDateRange, from: "2026-03-01", to: "2026-03-31"}},
+		"date":                         {ParamDef{ID: "p", Type: ParamDate}, `"2026-05-05"`, paramValue{typ: ParamDate, value: "2026-05-05"}},
+		"today preset on date":         {ParamDef{ID: "p", Type: ParamDate}, `{"preset":"today"}`, paramValue{typ: ParamDate, value: "2026-08-15"}},
+		"default on text":              {ParamDef{ID: "p", Type: ParamText, Default: json.RawMessage(`"hello"`)}, "", paramValue{typ: ParamText, value: "hello"}},
+		"posted null clears default":   {ParamDef{ID: "p", Type: ParamChoice, Options: choice, Default: json.RawMessage(`"hay"`)}, `null`, paramValue{typ: ParamChoice, unset: true}},
+		"empty multiple list is unset": {ParamDef{ID: "p", Type: ParamChoice, Multiple: true, Options: choice}, `[]`, paramValue{typ: ParamChoice, multiple: true, unset: true}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			given := map[string]string{}
+			if c.given != "" {
+				given["p"] = c.given
+			}
+			got, err := resolveParams([]ParamDef{c.def}, raws(given), pc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got["p"], c.want) {
+				t.Fatalf("got  %+v\nwant %+v", got["p"], c.want)
+			}
+		})
 	}
 }
 

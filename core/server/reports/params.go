@@ -100,6 +100,7 @@ func resolveParams(defs []ParamDef, given map[string]json.RawMessage, pc periodC
 		}
 	}
 	for _, d := range defs {
+		// A posted null clears the param; only an absent one takes its default.
 		raw, at := given[d.ID], "params."+d.ID
 		if raw == nil {
 			raw, at = d.Default, "params."+d.ID+".default"
@@ -173,7 +174,6 @@ func choiceValue(d ParamDef, v any, at string) (paramValue, *SpecError) {
 	if !ok {
 		return out, invalid(at, "the value is a list of the param's options")
 	}
-	out.list = []string{}
 	for _, item := range items {
 		s, ok := item.(string)
 		if !ok || !valid(s) {
@@ -181,6 +181,8 @@ func choiceValue(d ParamDef, v any, at string) (paramValue, *SpecError) {
 		}
 		out.list = append(out.list, s)
 	}
+	// An empty list is a cleared chip: it filters nothing, as an unset param does.
+	out.unset = len(out.list) == 0
 	return out, nil
 }
 
