@@ -22,7 +22,7 @@ import { Dialog } from '@tinycld/core/ui/dialog'
 import { EmojiPicker } from '@tinycld/core/ui/emoji-picker'
 import { Check } from 'lucide-react-native'
 import { forwardRef, useState } from 'react'
-import type { GestureResponderEvent } from 'react-native'
+import type { GestureResponderEvent, PressableInstance } from 'react-native'
 import { Pressable, Text, View } from 'react-native'
 
 /**
@@ -239,21 +239,22 @@ function EmojiTrigger({ onPick }: { onPick: (glyph: string) => void }) {
 }
 
 /** forwardRef: Popover clones the trigger to inject onPress and a measured ref. */
-const EmojiTriggerButton = forwardRef<View, { onPress?: (event: GestureResponderEvent) => void }>(
-    function EmojiTriggerButton({ onPress, ...props }, ref) {
-        return (
-            <Pressable
-                {...props}
-                ref={ref}
-                onPress={onPress}
-                testID="avatar-choose-emoji"
-                className="rounded-lg px-3 py-2 border border-border"
-            >
-                <Text className="text-foreground font-semibold">Choose emoji</Text>
-            </Pressable>
-        )
-    }
-)
+const EmojiTriggerButton = forwardRef<
+    PressableInstance,
+    { onPress?: (event: GestureResponderEvent) => void }
+>(function EmojiTriggerButton({ onPress, ...props }, ref) {
+    return (
+        <Pressable
+            {...props}
+            ref={ref}
+            onPress={onPress}
+            testID="avatar-choose-emoji"
+            className="rounded-lg px-3 py-2 border border-border"
+        >
+            <Text className="text-foreground font-semibold">Choose emoji</Text>
+        </Pressable>
+    )
+})
 
 function SmallButton({
     testID,

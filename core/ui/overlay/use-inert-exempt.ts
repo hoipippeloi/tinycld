@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from 'react'
-import { Platform, type View } from 'react-native'
+import { Platform, type ViewInstance } from 'react-native'
 import { exemptFromInert } from './inert-siblings'
 
 /**
@@ -16,7 +16,7 @@ import { exemptFromInert } from './inert-siblings'
 export function useInertExempt() {
     const cleanupRef = useRef<(() => void) | null>(null)
 
-    const ref = useCallback((node: View | null) => {
+    const ref = useCallback((node: ViewInstance | null) => {
         cleanupRef.current?.()
         cleanupRef.current =
             Platform.OS === 'web' ? exemptFromInert(node as unknown as HTMLElement | null) : null

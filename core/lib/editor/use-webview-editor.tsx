@@ -7,7 +7,7 @@ import {
 } from 'editor-webview'
 import type React from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { View } from 'react-native'
+import { View, type ViewInstance } from 'react-native'
 import { captureException } from '../errors'
 import { log } from '../logger'
 import { deriveToolbarState } from './derive-toolbar-state'
@@ -500,7 +500,7 @@ export function useWebViewEditor(options: UseWebViewEditorOptions): EditorResult
 
     // The anchor host overlays measure against: the plain host View wrapping
     // the WebView, which is the same box and an ordinary measurable view.
-    const measureRef = useRef<View | null>(null)
+    const measureRef = useRef<ViewInstance | null>(null)
 
     const EditorComponent = useMemo(
         () =>
@@ -593,7 +593,7 @@ function EditorHeightBox({
     minHeight: number
     grows: boolean
     /** Anchor for host overlays — see `measureRef` on the hook's result. */
-    measureRef?: React.RefObject<View | null>
+    measureRef?: React.RefObject<ViewInstance | null>
     children: React.ReactNode
 }) {
     const height = useSyncExternalStore(heightStore.subscribe, heightStore.get, heightStore.get)

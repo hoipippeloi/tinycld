@@ -8,7 +8,7 @@ type Props = { isVisible: boolean; isBusy: boolean }
 export function RestoreForm({ isVisible, isBusy }: Props) {
     const { form, start } = useRestore()
     const { control, handleSubmit, formState } = form
-    const onSubmit = handleSubmit(data => start.mutate(data))
+    const onSubmit = () => void handleSubmit(data => start.mutate(data))()
     const isDisabled = isBusy || start.isPending || !formState.isValid
 
     if (!isVisible) return null

@@ -27,7 +27,7 @@ import React, {
     useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Platform, Pressable, Text, View } from 'react-native'
+import { Platform, Pressable, Text, View, type ViewInstance } from 'react-native'
 
 /**
  * A list of commands on a Popover: `role="menu"`, arrow keys and typeahead,
@@ -348,7 +348,7 @@ interface MenuRowProps {
     onHoverOut?: () => void
     /** Open state of the submenu this row triggers. */
     isExpanded?: boolean
-    rowRef?: React.Ref<View>
+    rowRef?: React.Ref<ViewInstance>
 }
 
 const ROW_CLASS = 'flex-row items-center gap-2 px-3 py-2 rounded-md mx-1'
@@ -413,6 +413,13 @@ function MenuRow({
             },
             onMouseLeave: onHoverOut,
         }
+        // The surface is portaled, but React still bubbles its clicks up the
+        // component tree, so a menu inside a pressable row would also press
+        // the row. A native Pressable row stops its own click; this does too.
+        const handleClick = (e: React.MouseEvent) => {
+            e.stopPropagation()
+            activate()
+        }
         // Space as well as Enter: both activate per ARIA, and Space would
         // otherwise scroll the surface.
         const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -434,9 +441,12 @@ function MenuRow({
                     {...shared}
                     style={{ ...shared.style, textDecoration: 'none', color: 'inherit' }}
                     onClick={e => {
-                        if (e.metaKey || e.ctrlKey || e.shiftKey) return
+                        if (e.metaKey || e.ctrlKey || e.shiftKey) {
+                            e.stopPropagation()
+                            return
+                        }
                         e.preventDefault()
-                        activate()
+                        handleClick(e)
                     }}
                 >
                     {content}
@@ -453,7 +463,7 @@ function MenuRow({
                     aria-checked={isChecked}
                     tabIndex={-1}
                     onKeyDown={handleKeyDown}
-                    onClick={activate}
+                    onClick={handleClick}
                     {...shared}
                 >
                     {content}
@@ -466,7 +476,7 @@ function MenuRow({
                 role="menuitem"
                 tabIndex={-1}
                 onKeyDown={handleKeyDown}
-                onClick={activate}
+                onClick={handleClick}
                 {...shared}
             >
                 {content}
@@ -575,7 +585,7 @@ function OpenableSub({ label, icon, leading, isDisabled = false, testID, childre
     const { activeSubId, setActiveSubId } = useMenuContext()
     const isOpen = activeSubId === id
     const [rowRect, setRowRect] = useState<Rect | null>(null)
-    const rowRef = useRef<View | null>(null)
+    const rowRef = useRef<ViewInstance | null>(null)
     const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const mutedColor = useThemeColor('muted-foreground')
 
@@ -614,7 +624,7 @@ function OpenableSub({ label, icon, leading, isDisabled = false, testID, childre
         }, SUB_HOVER_CLOSE_MS)
     }, [cancelClose, close])
 
-    const panelRef = useRef<View | null>(null)
+    const panelRef = useRef<ViewInstance | null>(null)
     const focusFirstRow = () => {
         if (Platform.OS !== 'web') return
         // The panel mounts on the state change this follows; wait a frame.
@@ -677,7 +687,7 @@ function SubSurface({
     onCloseKey,
     children,
 }: {
-    panelRef: React.MutableRefObject<View | null>
+    panelRef: React.MutableRefObject<ViewInstance | null>
     isOpen: boolean
     rowRect: Rect | null
     onHoverIn: () => void

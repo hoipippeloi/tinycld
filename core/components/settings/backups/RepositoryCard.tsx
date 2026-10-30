@@ -26,8 +26,8 @@ function TestResult({ message }: { message: TestMessage }) {
 export function RepositoryCard({ isVisible, isBusy }: Props) {
     const { form, save, test, generateKey, backupNow, isConfigured } = useBackupRepository()
     const { control, handleSubmit, formState } = form
-    const onSave = handleSubmit(data => save.mutate(data))
-    const onTest = handleSubmit(data => test.mutate(data))
+    const onSave = () => void handleSubmit(data => save.mutate(data))()
+    const onTest = () => void handleSubmit(data => test.mutate(data))()
     const testMessage = describeTest(test.data?.snapshots, test.error)
     const isBackupDisabled = isBusy || backupNow.isPending || !isConfigured
 

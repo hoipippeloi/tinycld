@@ -1,6 +1,16 @@
 import { Tabs } from 'expo-router'
 import { View } from 'react-native'
+import { packageRegistry } from '../../lib/packages/static-registry'
 import { PackageAccessDenied } from './PackageAccessDenied'
+
+// The routes app/a/(app)/ holds: the app-owned ones, plus one directory per bundled
+// package with `routes`, which the generator writes. expo-router 58 renders only the
+// screens a layout declares, so each one gets a <Tabs.Screen>.
+const APP_ROUTES = ['index', 'help', 'settings']
+const PACKAGE_ROUTES = packageRegistry.filter(p => p.routes?.directory).map(p => p.slug)
+const SCREENS = [...APP_ROUTES, ...PACKAGE_ROUTES].map(name => (
+    <Tabs.Screen key={name} name={name} />
+))
 
 /**
  * Org-level package switcher — the navigator that swaps between packages
@@ -38,7 +48,9 @@ export function PackageTabs() {
                     lazy: true,
                     animation: 'none',
                 }}
-            />
+            >
+                {SCREENS}
+            </Tabs>
             <PackageAccessDenied />
         </View>
     )

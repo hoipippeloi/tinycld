@@ -38,6 +38,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { patchTsconfig, patchVitestConfig } from './stub-template-patches'
 
 interface StubSpec {
     slug: string
@@ -218,20 +219,6 @@ function patchPackageJson(stubDir: string, stub: StubSpec): void {
         './search-adapter': `./tinycld/${stub.slug}/search-adapter.tsx`,
     }
     writeFileSync(path, `${JSON.stringify(pkg, null, 4)}\n`)
-}
-
-/**
- * The pinned bootstrap still emits `'../app/vitest.config'` from before the
- * shell was renamed to tinycld/. Left alone the stub can't resolve its config
- * and `tinycld-pkg check --all` fails on a stale template. Drop when the pin
- * moves past the rename.
- */
-function patchVitestConfig(stubDir: string): void {
-    const path = join(stubDir, 'vitest.config.ts')
-    if (!existsSync(path)) return
-    const contents = readFileSync(path, 'utf8')
-    const patched = contents.replace("'../app/vitest.config'", "'../tinycld/vitest.config'")
-    if (patched !== contents) writeFileSync(path, patched)
 }
 
 function writeScreens(stubDir: string, stub: StubSpec): void {
@@ -519,6 +506,7 @@ function main(): void {
         patchManifest(stubDir, stub)
         patchPackageJson(stubDir, stub)
         patchVitestConfig(stubDir)
+        patchTsconfig(stubDir)
         writeScreens(stubDir, stub)
         writeSearchAdapter(stubDir, stub)
         writeGoServer(stubDir, stub, versions)

@@ -2,7 +2,7 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import type { LucideIcon } from 'lucide-react-native'
 import type React from 'react'
 import { forwardRef } from 'react'
-import { Platform, Pressable, type View } from 'react-native'
+import { Platform, Pressable, type PressableInstance } from 'react-native'
 
 /** Hoisted so the button below is not handed a new identity every render. */
 const preventDefault = (event: React.MouseEvent) => event.preventDefault()
@@ -16,7 +16,7 @@ interface ToolbarIconButtonProps {
     disabled?: boolean
 }
 
-export const ToolbarIconButton = forwardRef<View, ToolbarIconButtonProps>(
+export const ToolbarIconButton = forwardRef<PressableInstance, ToolbarIconButtonProps>(
     function ToolbarIconButton({ icon: Icon, label, onPress, size = 18, color, disabled }, ref) {
         const mutedColor = useThemeColor('muted-foreground')
         const iconColor = color ?? mutedColor

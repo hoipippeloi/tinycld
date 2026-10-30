@@ -4,7 +4,13 @@ import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { EmojiPicker } from '@tinycld/core/ui/emoji-picker'
 import { SmilePlus } from 'lucide-react-native'
 import { forwardRef } from 'react'
-import { type GestureResponderEvent, Pressable, Text, View } from 'react-native'
+import {
+    type GestureResponderEvent,
+    Pressable,
+    type PressableInstance,
+    Text,
+    View,
+} from 'react-native'
 import { ReactorTooltip } from './ReactorTooltip'
 
 export interface ReactionBarProps {
@@ -174,7 +180,7 @@ function PickerSlot({
  * unable to open or unable to position itself.
  */
 const AddReactionButton = forwardRef<
-    View,
+    PressableInstance,
     { onPress?: (event: GestureResponderEvent) => void; testIDPrefix?: string }
 >(function AddReactionButton({ testIDPrefix = 'reaction', onPress, ...props }, ref) {
     const mutedColor = useThemeColor('muted')

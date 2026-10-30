@@ -1,5 +1,5 @@
 import { forwardRef } from 'react'
-import { Pressable, Text, type View } from 'react-native'
+import { Pressable, type PressableInstance, Text } from 'react-native'
 import { useMenuBarScope } from './MenuBarScopeContext'
 import { menuBarRegistryId, useOpenMenuBarId } from './menubar-store'
 import { useOpenMenuStore } from './open-menu-store'
@@ -21,35 +21,34 @@ interface MenuBarTriggerProps {
 //
 // A forwardRef Pressable, because the Menu clones its trigger with the ref
 // it measures and the `onPress` that toggles it.
-export const MenuBarTrigger = forwardRef<View, MenuBarTriggerProps>(function MenuBarTrigger(
-    { label, menuId, isDisabled = false, onPress },
-    ref
-) {
-    const scope = useMenuBarScope()
-    const openMenuBarId = useOpenMenuBarId(scope)
-    const open = useOpenMenuStore(s => s.open)
+export const MenuBarTrigger = forwardRef<PressableInstance, MenuBarTriggerProps>(
+    function MenuBarTrigger({ label, menuId, isDisabled = false, onPress }, ref) {
+        const scope = useMenuBarScope()
+        const openMenuBarId = useOpenMenuBarId(scope)
+        const open = useOpenMenuStore(s => s.open)
 
-    const handleHoverIn = () => {
-        if (isDisabled) return
-        if (openMenuBarId != null && openMenuBarId !== menuId) {
-            open(menuBarRegistryId(menuId, scope))
+        const handleHoverIn = () => {
+            if (isDisabled) return
+            if (openMenuBarId != null && openMenuBarId !== menuId) {
+                open(menuBarRegistryId(menuId, scope))
+            }
         }
-    }
 
-    return (
-        <Pressable
-            ref={ref}
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            accessibilityState={{ disabled: isDisabled }}
-            disabled={isDisabled}
-            onPress={isDisabled ? undefined : onPress}
-            onHoverIn={handleHoverIn}
-            className={`px-3 h-7 justify-center rounded ${
-                isDisabled ? 'opacity-40' : 'hover:bg-surface-secondary'
-            }`}
-        >
-            <Text className="text-sm text-foreground">{label}</Text>
-        </Pressable>
-    )
-})
+        return (
+            <Pressable
+                ref={ref}
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                accessibilityState={{ disabled: isDisabled }}
+                disabled={isDisabled}
+                onPress={isDisabled ? undefined : onPress}
+                onHoverIn={handleHoverIn}
+                className={`px-3 h-7 justify-center rounded ${
+                    isDisabled ? 'opacity-40' : 'hover:bg-surface-secondary'
+                }`}
+            >
+                <Text className="text-sm text-foreground">{label}</Text>
+            </Pressable>
+        )
+    }
+)

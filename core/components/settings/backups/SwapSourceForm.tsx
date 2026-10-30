@@ -8,7 +8,7 @@ type Props = { isVisible: boolean; jobId: string }
 export function SwapSourceForm({ isVisible, jobId }: Props) {
     const { form, swap } = useSwapSource(jobId)
     const { control, handleSubmit, formState } = form
-    const onSubmit = handleSubmit(data => swap.mutate(data))
+    const onSubmit = () => void handleSubmit(data => swap.mutate(data))()
     const isDisabled = swap.isPending || !formState.isValid
 
     if (!isVisible) return null

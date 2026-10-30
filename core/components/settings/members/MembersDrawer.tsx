@@ -496,7 +496,7 @@ function InviteView({ onDone }: { onDone: () => void }) {
 
     const invite = useInviteMember({ setError, getValues, onInvited: setResult })
 
-    const onSubmit = handleSubmit(data => invite.mutate(data))
+    const onSubmit = () => void handleSubmit(data => invite.mutate(data))()
     const inviteRoles: OrgRole[] = ['admin', 'member', 'guest']
 
     if (result) {

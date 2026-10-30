@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { View } from 'react-native'
+import type { ViewInstance } from 'react-native'
 
 export interface LayoutRect {
     x: number
@@ -22,7 +22,7 @@ export type RegisterMeasure = (measure: MeasureRect) => () => void
  * re-measure on demand at drag start.
  */
 export function useMeasuredRect(onRect?: (rect: LayoutRect) => void, register?: RegisterMeasure) {
-    const ref = useRef<View>(null)
+    const ref = useRef<ViewInstance>(null)
     const onLayout = onRect
         ? () => {
               ref.current?.measureInWindow?.((x, y, width, height) =>

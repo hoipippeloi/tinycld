@@ -470,7 +470,7 @@ test.describe('calendar-slots install', () => {
         await deleteRegistryRecord(page, calendarRecord?.id as string)
 
         try {
-            await page.getByRole('button', { name: 'Install package' }).click()
+            await page.getByRole('button', { name: 'Install New Package' }).click()
             await page.getByRole('textbox', { name: 'Package source', exact: true }).fill(PKG_SPEC)
             await page.getByRole('button', { name: 'Install', exact: true }).click()
 
@@ -497,9 +497,9 @@ test.describe('calendar-slots install', () => {
         // this poll skips it (notId) and waits for the new success row.
         const failedId = await currentOpId(page, 'calendar-slots')
 
-        // Login lands on the Packages tab. 'Install package' opens a modal; fill the
+        // Login lands on the Packages tab. 'Install New Package' opens a modal; fill the
         // package source field, then submit with the modal's 'Install' button.
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page.getByRole('textbox', { name: 'Package source', exact: true }).fill(PKG_SPEC)
         await page.getByRole('button', { name: 'Install', exact: true }).click()
 
@@ -566,7 +566,7 @@ test.describe('calendar-slots install', () => {
 
         const uninstallId = await currentOpId(page, 'calendar-slots')
 
-        await page.getByRole('button', { name: 'Install package' }).click()
+        await page.getByRole('button', { name: 'Install New Package' }).click()
         await page.getByRole('textbox', { name: 'Package source', exact: true }).fill(PKG_SPEC)
         await page.getByRole('button', { name: 'Install', exact: true }).click()
 

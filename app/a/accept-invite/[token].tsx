@@ -127,33 +127,34 @@ function AcceptForm({ token, info }: { token: string; info: InviteInfo }) {
         mode: 'onChange',
     })
 
-    const onSubmit = handleSubmit(async data => {
-        try {
-            const res = await serverFetch(`${PB_SERVER_ADDR}/api/accept-invite/${token}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: data.name, password: data.password }),
-            })
-            if (!res.ok) {
-                const body = (await res.json().catch(() => null)) as { message?: string } | null
-                throw new Error(body?.message ?? 'Failed to accept invitation')
-            }
-            const { username } = (await res.json()) as {
-                username: string
-                email: string
-            }
+    const onSubmit = () =>
+        void handleSubmit(async data => {
+            try {
+                const res = await serverFetch(`${PB_SERVER_ADDR}/api/accept-invite/${token}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: data.name, password: data.password }),
+                })
+                if (!res.ok) {
+                    const body = (await res.json().catch(() => null)) as { message?: string } | null
+                    throw new Error(body?.message ?? 'Failed to accept invitation')
+                }
+                const { username } = (await res.json()) as {
+                    username: string
+                    email: string
+                }
 
-            // Through the auth store, so an organization that requires MFA
-            // sends the new member to the enrollment step instead of failing.
-            const result = await login(username, data.password)
-            if (result.error) throw new Error(result.error)
-            router.replace('/')
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to accept invitation'
-            captureException('invite.accept.submit', err)
-            setError('root', { type: 'server', message })
-        }
-    })
+                // Through the auth store, so an organization that requires MFA
+                // sends the new member to the enrollment step instead of failing.
+                const result = await login(username, data.password)
+                if (result.error) throw new Error(result.error)
+                router.replace('/')
+            } catch (err) {
+                const message = err instanceof Error ? err.message : 'Failed to accept invitation'
+                captureException('invite.accept.submit', err)
+                setError('root', { type: 'server', message })
+            }
+        })()
 
     // A successful sign-in stays busy until the route change unmounts the form.
     const isSuccess = isSubmitSuccessful

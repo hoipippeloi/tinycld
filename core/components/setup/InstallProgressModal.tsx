@@ -1,7 +1,15 @@
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { Check, CircleAlert } from 'lucide-react-native'
 import { useEffect, useRef, useState } from 'react'
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import {
+    ActivityIndicator,
+    Platform,
+    Pressable,
+    ScrollView,
+    type ScrollViewInstance,
+    Text,
+    View,
+} from 'react-native'
 import {
     collapseSteps,
     type DebugLine as DebugLineData,
@@ -42,7 +50,7 @@ export function InstallProgressModal({
     // The raw command output means nothing to most users, so it stays hidden
     // until someone asks for it (support, or an admin who knows the build).
     const [isDebugLogVisible, setDebugLogVisible] = useState(false)
-    const scrollRef = useRef<ScrollView>(null)
+    const scrollRef = useRef<ScrollViewInstance>(null)
 
     // Auto-scroll the step log to the bottom as new steps stream in. The effect
     // reads stepCount so it genuinely depends on it: each appended step bumps the

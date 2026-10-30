@@ -17,6 +17,12 @@ import { AppState, Platform } from 'react-native'
 
 const RESUME_RELOAD_DEBOUNCE_MS = 1000
 
+// AppState has no state before the native module reports one; that is not
+// 'active', so it reads as 'unknown'.
+function currentAppState(): string {
+    return AppState.currentState ?? 'unknown'
+}
+
 /**
  * Catches the app up when it returns to the foreground or comes back online.
  *
@@ -40,7 +46,7 @@ export function useReloadOnResume(): void {
     useEffect(() => {
         const away = createAwayClock()
         const catchUp = createCatchUp({
-            inTouch: () => isInTouch(AppState.currentState, useConnectivityStore.getState()),
+            inTouch: () => isInTouch(currentAppState(), useConnectivityStore.getState()),
             away,
             reloadAfterLongAbsence: Platform.OS !== 'web',
             reload: reloadLiveStores,
@@ -49,7 +55,7 @@ export function useReloadOnResume(): void {
         const onReturn = createDebouncedTrigger(catchUp, RESUME_RELOAD_DEBOUNCE_MS, err =>
             captureException('pbtsdb.reloadOnResume', err)
         )
-        let appState: string = AppState.currentState
+        let appState = currentAppState()
         const appStateSubscription = AppState.addEventListener('change', next => {
             if (isBackground(appState, next)) away.leave()
             if (isResume(appState, next)) onReturn.trigger()

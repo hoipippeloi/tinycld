@@ -15,14 +15,13 @@ import { appHref } from '@tinycld/core/lib/org-routes'
 import { packageSidebars } from '@tinycld/core/lib/packages/derive-components'
 import { routeKeysFor } from '@tinycld/core/lib/route-keys'
 import { ctx } from 'expo-router/_ctx'
-import importMode from 'expo-router/build/import-mode'
 import { useMemo, useSyncExternalStore } from 'react'
 
 // Expo Router only wraps routes in React.lazy in this mode; otherwise ctx(key)
-// is a plain synchronous require and there is nothing to fetch ahead. Read
-// from the router's own module: babel inlines EXPO_ROUTER_IMPORT_MODE there,
-// but not in app code, where process.env would read as unset.
-const LAZY_ROUTES = importMode === 'lazy'
+// is a plain synchronous require and there is nothing to fetch ahead. The
+// bundler inlines EXPO_ROUTER_IMPORT_MODE as a literal in every module, the
+// same value the router's own useScreens reads.
+const LAZY_ROUTES = process.env.EXPO_ROUTER_IMPORT_MODE === 'lazy'
 
 type Loader = () => unknown
 

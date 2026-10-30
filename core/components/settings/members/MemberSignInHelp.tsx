@@ -127,13 +127,14 @@ function TemporaryPasswordFields({ onClose, onSubmit }: Omit<FormProps<string>, 
         resolver: zodResolver(temporaryPasswordSchema),
         defaultValues: { password: '', passwordConfirm: '' },
     })
-    const submit = form.handleSubmit(async ({ password }) => {
-        try {
-            await onSubmit(password)
-        } catch (error) {
-            form.setError('root', { type: 'server', message: errorToString(error) })
-        }
-    })
+    const submit = () =>
+        void form.handleSubmit(async ({ password }) => {
+            try {
+                await onSubmit(password)
+            } catch (error) {
+                form.setError('root', { type: 'server', message: errorToString(error) })
+            }
+        })()
     const { isSubmitting, errors } = form.formState
     return (
         <>
@@ -193,13 +194,14 @@ function ResetEmailFields({
         resolver: zodResolver(resetEmailSchema),
         defaultValues: { email: defaultEmail },
     })
-    const submit = form.handleSubmit(async ({ email }) => {
-        try {
-            await onSubmit(email)
-        } catch (error) {
-            form.setError('root', { type: 'server', message: errorToString(error) })
-        }
-    })
+    const submit = () =>
+        void form.handleSubmit(async ({ email }) => {
+            try {
+                await onSubmit(email)
+            } catch (error) {
+                form.setError('root', { type: 'server', message: errorToString(error) })
+            }
+        })()
     const { isSubmitting, errors } = form.formState
     return (
         <>

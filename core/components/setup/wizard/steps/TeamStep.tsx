@@ -66,7 +66,7 @@ function useTeamInvite() {
     return {
         form,
         invited,
-        onSubmit: form.handleSubmit(data => invite.mutate(data)),
+        onSubmit: () => void form.handleSubmit(data => invite.mutate(data))(),
         isPending: invite.isPending,
     }
 }

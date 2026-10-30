@@ -24,6 +24,17 @@ export function appHref(path: string): string {
     return path === '' ? APP_PREFIX : `${APP_PREFIX}/${path}`
 }
 
+/**
+ * Where a package switcher (the tab bar, the More drawer) goes for `slug`: the
+ * inner view the user left (`lastPackageHref`), so the package's frozen screen
+ * comes back as it was, or the package root on a first visit. A stored href is
+ * persisted state, so one without the current prefix (an older build's) falls
+ * back to the root instead of a dead route.
+ */
+export function packageReturnHref(slug: string, lastHref: string | undefined): string {
+    return lastHref?.startsWith(`${APP_PREFIX}/`) ? lastHref : appHref(slug)
+}
+
 /** Pre-auth routes whose literals are referenced from more than one module. */
 export const CONNECT_HREF = appHref('connect')
 

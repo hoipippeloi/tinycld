@@ -18,6 +18,7 @@ import {
     StyleSheet,
     Text,
     View,
+    type ViewInstance,
 } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Animated, {
@@ -111,7 +112,7 @@ function SheetRoot({
     const backdropOpacity = useSharedValue(0)
     const [mounted, setMounted] = useState(false)
     const seededDir = useRef(dir)
-    const surfaceRef = useRef<View | null>(null)
+    const surfaceRef = useRef<ViewInstance | null>(null)
 
     const close = useCallback(() => onClose(), [onClose])
 

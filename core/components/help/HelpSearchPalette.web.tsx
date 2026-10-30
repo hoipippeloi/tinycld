@@ -6,7 +6,15 @@ import { useHelpTopics } from '@tinycld/core/lib/help/use-help-topics'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { LayerEscape, OverlayPortal, useOverlayLayer } from '@tinycld/core/ui/overlay'
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    type TextInputInstance,
+    View,
+    type ViewInstance,
+} from 'react-native'
 
 const PALETTE_WIDTH_PX = 560
 const PALETTE_TOP_OFFSET_PX = 96
@@ -47,7 +55,7 @@ export function HelpSearchPalette() {
     // under the highlight.
     const clampedIndex = results.length === 0 ? 0 : Math.min(selectedIndex, results.length - 1)
 
-    const inputRef = useRef<TextInput>(null)
+    const inputRef = useRef<TextInputInstance>(null)
 
     useEffect(() => {
         if (!isOpen) return
@@ -62,7 +70,7 @@ export function HelpSearchPalette() {
 
     // Anything outside the card closes it — matches Spotlight. The card is
     // state from a callback ref so the layer sees the node once it mounts.
-    const [card, setCard] = useState<View | null>(null)
+    const [card, setCard] = useState<ViewInstance | null>(null)
     useOverlayLayer({
         isOpen,
         nodes: () => [card as unknown as Node | null],
@@ -147,7 +155,7 @@ function PaletteCard({
     cardRef,
 }: {
     children: ReactNode
-    cardRef: (node: View | null) => void
+    cardRef: (node: ViewInstance | null) => void
 }) {
     // animationName drives the open animation defined in the module-
     // level <style> tag. RN ignores CSS animation properties on
@@ -183,7 +191,7 @@ function PaletteCard({
 }
 
 interface SearchFieldProps {
-    inputRef: RefObject<TextInput | null>
+    inputRef: RefObject<TextInputInstance | null>
     value: string
     onChange: (v: string) => void
 }

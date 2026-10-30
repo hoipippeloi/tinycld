@@ -81,14 +81,15 @@ export default function ConnectWeb() {
         onError: err => reportUnreachable(defaultServerLabel, err),
     })
 
-    const onSubmitCustom = handleSubmit(async ({ url }) => {
-        const addr = normalizeAddress(url)
-        try {
-            await connectTo(addr)
-        } catch (err) {
-            reportUnreachable(addr, err)
-        }
-    })
+    const onSubmitCustom = () =>
+        void handleSubmit(async ({ url }) => {
+            const addr = normalizeAddress(url)
+            try {
+                await connectTo(addr)
+            } catch (err) {
+                reportUnreachable(addr, err)
+            }
+        })()
 
     // A successful connect stays busy until the route change unmounts the screen.
     const busyDefault = connectDefault.isPending || connectDefault.isSuccess

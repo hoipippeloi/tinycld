@@ -116,7 +116,7 @@ leaves the rest untouched — use it for routine updates and targeted downgrades
 
 The row picker only offers versions the app discovered from the package's source.
 To install a specific version it didn't list — or a pinned git ref — use
-**Install package** and give the full spec (for example `@tinycld/contacts@2.3.1`
+**Install New Package** and give the full spec (for example `@tinycld/contacts@2.3.1`
 or `github:acme/pkg#v1.2.0`). See
 [Installing packages](help://core:installing-packages).
 

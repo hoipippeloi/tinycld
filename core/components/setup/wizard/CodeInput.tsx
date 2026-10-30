@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { Pressable, Text, TextInput, View } from 'react-native'
+import { Pressable, Text, TextInput, type TextInputInstance, View } from 'react-native'
 
 const CELLS = 8
 
@@ -37,7 +37,7 @@ export function CodeInput({
     value: string
     onChangeText: (v: string) => void
 }) {
-    const ref = useRef<TextInput>(null)
+    const ref = useRef<TextInputInstance>(null)
     const cells = cellsOf(value).map(c => <Cell key={c.key} char={c.char} />)
     const first = cells.slice(0, 4)
     const second = cells.slice(4)

@@ -154,10 +154,11 @@ function CommentLine<R extends BaseCommentRow>(props: CommentLineProps<R>) {
         mode: 'onChange',
     })
 
-    const onSave = handleSubmit(values => {
-        props.onEdit(comment.id, values.body)
-        setEditing(false)
-    })
+    const onSave = () =>
+        void handleSubmit(values => {
+            props.onEdit(comment.id, values.body)
+            setEditing(false)
+        })()
 
     const onCancel = useCallback(() => {
         reset({ body: comment.body })

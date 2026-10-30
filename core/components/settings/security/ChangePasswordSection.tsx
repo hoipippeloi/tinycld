@@ -77,7 +77,7 @@ function ChangePasswordForm({ onDone }: { onDone: () => void }) {
         onDone()
     }
 
-    const submit = handleSubmit(data => change.mutate(data))
+    const submit = () => void handleSubmit(data => change.mutate(data))()
 
     return (
         <SectionCard>
