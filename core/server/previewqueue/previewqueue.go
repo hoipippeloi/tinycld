@@ -18,6 +18,8 @@ package previewqueue
 import (
 	"sync"
 
+	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/thumbnails/textpreview"
 )
 
@@ -30,32 +32,36 @@ type Payload struct {
 	Page       textpreview.PageModel
 }
 
-var (
+// queue holds one app's stashed payloads. It lives on the app: item ids are
+// unique only in their app, so a process-wide map could hand one app's
+// render hook another app's payload.
+type queue struct {
 	mu    sync.Mutex
-	items = map[string]Payload{}
-)
-
-// Stash records p for itemID, replacing any prior unread payload.
-func Stash(itemID string, p Payload) {
-	mu.Lock()
-	defer mu.Unlock()
-	items[itemID] = p
+	items map[string]Payload
 }
 
-// Take returns the payload stashed for itemID and removes it, so each stashed
-// payload is consumed exactly once. The bool reports whether one was present.
-func Take(itemID string) (Payload, bool) {
-	mu.Lock()
-	defer mu.Unlock()
-	p, ok := items[itemID]
-	delete(items, itemID)
+var queueKey = appstate.NewKey[*queue]("previewqueue.items")
+
+func queueFor(app core.App) *queue {
+	return queueKey.GetOrInit(app, func() *queue { return &queue{items: map[string]Payload{}} })
+}
+
+// Stash records p for itemID in app, replacing any prior unread payload.
+func Stash(app core.App, itemID string, p Payload) {
+	q := queueFor(app)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.items[itemID] = p
+}
+
+// Take returns the payload stashed for itemID in app and removes it, so each
+// stashed payload is consumed exactly once. The bool reports whether one was
+// present.
+func Take(app core.App, itemID string) (Payload, bool) {
+	q := queueFor(app)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	p, ok := q.items[itemID]
+	delete(q.items, itemID)
 	return p, ok
-}
-
-// ResetForTest clears the queue. Exposed only for tests — production callers
-// never invoke this.
-func ResetForTest() {
-	mu.Lock()
-	defer mu.Unlock()
-	items = map[string]Payload{}
 }

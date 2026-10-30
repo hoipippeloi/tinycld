@@ -44,6 +44,8 @@ type afterFunc func(d time.Duration, f func()) *time.Timer
 // and looked up by emitProgress/emitStepProgress, which only have the job —
 // threading app + the record through every one of their ~15 call sites
 // would be far more invasive than a small per-job registry.
+// The registry is process-wide and keyed by job id; installjob.New makes ids
+// unique in the process, so savers of different apps never collide.
 type installLogProgressSaver struct {
 	app    core.App
 	record *core.Record

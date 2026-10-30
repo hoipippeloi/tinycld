@@ -15,7 +15,9 @@
 package installjob
 
 import (
+	"crypto/rand"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -102,11 +104,16 @@ func interlockOf(app core.App) *interlock {
 	return interlockKey.GetOrInit(app, func() *interlock { return &interlock{} })
 }
 
-// New mints a job with a timestamp-derived id and an open Done channel. It does
-// NOT claim the interlock — pass it to Claim.
+// New mints a job with an open Done channel. It does NOT claim the interlock
+// — pass it to Claim.
+//
+// The id is a timestamp plus a random suffix. Several apps in one process
+// can each start an operation in the same millisecond, and the install
+// progress savers are keyed by job id, so a timestamp alone would let one
+// app's progress land on another app's log row.
 func New(action, slug, npmPkg string) *Job {
 	return &Job{
-		ID:     fmt.Sprintf("job_%d", time.Now().UnixMilli()),
+		ID:     fmt.Sprintf("job_%d_%s", time.Now().UnixMilli(), strings.ToLower(rand.Text()[:8])),
 		Action: action,
 		Slug:   slug,
 		NpmPkg: npmPkg,

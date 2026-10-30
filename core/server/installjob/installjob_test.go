@@ -260,3 +260,17 @@ func TestInterlockIsPerApp(t *testing.T) {
 		t.Fatal("a's hold for replacement refused b's job")
 	}
 }
+
+// Several apps in one process can start an operation in the same
+// millisecond; the progress savers are keyed by job id, so ids must not
+// collide.
+func TestNew_IDsAreUniqueWithinOneMillisecond(t *testing.T) {
+	seen := map[string]bool{}
+	for range 1000 {
+		id := New("install", "", "").ID
+		if seen[id] {
+			t.Fatalf("duplicate job id %q", id)
+		}
+		seen[id] = true
+	}
+}
