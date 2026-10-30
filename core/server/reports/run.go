@@ -360,8 +360,8 @@ func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion) ([]str
 	return ctes, strings.Join(legs, "\nUNION ALL\n") + "\nORDER BY __level, __ord", nil
 }
 
-// detailPass runs the detail statement: one row per base row (up to the
-// row cap without groups), or the rows of the expanded innermost groups.
+// detailPass runs the detail statement: one row per base row, a page at a
+// time without groups, or the rows of the expanded innermost groups.
 func (rn *runner) detailPass() ([]map[string]any, error) {
 	c := rn.c
 	s := newStmt(rn.app, c.info)
@@ -375,7 +375,17 @@ func (rn *runner) detailPass() ([]map[string]any, error) {
 	}
 	where := "1"
 	limit := runLimits.rowCap
-	if len(c.p.groups) > 0 {
+	paged := len(c.p.groups) == 0
+	if paged {
+		limit = runLimits.pageSize
+		if rn.opts.Limit > 0 {
+			limit = min(rn.opts.Limit, runLimits.maxPage)
+		}
+		where, err = keysetAfter(s, order, rn.opts.Cursor)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 		where = rn.expand.where(c, s, len(c.p.groups), "d.")
 	}
 	body := fmt.Sprintf("SELECT * FROM (%s) d WHERE %s ORDER BY %s LIMIT %s",
@@ -384,8 +394,16 @@ func (rn *runner) detailPass() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > limit {
+	more := len(rows) > limit
+	if more {
 		rows = rows[:limit]
+	}
+	if paged {
+		rn.res.Page = &Page{Size: len(rows)}
+		if more {
+			rn.res.Page.Next = cursorOf(order, rows[len(rows)-1])
+		}
+	} else if more {
 		rn.capNotice()
 	}
 	return rows, nil
