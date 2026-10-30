@@ -40,7 +40,8 @@ var (
 )
 
 // RegisterView declares the collections that the view collection's SQL
-// reads, in a subquery, an EXISTS or a CTE included. A write to any source
+// reads, in a subquery, an EXISTS or a CTE included. The view and its
+// sources are collection names, not ids. A write to any source
 // then also signals the view's topic. Calling it again for the same view
 // adds sources. A blank name, no sources, or a view that lists itself panics
 // at boot, because such a view could never be live.

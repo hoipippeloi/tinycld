@@ -47,10 +47,20 @@ func checkView(app core.App, pages map[int64]string, view string, sources []stri
 	if !col.IsView() {
 		return []string{fmt.Sprintf("view %q is a %s collection, not a view", view, col.Type)}
 	}
+	// Topics and writes are matched by collection name: a view keyed by an
+	// id or another spelling signals a topic no client subscribes, and such
+	// a source never matches a write.
 	var problems []string
+	if col.Name != view {
+		problems = append(problems, fmt.Sprintf("view %q is not registered by its collection name %q", view, col.Name))
+	}
 	for _, source := range sources {
-		if _, err := app.FindCollectionByNameOrId(source); err != nil {
+		sourceCol, err := app.FindCollectionByNameOrId(source)
+		switch {
+		case err != nil:
 			problems = append(problems, fmt.Sprintf("view %q declares %q, which is not a collection", view, source))
+		case sourceCol.Name != source:
+			problems = append(problems, fmt.Sprintf("view %q declares %q, which is not the collection name %q", view, source, sourceCol.Name))
 		}
 	}
 	read, err := tablesRead(app, pages, "SELECT * FROM {{"+col.Name+"}}")

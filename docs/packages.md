@@ -1029,7 +1029,9 @@ package's `Register(app)`:
 changesignal.RegisterView("zoo_fed", "zoo_animals", "zoo_feedings", "zoo_keepers")
 ```
 
-A write to any source then also signals `collection/zoo_fed`. The client keeps
+`RegisterView` takes collection names, not ids, for the view and for each
+source: topics and writes are matched by name. A write to any source then also
+signals `collection/zoo_fed`. The client keeps
 the view live with `liveTopics: ['collection/zoo_fed']`
 (`...liveViewOptions('zoo_fed')` from `@tinycld/core/lib/change-signal`). List
 every collection the SQL reads, including one read only in a subquery, an
@@ -1045,7 +1047,8 @@ if err := changesignal.CheckViews(app); err != nil {
 
 `CheckViews` compiles each registered view with SQLite `EXPLAIN` and fails
 when its bytecode opens a table, or an index of a table, that the
-registration does not cover.
+registration does not cover. It also fails when the view or a source is
+registered by an id or by a spelling other than the collection's name.
 
 ### Test build tag
 

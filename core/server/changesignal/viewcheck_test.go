@@ -83,6 +83,34 @@ func TestCheckViewsRefusesAnUnknownSource(t *testing.T) {
 	}
 }
 
+// A view keyed by id signals collection/<id>, and a source keyed by id
+// never matches a write, while clients subscribe collection/<name>.
+func TestCheckViewsRefusesAnIdInPlaceOfAName(t *testing.T) {
+	app := viewApp(t)
+	view, err := app.FindCollectionByNameOrId("zoo_fed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedings, err := app.FindCollectionByNameOrId("zoo_feedings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	RegisterView(view.Id, "zoo_animals", "zoo_feedings", "zoo_keepers")
+	RegisterView("zoo_fed_named", "zoo_fed", feedings.Id)
+	err = CheckViews(app)
+	if err == nil {
+		t.Fatal("CheckViews passed a view and a source registered by id")
+	}
+	for _, want := range []string{
+		`view "` + view.Id + `" is not registered by its collection name "zoo_fed"`,
+		`view "zoo_fed_named" declares "` + feedings.Id + `", which is not the collection name "zoo_feedings"`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
 func TestCheckViewsRefusesANonView(t *testing.T) {
 	app := viewApp(t)
 	RegisterView("zoo_animals", "zoo_keepers")
