@@ -94,3 +94,43 @@ func TestJoinItemForTest_HoldsTheItemOpenUntilLeave(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// A parked document still holds the state from before the write. Suspend
+// would checkpoint that state under the new file's fingerprint, and the
+// next open would then save the old content over the write; so a write
+// drops the parked document and its checkpoint, and the next open seeds
+// from the new file.
+func TestWriteItem_DropsTheParkedDocumentAndCheckpoint(t *testing.T) {
+	store := NewMemoryCheckpointStore()
+	f := newOpenFixture(t, "write-parked", store)
+	room, c := f.open("r1")
+	handle := room.serverDoc.(*ycrdtHandle)
+	room.remove(c)
+	_ = store.Save(f.kind, "r1", Checkpoint{Epoch: 1, Fingerprint: "fp-1", State: []byte{1}})
+
+	if err := f.broker.WriteItem("r1", func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	if f.broker.parkedCount() != 0 || !handle.isClosed() {
+		t.Fatal("the parked document survived the write")
+	}
+	if _, found, _ := store.Load(f.kind, "r1"); found {
+		t.Fatal("the checkpoint survived the write")
+	}
+}
+
+// A failed write changed nothing, so the parked document stays.
+func TestWriteItem_KeepsTheParkedDocumentWhenTheWriteFails(t *testing.T) {
+	f := newOpenFixture(t, "write-parked-fail", NewMemoryCheckpointStore())
+	room, c := f.open("r1")
+	room.remove(c)
+
+	boom := errors.New("boom")
+	if err := f.broker.WriteItem("r1", func() error { return boom }); !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if f.broker.parkedCount() != 1 {
+		t.Fatal("a failed write dropped the parked document")
+	}
+}

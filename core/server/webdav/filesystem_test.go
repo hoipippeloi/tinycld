@@ -1000,6 +1000,10 @@ func TestOverwriteFailsWhenGuardWriteRefuses(t *testing.T) {
 
 	refused := errors.New("open in an editor")
 	src.Hooks.GuardWrite = func(core.App, *core.Record, func() error) error { return refused }
+	// A refused write must not archive a version: a client retrying its
+	// autosave against an open document would pile up copies of one file.
+	archived := false
+	src.Hooks.BeforeOverwrite = func(core.App, string, *core.Record) error { archived = true; return nil }
 	fs := newFS(t, app, src)
 	mkFile(t, app, alice, "doc.txt", "", "12345")
 
@@ -1020,5 +1024,8 @@ func TestOverwriteFailsWhenGuardWriteRefuses(t *testing.T) {
 	}
 	if info.Size() != 5 {
 		t.Fatalf("size after refused overwrite = %d, want the original 5", info.Size())
+	}
+	if archived {
+		t.Fatal("a refused overwrite archived a version")
 	}
 }

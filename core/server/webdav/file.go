@@ -185,16 +185,19 @@ func (f *davFile) persistWrite() error {
 			return err
 		}
 
-		if hooks.BeforeOverwrite != nil && f.existing.GetString(fields.File) != "" {
-			// Archiving the outgoing blob is best-effort: losing a version
-			// snapshot must not fail the write the user actually asked for.
-			if err := hooks.BeforeOverwrite(fs.app, f.user.Id, f.existing); err != nil {
-				davLog.Warn("BeforeOverwrite failed",
-					"slug", fs.src.Slug, "recordID", f.existing.Id, "err", err)
+		// The archive runs inside the guarded write, so a refused write
+		// leaves no version behind.
+		write := func() error {
+			if hooks.BeforeOverwrite != nil && f.existing.GetString(fields.File) != "" {
+				// Archiving the outgoing blob is best-effort: losing a version
+				// snapshot must not fail the write the user actually asked for.
+				if err := hooks.BeforeOverwrite(fs.app, f.user.Id, f.existing); err != nil {
+					davLog.Warn("BeforeOverwrite failed",
+						"slug", fs.src.Slug, "recordID", f.existing.Id, "err", err)
+				}
 			}
+			return fs.writeBlobFromPath(f.existing, uploadPath)
 		}
-
-		write := func() error { return fs.writeBlobFromPath(f.existing, uploadPath) }
 		if hooks.GuardWrite != nil {
 			if err := hooks.GuardWrite(fs.app, f.existing, write); err != nil {
 				return err
