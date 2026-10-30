@@ -20,10 +20,10 @@ import (
 // by timestamp in one _migrations table, so a count-based step would tear down
 // unrelated packages' schema.
 //
-// Instead we drive a NAMED subset of migrations. core.AppMigrations holds every
-// registered migration (Go and JS alike — the jsvm plugin registers each .js
-// `migrate(up, down)` into the same global list as callable Go closures) as
-// *core.Migration{File, Up, Down, ReapplyCondition}. We look each target file up
+// Instead we drive a NAMED subset of migrations. core.AppMigrationsOf(app)
+// returns every migration registered for the app (core's Go migrations, and
+// each .js `migrate(up, down)` the app's jsvm loaded, as callable Go closures)
+// as *core.Migration{File, Up, Down, ReapplyCondition}. We look each target file up
 // by name, run its own Up/Down inside the same Aux+main transaction nesting the
 // stock runner uses, and replicate the _migrations bookkeeping
 // (insert {file, applied} / delete by file) ourselves. Because we only ever
@@ -34,10 +34,10 @@ import (
 // in the pinned PocketBase for the patterns mirrored here.
 
 // MigrationResolver maps a migration filename to the migration whose Up/Down
-// should run for it. It exists because core.AppMigrations is NOT the right
+// should run for it. It exists because the app's registered migrations is NOT the right
 // source for a REVERT, and the difference is load-bearing:
 //
-// core.AppMigrations is populated once, at process start, from the migrations
+// the app's registered migrations is populated once, at process start, from the migrations
 // the RUNNING build carries. A revert, however, always runs in the OUTGOING
 // process — every deploy path reverts before the new binary is executing:
 //
@@ -47,7 +47,7 @@ import (
 //   - managed deployment: the org's process runs the downs and then waits to
 //     be killed; the replacement artifact only starts afterwards.
 //
-// So a Down resolved from core.AppMigrations is the OUTGOING build's Down. When
+// So a Down resolved from the app's registered migrations is the OUTGOING build's Down. When
 // a release FIXES a broken down migration, that fix can never run its own
 // down — the only copy that executes is the broken one already in memory. It
 // fails silently, too: reverting proceeds, the _migrations row is deleted, and
@@ -62,12 +62,13 @@ import (
 // pkgMigrationByFile.
 type MigrationResolver func(file string) (*core.Migration, bool)
 
-// resolveWith returns the resolver to use: the caller's, or the running
-// binary's global registry when none was supplied.
+// resolveWith returns the resolver to use: the caller's, then the migrations
+// registered for app (core's Go migrations and the JS migrations app's jsvm
+// loaded).
 //
-// A caller-supplied resolver is tried FIRST and the running binary SECOND. The
-// fallback is not a convenience — an uninstall depends on it. The incoming
-// build is by definition the one WITHOUT the removed package, so its
+// A caller-supplied resolver is tried FIRST and the app's own migrations
+// SECOND. The fallback is not a convenience — an uninstall depends on it. The
+// incoming build is by definition the one WITHOUT the removed package, so its
 // pb_migrations does not contain that package's files at all; only the
 // outgoing build still carries them. Preferring the incoming set gets the
 // corrected Down wherever the incoming build ships that file (the bug this
@@ -75,21 +76,24 @@ type MigrationResolver func(file string) (*core.Migration, bool)
 // revertable at all. Without the fallback every uninstall silently
 // reclassifies the package's migrations as unrevertable and leaves its
 // collections in place.
-func resolveWith(resolver MigrationResolver) MigrationResolver {
+func resolveWith(app core.App, resolver MigrationResolver) MigrationResolver {
+	own := func(file string) (*core.Migration, bool) { return pkgMigrationByFile(app, file) }
 	if resolver == nil {
-		return pkgMigrationByFile
+		return own
 	}
 	return func(file string) (*core.Migration, bool) {
 		if m, ok := resolver(file); ok {
 			return m, true
 		}
-		return pkgMigrationByFile(file)
+		return own(file)
 	}
 }
 
-// pkgMigrationByFile returns the registered migration with the given filename.
-func pkgMigrationByFile(file string) (*core.Migration, bool) {
-	for _, m := range core.AppMigrations.Items() {
+// pkgMigrationByFile returns the migration registered for app with the given
+// filename.
+func pkgMigrationByFile(app core.App, file string) (*core.Migration, bool) {
+	registered := core.AppMigrationsOf(app)
+	for _, m := range registered.Items() {
 		if m.File == file {
 			return m, true
 		}
@@ -134,7 +138,7 @@ func applyNamedMigrations(app core.App, files []string) ([]string, error) {
 	err := app.AuxRunInTransaction(func(txApp core.App) error {
 		return txApp.RunInTransaction(func(txApp core.App) error {
 			for _, file := range ordered {
-				m, ok := pkgMigrationByFile(file)
+				m, ok := pkgMigrationByFile(app, file)
 				if !ok {
 					return fmt.Errorf("apply: migration %q is not registered", file)
 				}
@@ -186,9 +190,9 @@ func applyNamedMigrations(app core.App, files []string) ([]string, error) {
 // never silently drop a history row while leaving its schema behind.
 //
 // resolver decides WHICH build's Down runs; see MigrationResolver for why that
-// is not simply core.AppMigrations. Pass nil for the running binary's registry.
+// is not simply the app's registered migrations. Pass nil for the running binary's registry.
 func revertNamedMigrations(app core.App, files []string, resolver MigrationResolver) ([]string, error) {
-	resolve := resolveWith(resolver)
+	resolve := resolveWith(app, resolver)
 	ordered := sortedCopy(files)
 	// descending: revert newest first
 	for i, j := 0, len(ordered)-1; i < j; i, j = i+1, j-1 {
@@ -306,7 +310,7 @@ var errDryRollback = errors.New("pkg_migrate: dry-run rollback")
 // resolver must be the SAME one the real revert will use, or the report
 // describes a revert that is not the one about to run.
 func dryRevertNamedMigrations(app core.App, files []string, resolver MigrationResolver) (DropReport, error) {
-	resolve := resolveWith(resolver)
+	resolve := resolveWith(app, resolver)
 	var report DropReport
 
 	ordered := sortedCopy(files)

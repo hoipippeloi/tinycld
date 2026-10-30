@@ -16,14 +16,14 @@ import (
 // Every deploy path reverts the outgoing schema BEFORE the new binary is
 // executing (see MigrationResolver for why). So the Down closures that matter
 // belong to the build being deployed TO, and they have to be loaded from that
-// build's own pb_migrations rather than taken from this process's
-// core.AppMigrations.
+// build's own pb_migrations rather than taken from the migrations this app
+// registered at boot.
 //
-// The load is deliberately into a PRIVATE core.MigrationsList:
-// core.AppMigrations is process-global and exposes no remove or clear, so
-// registering a second build's migrations into it would permanently shadow the
-// ones this process booted with — for the rest of the process, including any
-// later apply. A private list is discarded when the deploy goroutine returns.
+// The load is deliberately into a PRIVATE core.MigrationsList: a migrations
+// list exposes no remove or clear, so registering a second build's
+// migrations into the app's own list would permanently shadow the ones the
+// app booted with — including for any later apply. A private list is
+// discarded when the deploy goroutine returns.
 
 // IncomingMigrations holds the migration set read out of a build that is not
 // the one running. Resolve is what the revert consults for each filename.
@@ -51,7 +51,7 @@ func (im *IncomingMigrations) Len() int { return len(im.list.Items()) }
 
 // LoadIncomingMigrations evaluates the JS migrations in migrationsDir into a
 // private list, so their Up/Down closures can be run without touching
-// core.AppMigrations.
+// the app's own migrations list.
 //
 // It deliberately takes no app to REGISTER against. The loaded closures act on
 // whatever txApp the migration runner passes them at call time, so the load

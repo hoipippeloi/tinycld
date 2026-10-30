@@ -22,7 +22,7 @@ import (
 // file swap + rebuild around it and records the result.
 //
 // The key enabler: the RUNNING process keeps every migration it registered at
-// its own startup in core.AppMigrations, regardless of later on-disk file
+// its own startup in the app's migrations list, regardless of later on-disk file
 // changes. So even after we swap a package's files down to an older version
 // (removing the newer migration files from disk), the running binary can still
 // execute the newer migrations' Down closures. That lets us use ONE ordering for

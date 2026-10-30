@@ -43,26 +43,15 @@ func Apply(t testing.TB, app core.App, migrationsDirs ...string) {
 		t.Fatal("rlstest: Apply needs at least one migrations directory")
 	}
 
-	// AppMigrations is a package-level list the jsvm loader appends to, so it
-	// carries over between tests in one binary. Snapshot and restore it, or the
-	// second suite to run re-applies the first's migrations.
-	globalMigrations.Lock()
-	saved := core.AppMigrations
-	t.Cleanup(func() {
-		globalMigrations.Lock()
-		core.AppMigrations = saved
-		globalMigrations.Unlock()
-	})
-	err := applyDirs(app, t.TempDir(), migrationsDirs)
-	globalMigrations.Unlock()
-	if err != nil {
+	// jsvm registers the migrations into app's own list, so nothing carries
+	// over to another test's app.
+	if err := applyDirs(app, t.TempDir(), migrationsDirs); err != nil {
 		t.Fatalf("rlstest: %v", err)
 	}
 }
 
 // applyDirs runs the .js migrations of each directory against app, one
-// directory at a time. It leaves core.AppMigrations holding the last
-// directory's list; the caller saves and restores it.
+// directory at a time.
 //
 // hooksDir must be empty: jsvm requires one, but rules come from migrations,
 // so no hook file may run and the result is the migrations alone.
@@ -78,9 +67,8 @@ func applyDirs(app core.App, hooksDir string, migrationsDirs []string) error {
 
 		// One directory at a time: each package's migrations are ordered among
 		// themselves by filename, but two packages' timestamps interleaved
-		// would run them in an order no real boot produces.
-		core.AppMigrations = core.MigrationsList{}
-
+		// would run them in an order no real boot produces. Running after each
+		// directory's registration applies only that directory's files.
 		if err := jsvm.Register(app, jsvm.Config{MigrationsDir: abs, HooksDir: hooksDir}); err != nil {
 			return fmt.Errorf("register jsvm for %s: %w", abs, err)
 		}
@@ -110,22 +98,12 @@ func ApplyWithHooks(t testing.TB, app core.App, hooksDir string, migrationsDirs 
 		t.Fatalf("rlstest: hooks dir %s: %v", abs, err)
 	}
 
-	globalMigrations.Lock()
-	defer globalMigrations.Unlock()
-	saved := core.AppMigrations
-	t.Cleanup(func() {
-		globalMigrations.Lock()
-		core.AppMigrations = saved
-		globalMigrations.Unlock()
-	})
-
 	if err := applyDirs(app, t.TempDir(), migrationsDirs); err != nil {
 		t.Fatalf("rlstest: %v", err)
 	}
 
 	// The hooks pass registers the real hook files. It comes last so the
 	// collections they reference already exist.
-	core.AppMigrations = core.MigrationsList{}
 	if err := jsvm.Register(app, jsvm.Config{
 		MigrationsDir: t.TempDir(),
 		HooksDir:      abs,

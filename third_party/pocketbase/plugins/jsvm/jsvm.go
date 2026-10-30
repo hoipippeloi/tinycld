@@ -163,16 +163,18 @@ type Config struct {
 	MigrationsFS fs.FS
 
 	// MigrationsList, when non-nil, receives the loaded migrations instead of
-	// the process-global core.AppMigrations.
+	// the app's own list (core.OwnAppMigrations).
 	//
 	// It exists for reading a DIFFERENT build's migrations without disturbing
-	// the running one. core.AppMigrations is process-global and has no remove,
-	// so loading a second set into it would permanently shadow the migrations
-	// this process actually booted with. A deploy that must run the INCOMING
-	// build's down migrations — the revert always executes before the new
-	// binary does — loads them into a private list and resolves against that.
+	// the running one. A migrations list has no remove, so loading a second
+	// set into the app's list would permanently shadow the migrations the app
+	// booted with. A deploy that must run the INCOMING build's down migrations
+	// — the revert always executes before the new binary does — loads them
+	// into a private list and resolves against that.
 	//
-	// When nil the loader registers into core.AppMigrations exactly as before.
+	// When nil the loader registers into core.OwnAppMigrations(app), which
+	// RunAppMigrations, RunAllMigrations and `migrate up/down` read together
+	// with core.AppMigrations.
 	MigrationsList *core.MigrationsList
 }
 

@@ -127,9 +127,9 @@ func UpsertPkgRegistry(app core.App, m *pkgbuild.ParsedManifest, npmPkg string, 
 // AppliedMigrationFiles lists the migrations this database has applied.
 func AppliedMigrationFiles(app core.App) ([]string, error) { return appliedMigrationFiles(app) }
 
-// RegisteredOnly filters a migration list down to those the binary still ships,
+// RegisteredOnly filters a migration list down to those registered for app,
 // so a file deleted from the tree cannot be reverted against.
-func RegisteredOnly(files []string) []string { return registeredOnly(files) }
+func RegisteredOnly(app core.App, files []string) []string { return registeredOnly(app, files) }
 
 // SubtractStrings returns the entries of a not present in b.
 func SubtractStrings(a, b []string) []string { return subtractStrings(a, b) }

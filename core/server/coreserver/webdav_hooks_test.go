@@ -285,7 +285,6 @@ func TestWebDAVHookRejectsUnknownName(t *testing.T) {
 
 	webdav.RegisterTSHooks(WebDAVHostBindings(pbApp), testWebDAVSource())
 
-
 	// The hook loader panics on a throwing hook file; recover so the test can
 	// assert on the message rather than dying.
 	defer func() {
@@ -326,7 +325,6 @@ func TestWebDAVHookTypoRegistersNothing(t *testing.T) {
 	}
 
 	hooks := webdav.RegisterTSHooks(WebDAVHostBindings(pbApp), testWebDAVSource())
-
 
 	func() {
 		defer func() {

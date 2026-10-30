@@ -236,7 +236,8 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	// A single-binary build has no writable migrations dir, and `migrate
 	// create` / `migrate collections` are dev-time authoring commands with
 	// nowhere to write. Applying migrations does not depend on this: that runs
-	// off the in-memory core.AppMigrations registry which jsvm populates above.
+	// off the app's own migrations list (core.OwnAppMigrations), which jsvm
+	// populates above.
 	if opts.MigrationsFS == nil {
 		migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
 			TemplateLang: migratecmd.TemplateLangJS,

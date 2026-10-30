@@ -82,9 +82,7 @@ func (f Fixture) NewApp(t testing.TB) *tests.TestApp {
 	t.Helper()
 	dir := f.DataDir(t)
 
-	globalMigrations.RLock()
 	app, err := tests.NewTestApp(dir)
-	globalMigrations.RUnlock()
 	if err != nil {
 		t.Fatalf("rlstest: NewTestApp from template: %v", err)
 	}
@@ -143,11 +141,6 @@ func ReconcileBundledUsers(app core.App) error {
 	}
 	return nil
 }
-
-// globalMigrations serialises access to core.AppMigrations, the package-level
-// list jsvm appends to: a template build replaces it while it runs, and
-// tests.NewTestApp reads it.
-var globalMigrations sync.RWMutex
 
 type template struct {
 	once  sync.Once
@@ -247,15 +240,6 @@ func migrationFiles(dir string) ([]string, error) {
 }
 
 func (f Fixture) build() (map[string][]byte, error) {
-	globalMigrations.Lock()
-	defer globalMigrations.Unlock()
-
-	saved := core.AppMigrations
-	defer func() { core.AppMigrations = saved }()
-	// The base must see PocketBase's system migrations only; a list a test's
-	// Apply left behind would otherwise run on it too.
-	core.AppMigrations = core.MigrationsList{}
-
 	var app *tests.TestApp
 	var err error
 	switch f.Base {
