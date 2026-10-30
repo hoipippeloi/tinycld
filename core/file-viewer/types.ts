@@ -39,6 +39,12 @@ export interface ThumbnailProps {
 export interface PreviewRegistryEntry {
     thumbnail?: ComponentType<ThumbnailProps>
     preview: ComponentType<PreviewProps>
+    /**
+     * CSS for this type's server-rendered HTML, for surfaces that show that
+     * HTML without the package's own preview component (e.g. a version
+     * history preview).
+     */
+    htmlCss?: string
 }
 
 /**
