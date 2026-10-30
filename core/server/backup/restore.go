@@ -15,6 +15,7 @@ import (
 	"filippo.io/age"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/audit"
 	"tinycld.org/core/backup/archive"
 	"tinycld.org/core/backup/arm"
@@ -52,77 +53,133 @@ type Rebuilder func(ctx context.Context, job *installjob.Job, lockfile format.Lo
 // process is gone, as it does while any restart is on its way.
 var ErrRestartUnderway = errors.New("backup: restart under way")
 
-var (
-	rebuilderMu sync.RWMutex
-	rebuilder   Rebuilder
-)
-
-func RegisterRebuilder(fn Rebuilder) {
-	rebuilderMu.Lock()
-	defer rebuilderMu.Unlock()
-	rebuilder = fn
-}
-
-func HasRebuilder() bool {
-	rebuilderMu.RLock()
-	defer rebuilderMu.RUnlock()
-	return rebuilder != nil
-}
-
-// restartFn asks for this process to be replaced by one that boots onto the
-// staged data: a supervisor drains it later, or, without one, it exits at once.
-// It is a seam rather than a direct call so the package's own tests can observe
-// the request instead of killing the test binary.
-//
-// It REPORTS whether it will restart. A composition that cannot be replaced
-// — a dev-mode server, which has nothing to relaunch it — must say so,
-// because the restore's own state depends on the answer: a restore that returns
-// believing the process is on its way out leaves `restoring` set, and every
-// request after it meets the maintenance 503 with nothing coming to clear it.
-var (
-	restartMu sync.Mutex
-	restartFn = func() bool { return true }
+// restoreState is one app's restore seams and the restore it has in flight.
+// Each app restores its own data, so nothing here is shared between apps.
+type restoreState struct {
+	mu        sync.Mutex
+	rebuilder Rebuilder
+	// restartFn asks for this app's process to be replaced by one that boots
+	// onto the staged data: a supervisor drains it later, or, without one, it
+	// exits at once. It is a seam rather than a direct call so the package's
+	// own tests can observe the request instead of killing the test binary.
+	//
+	// It REPORTS whether it will restart. A composition that cannot be
+	// replaced — a dev-mode server, which has nothing to relaunch it — must
+	// say so, because the restore's own state depends on the answer: a
+	// restore that returns believing the process is on its way out leaves
+	// `restoring` set, and every request after it meets the maintenance 503
+	// with nothing coming to clear it.
+	restartFn func() bool
 	restarted bool
-)
+	// waiting holds the remote sources of this app's restores, by job id, so
+	// SwapSource can hand one a fresh URL.
+	waiting map[string]*format.RangeSource
 
-// SetRestart names the function that asks for this process to be replaced.
-// It returns false when it will NOT restart, so the restore can
-// leave the deployment serving instead of waiting behind the 503 forever.
-func SetRestart(fn func() (restarted bool)) {
-	restartMu.Lock()
-	defer restartMu.Unlock()
+	// restoring is true from the moment a restore is armed until the app's
+	// process ends. Anything that writes to the app's live database has to
+	// stand down once it is set: the staged copy is what the next process
+	// boots on, so a write landing in pb_data after the archive was staged is
+	// silently discarded.
+	restoring atomic.Bool
+}
+
+var restoreKey = appstate.NewKey[*restoreState]("backup.restore")
+
+func restoreOf(app core.App) *restoreState {
+	return restoreKey.GetOrInit(app, func() *restoreState {
+		return &restoreState{
+			restartFn: func() bool { return true },
+			waiting:   map[string]*format.RangeSource{},
+		}
+	})
+}
+
+// RegisterRebuilder names app's rebuilder. The last caller for an app wins.
+func RegisterRebuilder(app core.App, fn Rebuilder) {
+	s := restoreOf(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rebuilder = fn
+}
+
+func rebuilderFor(app core.App) Rebuilder {
+	s := restoreOf(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rebuilder
+}
+
+// HasRebuilder reports whether app can rebuild itself onto an archive's
+// package set.
+func HasRebuilder(app core.App) bool { return rebuilderFor(app) != nil }
+
+// SetRestart names the function that asks for app's process to be replaced.
+// It returns false when it will NOT restart, so the restore can leave the
+// deployment serving instead of waiting behind the 503 forever.
+func SetRestart(app core.App, fn func() (restarted bool)) {
 	if fn == nil {
 		fn = func() bool { return true }
 	}
-	restartFn = fn
+	s := restoreOf(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.restartFn = fn
 }
 
-// requestRestart reports whether the process is on its way out. A function that
-// returns normally AND said true is a composition whose restart is asynchronous;
-// one that returns false has declined.
-func requestRestart() bool {
-	restartMu.Lock()
-	fn := restartFn
-	restarted = true
-	restartMu.Unlock()
+// requestRestart reports whether app's process is on its way out. A function
+// that returns normally AND said true is a composition whose restart is
+// asynchronous; one that returns false has declined.
+func requestRestart(app core.App) bool {
+	s := restoreOf(app)
+	s.mu.Lock()
+	fn := s.restartFn
+	s.restarted = true
+	s.mu.Unlock()
 	return fn()
 }
 
-func restartRequested() bool {
-	restartMu.Lock()
-	defer restartMu.Unlock()
-	return restarted
+func restartRequested(app core.App) bool {
+	s := restoreOf(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.restarted
 }
 
-// restoring is true from the moment a restore is armed until the process ends.
-// Anything that writes to the live database has to stand down once it is set:
-// the staged copy is what the next process boots on, so a write landing in
-// pb_data after the archive was staged is silently discarded.
-var restoring atomic.Bool
+// Restoring reports whether app has armed a restore and is on its way out.
+func Restoring(app core.App) bool { return restoreOf(app).restoring.Load() }
 
-// Restoring reports whether this process has armed a restore and is on its way
-// out.
-func Restoring() bool { return restoring.Load() }
+func setRestoring(app core.App, on bool) { restoreOf(app).restoring.Store(on) }
+
+var ErrNotWaiting = errors.New("backup: no restore is waiting for a source")
+
+// registerWaiting files src under app's restore jobID for SwapSource, and
+// returns what takes it out again.
+func registerWaiting(app core.App, jobID string, src *format.RangeSource) (stop func()) {
+	s := restoreOf(app)
+	s.mu.Lock()
+	s.waiting[jobID] = src
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.waiting, jobID)
+		s.mu.Unlock()
+	}
+}
+
+// SwapSource gives app's waiting restore a fresh URL for the same object. A
+// presigned URL can expire mid-transfer on a large archive, and
+// re-downloading from zero can cost more than the whole restore.
+func SwapSource(app core.App, jobID, url string) error {
+	s := restoreOf(app)
+	s.mu.Lock()
+	src, ok := s.waiting[jobID]
+	s.mu.Unlock()
+	if !ok {
+		return ErrNotWaiting
+	}
+	src.SwapURL(url)
+	return nil
+}
 
 // Source is an archive being read. A local upload is a request body; a remote
 // one is a *format.RangeSource, which can also be handed a fresh URL mid-read.
@@ -146,27 +203,6 @@ type RestoreRequest struct {
 	// archive stream. Source, Ranged and Identity are then unused.
 	Repo repo.Repository
 	Ref  repo.Ref
-}
-
-var ErrNotWaiting = errors.New("backup: no restore is waiting for a source")
-
-var (
-	waitingMu sync.Mutex
-	waiting   = map[string]*format.RangeSource{}
-)
-
-// SwapSource gives a waiting restore a fresh URL for the same object. A
-// presigned URL can expire mid-transfer on a large archive, and re-downloading
-// from zero can cost more than the whole restore.
-func SwapSource(jobID, url string) error {
-	waitingMu.Lock()
-	src, ok := waiting[jobID]
-	waitingMu.Unlock()
-	if !ok {
-		return ErrNotWaiting
-	}
-	src.SwapURL(url)
-	return nil
 }
 
 // StartRestore inserts the ledger row and restores on a goroutine, so an HTTP
@@ -302,7 +338,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 			return
 		}
 		log.Error("restore failed", "id", id, "err", err)
-		restoring.Store(false)
+		setRestoring(app, false)
 		if rerr := os.RemoveAll(pendingDir(app, id)); rerr != nil {
 			log.Warn("could not remove a staged restore", "id", id, "err", rerr)
 		}
@@ -321,7 +357,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 		// Failure is the only outcome this process can announce. Success is
 		// announced by the post-boot finalizer, because a restore that worked
 		// ends by replacing the process that ran it.
-		ctx, cancel := format.Lifetime(context.Background())
+		ctx, cancel := context.WithCancel(TransferContext(app))
 		defer cancel()
 		survive(id, "announce", func() { announceRestore(ctx, app, req, row, false, errMsg) })
 	}()
@@ -336,14 +372,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 	// operator's fresh URL is refused as ErrNotWaiting for exactly the part of
 	// the transfer that has not stalled yet.
 	if req.Ranged != nil {
-		waitingMu.Lock()
-		waiting[id] = req.Ranged
-		waitingMu.Unlock()
-		defer func() {
-			waitingMu.Lock()
-			delete(waiting, id)
-			waitingMu.Unlock()
-		}()
+		defer registerWaiting(app, id, req.Ranged)()
 		// Deferred after the terminal defer above, so it runs BEFORE it: a
 		// watcher still running could otherwise save "waiting_for_source" over
 		// the row the restore just finalized.
@@ -359,7 +388,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 	// deadline is the repository's own; what the restore adds is that a shutdown
 	// reaches it, since a stuck read keeps the interlock and, from phase 4 on,
 	// keeps `restoring` set.
-	repoCtx, cancelRepo := format.Lifetime(context.Background())
+	repoCtx, cancelRepo := context.WithCancel(TransferContext(app))
 	defer cancelRepo()
 	if req.Repo != nil {
 		read, err = req.Repo.Manifest(repoCtx, req.Ref)
@@ -385,7 +414,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 
 	// Phase 2: can this deployment run that package set? A refusal here has
 	// written nothing to disk, which is what makes it safe to refuse late.
-	if !HasRebuilder() && !req.Force {
+	if !HasRebuilder(app) && !req.Force {
 		installed, ierr := installedPackages(app)
 		if ierr != nil {
 			return ierr
@@ -467,7 +496,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 	if err = arm.WriteMarker(restoreDir(app), armed{ID: id, Pending: pending, Pre: prePath, Manifest: read}); err != nil {
 		return err
 	}
-	restoring.Store(true)
+	setRestoring(app, true)
 
 	// Phase 5: the rest of the snapshot, staged and verified before anything is
 	// asked to boot on it.
@@ -508,9 +537,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 	// The source goes FIRST, before anything that can end the process. See
 	// closeSource above: the deferred call cannot be relied on past this point.
 	closeSource()
-	rebuilderMu.RLock()
-	fn := rebuilder
-	rebuilderMu.RUnlock()
+	fn := rebuilderFor(app)
 	if fn != nil && !req.Force {
 		// The claim is handed over, NOT released: see Rebuilder. released is set
 		// first so the success path — where the rebuilder never returns, or
@@ -524,7 +551,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 		}
 		if rerr != nil {
 			// A rebuilder that failed is expected to have released the job, but
-			// the interlock is process-wide: if it did not, nothing else could
+			// the interlock is the app's only one: if it did not, nothing else could
 			// ever run again. Release compares identity before clearing, so this
 			// cannot evict a different holder, and a double release is a no-op.
 			installjob.Release(job)
@@ -539,7 +566,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 		restartSkipped(app, row)
 		return nil
 	}
-	if requestRestart() {
+	if requestRestart(app) {
 		return nil
 	}
 	restartSkipped(app, row)
@@ -557,7 +584,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 func restartSkipped(app core.App, row *core.Record) {
 	log.Error("a restore is staged but nothing will restart this process; "+
 		"restart the server manually to apply the restore", "id", row.Id)
-	restoring.Store(false)
+	setRestoring(app, false)
 	row.Set("metadata", mergeMeta(row, map[string]any{"awaiting_restart": true}))
 	if err := app.Save(row); err != nil {
 		log.Error("could not record that a restore is awaiting a restart", "id", row.Id, "err", err)
@@ -713,19 +740,6 @@ func announceRestore(ctx context.Context, app core.App, req RestoreRequest, row 
 		log.Warn("could not audit a restore", "err", err)
 	}
 }
-
-// SetShutdown and CancelAll bind the process's lifetime to every in-flight
-// transfer. Without them a target that accepts a connection and never reads
-// holds the transfer goroutine — and the installjob interlock behind it — until
-// the process is killed, so no backup, restore or package install can run again.
-//
-// They are re-exported from this package rather than reached through format,
-// which is an implementation detail of the archive shape.
-func SetShutdown(ctx context.Context) { format.SetShutdown(ctx) }
-
-// CancelAll cancels every transfer in flight, so a graceful stop releases the
-// interlock instead of leaving it held by a goroutine that is going away.
-func CancelAll() { format.CancelAll() }
 
 // sweepSafetyCopies removes every safety copy except the ones this restore is
 // about to create. Both kinds are kept on failure on purpose, so the sweep is at

@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/backup"
 	"tinycld.org/core/backup/arm"
 	"tinycld.org/core/listeners"
@@ -80,7 +81,8 @@ func fakeChild() int {
 	ev("start")
 	if os.Getenv("FAKE_APPLY_RESTORE") == "1" {
 		pbData := State{Root: root}.pbDataDir()
-		if err := backup.ApplyPendingRestore(pbData); err != nil {
+		boot := core.NewBaseApp(core.BaseAppConfig{DataDir: pbData})
+		if err := backup.ApplyPendingRestore(boot); err != nil {
 			ev("restore-failed")
 			return 2
 		}

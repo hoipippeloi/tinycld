@@ -42,10 +42,11 @@ func exemptFromMaintenance(method, path string) bool {
 // MaintenanceMiddleware answers 503 while a restore is staging, and while one
 // has swapped its data in but the process has not finalized it. Serving in
 // either window would either discard the write (the staged copy is what boots
+// It reads the restore of the app serving the request.
 // next) or expose data the process has not finished accepting.
 func MaintenanceMiddleware() func(*core.RequestEvent) error {
 	return func(re *core.RequestEvent) error {
-		if !Restoring() || exemptFromMaintenance(re.Request.Method, re.Request.URL.Path) {
+		if !Restoring(re.App) || exemptFromMaintenance(re.Request.Method, re.Request.URL.Path) {
 			return re.Next()
 		}
 		return re.JSON(http.StatusServiceUnavailable, map[string]any{

@@ -71,13 +71,7 @@ func setupBackupCollections(t *testing.T) *tests.TestApp {
 	// backup.Start outlives the ledger's "succeeded": it then notifies the
 	// administrators and posts its callback through this app. Closing the
 	// database under it panics in whichever test runs next.
-	//
-	// The reset comes after the wait, so a restore still running finishes on
-	// the seams restoreSeams installed rather than on the real ones.
-	t.Cleanup(func() {
-		stopBackupRuns(t, app)
-		backup.ResetForTesting()
-	})
+	t.Cleanup(func() { stopBackupRuns(t, app) })
 
 	// The guard for the above: if a future change makes the data dir land in a
 	// shared root again, this fails here rather than by corrupting another
@@ -204,7 +198,7 @@ func backupTestApp(t *testing.T) *tests.TestApp {
 	// exercise the refusal itself set it to something else.
 	allowLoopbackBackupTargets(t, true)
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 	RegisterBackupEndpoints(app)
 	return app
 }
@@ -229,19 +223,13 @@ func allowLoopbackBackupTargets(t *testing.T, allow bool) {
 // The no-op rebuilder releases the job it is handed: the restore hands its claim
 // over rather than releasing it, so a rebuilder that dropped it would leave the
 // interlock held and every later test would see ErrBusy.
-//
-// The seams are removed by setupBackupCollections' cleanup, which waits for the
-// app's runs and then calls backup.ResetForTesting. Reset rather than unset one
-// seam, because the package holds more process-wide state than the rebuilder —
-// a left restoring flag would put every later request behind the maintenance
-// 503. Every caller builds its app with setupBackupCollections.
-func restoreSeams(t *testing.T) {
+func restoreSeams(t *testing.T, app core.App) {
 	t.Helper()
-	backup.RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	backup.RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		installjob.Release(job)
 		return nil
 	})
-	backup.SetRestart(func() bool { return true })
+	backup.SetRestart(app, func() bool { return true })
 }
 
 func makeBackupUser(t *testing.T, app core.App, email, role string) *core.Record {
@@ -594,7 +582,7 @@ func TestRestoreMismatchReturns409WithDiff(t *testing.T) {
 	token := authFor(t, app, "owner@example.com", "owner")
 	// No rebuilder: a deployment that cannot rebuild itself refuses a restore of
 	// a package set it does not carry.
-	backup.RegisterRebuilder(nil)
+	backup.RegisterRebuilder(app, nil)
 
 	var archive bytes.Buffer
 	streamBackupForTest(t, app, &archive)
@@ -631,7 +619,7 @@ func TestRestoreMismatchReturns409WithDiff(t *testing.T) {
 func TestRestoreForceFalseIsNotForce(t *testing.T) {
 	app := backupTestApp(t)
 	token := authFor(t, app, "owner@example.com", "owner")
-	backup.RegisterRebuilder(nil)
+	backup.RegisterRebuilder(app, nil)
 
 	var archive bytes.Buffer
 	streamBackupForTest(t, app, &archive)
@@ -785,7 +773,7 @@ func TestVerifyEndpoint(t *testing.T) {
 // other — not the sequence.
 func TestBootHookFinalizesAndMarksInterrupted(t *testing.T) {
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 	makeBackupUser(t, app, "owner@example.com", "owner")
 
 	// A row left running by the process that armed the restore, started before
@@ -884,7 +872,7 @@ func TestBootHookFinalizesAndMarksInterrupted(t *testing.T) {
 // A row a previous process left running is still closed by the same hook.
 func TestBootHookMarksAnAbandonedRunInterrupted(t *testing.T) {
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 
 	col, err := app.FindCollectionByNameOrId("backups")
 	if err != nil {
@@ -918,7 +906,7 @@ func TestBootHookMarksAnAbandonedRunInterrupted(t *testing.T) {
 // land in a pb_data the next process is about to replace.
 func TestMaintenanceMiddlewareBindsBeforeAuthLoading(t *testing.T) {
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 	RegisterBackupBoot(app)
 
 	pbRouter, err := apis.NewRouter(app)
@@ -1083,7 +1071,7 @@ func TestBackupToTargetSurvivesTheRequestEnding(t *testing.T) {
 func TestBackupRefusesAnUnroutableTarget(t *testing.T) {
 	allowLoopbackBackupTargets(t, false)
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 	RegisterBackupEndpoints(app)
 	admin := authFor(t, app, "admin@example.com", "admin")
 	owner := authFor(t, app, "owner@example.com", "owner")
@@ -1172,7 +1160,7 @@ func TestUploadedRestoreAnswers202BeforeTheProcessEnds(t *testing.T) {
 	token := authFor(t, app, "owner@example.com", "owner")
 	// No rebuilder: this deployment restarts onto its own package set, so phase 6
 	// is the restart seam rather than a rebuild.
-	backup.RegisterRebuilder(nil)
+	backup.RegisterRebuilder(app, nil)
 
 	var archive bytes.Buffer
 	streamBackupForTest(t, app, &archive)
@@ -1199,7 +1187,7 @@ func TestUploadedRestoreAnswers202BeforeTheProcessEnds(t *testing.T) {
 	// and only cleans it up because this stub returns.
 	uploadDir := filepath.Join(backup.LedgerPath(app), "restore", "upload")
 	var spoolAtRestart int
-	backup.SetRestart(func() bool {
+	backup.SetRestart(app, func() bool {
 		once.Do(func() {
 			entries, _ := os.ReadDir(uploadDir)
 			spoolAtRestart = len(entries)
@@ -1269,7 +1257,7 @@ func TestUploadedRestoreAnswers202BeforeTheProcessEnds(t *testing.T) {
 func TestUploadedMismatchLeavesNoSpoolFile(t *testing.T) {
 	app := backupTestApp(t)
 	token := authFor(t, app, "owner@example.com", "owner")
-	backup.RegisterRebuilder(nil)
+	backup.RegisterRebuilder(app, nil)
 
 	var archive bytes.Buffer
 	streamBackupForTest(t, app, &archive)
@@ -1320,7 +1308,7 @@ func TestUploadedMismatchLeavesNoSpoolFile(t *testing.T) {
 // scratch directory and for the same reason.
 func TestBootClearsAStrandedUploadSpool(t *testing.T) {
 	app := setupBackupCollections(t)
-	restoreSeams(t)
+	restoreSeams(t, app)
 
 	spoolDir := filepath.Join(backup.LedgerPath(app), "restore", "upload")
 	if err := os.MkdirAll(spoolDir, 0o700); err != nil {

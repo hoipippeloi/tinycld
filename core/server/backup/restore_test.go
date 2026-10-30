@@ -45,7 +45,6 @@ import (
 // one happens to run eleventh.
 func archiveFor(t *testing.T) ([]byte, age.Identity) {
 	t.Helper()
-	resetDailyLimitForTesting()
 	src := newTestApp(t)
 	makeUser(t, src, "owner@example.com", "owner")
 	id, err := age.GenerateX25519Identity()
@@ -62,24 +61,6 @@ func archiveFor(t *testing.T) ([]byte, age.Identity) {
 type readCloser struct{ *bytes.Reader }
 
 func (readCloser) Close() error { return nil }
-
-// resetRestoreState clears the package-level registry and restart flag so one
-// test's rebuilder cannot leak into the next.
-func resetRestoreState(t *testing.T) {
-	t.Helper()
-	t.Cleanup(func() {
-		RegisterRebuilder(nil)
-		restartMu.Lock()
-		restarted = false
-		restartMu.Unlock()
-		restoring.Store(false)
-	})
-	RegisterRebuilder(nil)
-	restartMu.Lock()
-	restarted = false
-	restartMu.Unlock()
-	restoring.Store(false)
-}
 
 // dropPackage removes a package from the target's registry so the archive's
 // package set no longer matches this binary's.
@@ -120,11 +101,10 @@ func readArmed(path string, out *armed) error {
 func TestRestoreHandsItsClaimToTheRebuilder(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	var gotJob *installjob.Job
 	var heldDuringRebuild *installjob.Job
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		gotJob = job
 		heldDuringRebuild = installjob.Current(app)
 		installjob.Release(job)
@@ -167,10 +147,9 @@ func TestRestoreHandsItsClaimToTheRebuilder(t *testing.T) {
 func TestRestoreReleasesTheClaimWhenTheRebuilderFailsWithoutIt(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	boom := errors.New("rebuild exploded")
-	RegisterRebuilder(func(_ context.Context, _ *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, _ *installjob.Job, _ format.Lockfile) error {
 		return boom // deliberately does NOT release
 	})
 
@@ -187,10 +166,9 @@ func TestRestoreStagesAndCallsRebuilder(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 	owner := makeUser(t, app, "owner2@example.com", "owner")
-	resetRestoreState(t)
 
 	var gotLock format.Lockfile
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, lf format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, lf format.Lockfile) error {
 		gotLock = lf
 		installjob.Release(job)
 		return nil
@@ -220,7 +198,7 @@ func TestRestoreStagesAndCallsRebuilder(t *testing.T) {
 	if a.Manifest.Core == "" {
 		t.Fatal("the armed marker must carry the manifest the restored process reports")
 	}
-	// Restoring() is deliberately NOT asserted here. This stub rebuilder returns
+	// Restoring(app) is deliberately NOT asserted here. This stub rebuilder returns
 	// nil without ending the process, which is the same shape the production
 	// rebuilder has when its requestRestart is a no-op (dev mode) — so the restore
 	// correctly treats it as "staged, nothing will apply it" and leaves
@@ -272,7 +250,6 @@ func TestRestoreStagesAndCallsRebuilder(t *testing.T) {
 func TestRestoreRefusesMismatchWithoutRebuilder(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	dropPackage(t, app, "widgets")
 
 	_, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id})
@@ -282,7 +259,7 @@ func TestRestoreRefusesMismatchWithoutRebuilder(t *testing.T) {
 	if _, err := os.Stat(restoreDir(app)); !os.IsNotExist(err) {
 		t.Fatal("a refusal must write nothing to disk")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a refused restore must not leave the process marked as restoring")
 	}
 }
@@ -290,7 +267,6 @@ func TestRestoreRefusesMismatchWithoutRebuilder(t *testing.T) {
 func TestRestoreForceSkipsCheckAndRestarts(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	dropPackage(t, app, "widgets")
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id, Force: true})
@@ -300,7 +276,7 @@ func TestRestoreForceSkipsCheckAndRestarts(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(pendingDir(app, jobID), "data.db")); err != nil {
 		t.Fatal("force did not stage")
 	}
-	if !restartRequested() {
+	if !restartRequested(app) {
 		t.Fatal("force path must request a restart when no rebuilder exists")
 	}
 }
@@ -308,11 +284,10 @@ func TestRestoreForceSkipsCheckAndRestarts(t *testing.T) {
 func TestRestoreEqualSetWithoutRebuilderProceeds(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	if _, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id}); err != nil {
 		t.Fatal(err)
 	}
-	if !restartRequested() {
+	if !restartRequested(app) {
 		t.Fatal("an equal package set with no rebuilder must restart the process itself")
 	}
 }
@@ -352,7 +327,6 @@ func archiveWithBrokenDB(t *testing.T) ([]byte, age.Identity) {
 func TestRestoreBadArchiveFailsClean(t *testing.T) {
 	data, id := archiveWithBrokenDB(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id})
 	if err == nil {
@@ -374,7 +348,7 @@ func TestRestoreBadArchiveFailsClean(t *testing.T) {
 	if _, err := os.Stat(armedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("still armed")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a failed restore must clear the restoring flag")
 	}
 	if _, err := os.Stat(preBackupPath(app, jobID)); err != nil {
@@ -389,8 +363,7 @@ func TestRestoreTamperedArchiveNeverReachesTheRebuilder(t *testing.T) {
 	data, id := archiveFor(t)
 	data[len(data)-10] ^= 0xff
 	app := newTestApp(t)
-	resetRestoreState(t)
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		defer installjob.Release(job)
 		t.Error("rebuilder must not run for a tampered archive")
 		return nil
@@ -410,7 +383,7 @@ func TestRestoreTamperedArchiveNeverReachesTheRebuilder(t *testing.T) {
 	if _, err := os.Stat(armedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("still armed")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a failed restore must clear the restoring flag")
 	}
 }
@@ -419,7 +392,6 @@ func TestRestoreTamperedArchiveNeverReachesTheRebuilder(t *testing.T) {
 // that cannot even be opened is still visible in the ledger as a failed run.
 func TestRestoreUnreadableArchiveStillLeavesAFailedRow(t *testing.T) {
 	app := newTestApp(t)
-	resetRestoreState(t)
 	other, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
@@ -444,7 +416,8 @@ func TestRestoreUnreadableArchiveStillLeavesAFailedRow(t *testing.T) {
 }
 
 func TestSwapSourceWithoutAWaitingRestore(t *testing.T) {
-	if err := SwapSource("nope", "https://example.com/x"); !errors.Is(err, ErrNotWaiting) {
+	app := bareApp(t)
+	if err := SwapSource(app, "nope", "https://example.com/x"); !errors.Is(err, ErrNotWaiting) {
 		t.Fatalf("want ErrNotWaiting, got %v", err)
 	}
 }
@@ -452,8 +425,7 @@ func TestSwapSourceWithoutAWaitingRestore(t *testing.T) {
 func TestRestoreWaitsForSourceAndSwaps(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		installjob.Release(job)
 		return nil
 	})
@@ -517,7 +489,7 @@ func TestRestoreWaitsForSourceAndSwaps(t *testing.T) {
 	if !waited {
 		t.Fatal("the row never reported waiting_for_source while the URL was expired")
 	}
-	if err := SwapSource(jobID, good.URL); err != nil {
+	if err := SwapSource(app, jobID, good.URL); err != nil {
 		t.Fatal(err)
 	}
 	staged := time.Now().Add(20 * time.Second)
@@ -614,7 +586,6 @@ func archiveWithSymlinkMember(t *testing.T) ([]byte, age.Identity) {
 func TestRestoreRefusesANonRegularMember(t *testing.T) {
 	data, id := archiveWithSymlinkMember(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id})
 	if err == nil {
@@ -641,7 +612,7 @@ func TestRestoreRefusesANonRegularMember(t *testing.T) {
 	if _, err := os.Stat(armedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("still armed")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a failed restore must clear the restoring flag")
 	}
 }
@@ -652,8 +623,7 @@ func TestRestoreRefusesANonRegularMember(t *testing.T) {
 func TestRestoreForceSkipsTheRebuilder(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		defer installjob.Release(job)
 		t.Error("Force must not call the rebuilder")
 		return nil
@@ -666,7 +636,7 @@ func TestRestoreForceSkipsTheRebuilder(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(pendingDir(app, jobID), "data.db")); err != nil {
 		t.Fatal("force did not stage")
 	}
-	if !restartRequested() {
+	if !restartRequested(app) {
 		t.Fatal("Force must restart the process itself rather than rebuild")
 	}
 }
@@ -701,8 +671,7 @@ func TestIntegrityCheckAcceptsARealSnapshot(t *testing.T) {
 func TestRestoreStagesWithPocketBasePermissions(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id, Force: true})
 	if err != nil {
@@ -739,8 +708,7 @@ func TestRestoreStagesWithPocketBasePermissions(t *testing.T) {
 func TestRestoreMarksAStagingDirectoryComplete(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id, Force: true})
 	if err != nil {
@@ -756,8 +724,7 @@ func TestRestoreMarksAStagingDirectoryComplete(t *testing.T) {
 func TestRestoreLeavesAFailedStageUnmarked(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 
 	// Corrupt the tail so the archive's own checksums fail at Verify, after the
 	// members are already on disk.
@@ -778,7 +745,6 @@ func TestRestoreLeavesAFailedStageUnmarked(t *testing.T) {
 // presigned source URL. The failure defer copies it into the row's error column.
 func TestFailedRestoreRecordsNoSignedURLInTheLedger(t *testing.T) {
 	app := newTestApp(t)
-	resetRestoreState(t)
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
@@ -808,7 +774,6 @@ func TestRestoreGivesUpOnAStalledSourceAndReleasesTheInterlock(t *testing.T) {
 
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -848,8 +813,7 @@ func TestRestoreGivesUpOnAStalledSourceAndReleasesTheInterlock(t *testing.T) {
 func TestRestoreThatCannotRestartLeavesTheDeploymentServing(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return false })
+	SetRestart(app, func() bool { return false })
 
 	jobID, err := Restore(app, RestoreRequest{
 		Source: readCloser{bytes.NewReader(data)}, Identity: identity, Force: true,
@@ -857,7 +821,7 @@ func TestRestoreThatCannotRestartLeavesTheDeploymentServing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a restore nothing will restart must not leave the deployment behind the 503")
 	}
 	row, rerr := app.FindRecordById("backups", jobID)
@@ -887,15 +851,14 @@ func TestRestoreThatCannotRestartLeavesTheDeploymentServing(t *testing.T) {
 func TestRestoreThatWillRestartStaysInMaintenanceMode(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 
 	if _, err := Restore(app, RestoreRequest{
 		Source: readCloser{bytes.NewReader(data)}, Identity: identity, Force: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !Restoring() {
+	if !Restoring(app) {
 		t.Fatal("a restore on its way out must keep serving 503")
 	}
 }
@@ -908,10 +871,9 @@ func TestRestoreThatWillRestartStaysInMaintenanceMode(t *testing.T) {
 func TestRestoreRebuilderThatCannotRestartLeavesTheDeploymentServing(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	// Returns nil WITHOUT ending the process: exactly what the production
 	// rebuilder does when requestRestart is a no-op.
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		installjob.Release(job)
 		return nil
 	})
@@ -922,7 +884,7 @@ func TestRestoreRebuilderThatCannotRestartLeavesTheDeploymentServing(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a rebuild nothing restarted must not leave the deployment behind the 503")
 	}
 	row, rerr := app.FindRecordById("backups", jobID)
@@ -947,8 +909,7 @@ func TestRestoreRebuilderThatCannotRestartLeavesTheDeploymentServing(t *testing.
 func TestRestoreRebuilderFailureIsNotAnAwaitedRestart(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		installjob.Release(job)
 		return errors.New("toolchain is missing")
 	})
@@ -982,8 +943,7 @@ func TestRestoreRebuilderFailureIsNotAnAwaitedRestart(t *testing.T) {
 func TestRestoreRebuilderWithRestartUnderwayStaysInMaintenanceMode(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		installjob.Release(job)
 		return ErrRestartUnderway
 	})
@@ -994,7 +954,7 @@ func TestRestoreRebuilderWithRestartUnderwayStaysInMaintenanceMode(t *testing.T)
 	if err != nil {
 		t.Fatalf("a restart under way failed the restore: %v", err)
 	}
-	if !Restoring() {
+	if !Restoring(app) {
 		t.Fatal("a restore whose restart is under way must keep serving 503")
 	}
 	row, rerr := app.FindRecordById("backups", jobID)
@@ -1020,11 +980,10 @@ func TestRestoreRebuilderWithRestartUnderwayStaysInMaintenanceMode(t *testing.T)
 func TestRestoreRebuilderThatRestartsStaysInMaintenanceMode(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		close(entered)
 		<-release // the production rebuilder os.Exit()s here and never returns
 		installjob.Release(job)
@@ -1049,7 +1008,7 @@ func TestRestoreRebuilderThatRestartsStaysInMaintenanceMode(t *testing.T) {
 	}
 	// Inside the rebuilder, which in production is the last thing this process
 	// does: the restore is armed and serving 503.
-	if !Restoring() {
+	if !Restoring(app) {
 		t.Fatal("a restore handed to a rebuilder must stay in maintenance mode")
 	}
 }
@@ -1078,13 +1037,12 @@ func (o *orderedSource) Close() error {
 // not on the close alone: a test that only checked "closed by the end" passes on
 // the broken code, because the fake restart here DOES return.
 func TestRestoreClosesItsSourceBeforeTheRestart(t *testing.T) {
-	resetRestoreState(t)
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 
 	src := &orderedSource{r: bytes.NewReader(data)}
 	closedBeforeRestart := false
-	SetRestart(func() bool {
+	SetRestart(app, func() bool {
 		closedBeforeRestart = src.closed
 		return true
 	})
@@ -1104,13 +1062,12 @@ func TestRestoreClosesItsSourceBeforeTheRestart(t *testing.T) {
 // The same for the rebuilder path: a rebuilder that succeeds ends the process, so
 // it too must be handed control only after the source is released.
 func TestRestoreClosesItsSourceBeforeTheRebuilder(t *testing.T) {
-	resetRestoreState(t)
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 
 	src := &orderedSource{r: bytes.NewReader(data)}
 	closedBeforeRebuild := false
-	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
+	RegisterRebuilder(app, func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		closedBeforeRebuild = src.closed
 		installjob.Release(job)
 		return nil
@@ -1129,7 +1086,6 @@ func TestRestoreClosesItsSourceBeforeTheRebuilder(t *testing.T) {
 // path — including the failure paths, where phase 6 is never reached — so the
 // guard has to make the second call a no-op rather than double-closing a file.
 func TestRestoreClosesItsSourceExactlyOnce(t *testing.T) {
-	resetRestoreState(t)
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 
@@ -1204,8 +1160,7 @@ func (o *memObj) Close() error {
 
 func TestRestoreFromARepositoryStagesAndArms(t *testing.T) {
 	app := newTestApp(t)
-	t.Cleanup(ResetForTesting)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 	r := memRepo(t)
 	id, err := Run(app, Request{Kind: KindScheduled, Repo: r})
 	if err != nil {
@@ -1254,7 +1209,6 @@ func (failingFetchRepo) List(context.Context) ([]repo.SnapshotInfo, error) {
 
 func TestRestoreFromARepositoryFetchFailureLeavesNoMarker(t *testing.T) {
 	app := newTestApp(t)
-	resetRestoreState(t)
 	r := failingFetchRepo{}
 
 	jobID, err := Restore(app, RestoreRequest{Repo: r, Ref: repo.Ref("whatever"), Force: true})
@@ -1277,7 +1231,7 @@ func TestRestoreFromARepositoryFetchFailureLeavesNoMarker(t *testing.T) {
 	if _, err := os.Stat(armedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("still armed")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("a failed restore must clear the restoring flag")
 	}
 	if _, err := os.Stat(preBackupPath(app, jobID)); err != nil {
@@ -1290,11 +1244,9 @@ func TestRestoreFromARepositoryFetchFailureLeavesNoMarker(t *testing.T) {
 // stall deadline belongs to the repository (only it sees bytes move); the
 // engine's part is that a shutdown reaches it.
 func TestCancelAllEndsARepositoryRestoreInFlight(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	SetShutdown(context.Background())
 
 	app := newTestApp(t)
-	resetRestoreState(t)
+	Arm(app)
 	r := newBlockingRepo("fetch")
 	type result struct {
 		id  string
@@ -1310,14 +1262,14 @@ func TestCancelAllEndsARepositoryRestoreInFlight(t *testing.T) {
 			break
 		}
 	}
-	CancelAll()
+	lifetimeOf(app).cancel()
 	select {
 	case res := <-done:
 		if res.err == nil {
 			t.Fatal("a cancelled fetch must fail the restore")
 		}
 		assertReleased(t, app, res.id)
-		if Restoring() {
+		if Restoring(app) {
 			t.Fatal("a cancelled restore must clear the restoring flag")
 		}
 	case <-time.After(10 * time.Second):
@@ -1326,11 +1278,9 @@ func TestCancelAllEndsARepositoryRestoreInFlight(t *testing.T) {
 }
 
 func TestCancelAllEndsARepositoryManifestReadInFlight(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	SetShutdown(context.Background())
 
 	app := newTestApp(t)
-	resetRestoreState(t)
+	Arm(app)
 	r := newBlockingRepo("manifest")
 	done := make(chan error, 1)
 	go func() {
@@ -1338,7 +1288,7 @@ func TestCancelAllEndsARepositoryManifestReadInFlight(t *testing.T) {
 		done <- err
 	}()
 	<-r.entered
-	CancelAll()
+	lifetimeOf(app).cancel()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -1371,7 +1321,6 @@ func pbsRepoFor(t *testing.T, srv *pbstest.Server, backupID string) repo.Reposit
 // backup and would already have staged the other organization's manifest.
 func TestRestoreRefusesAnotherBackupsSnapshotBeforePhaseThree(t *testing.T) {
 	app := newTestApp(t)
-	resetRestoreState(t)
 	srv := pbstest.NewServer(t)
 	res, err := pbsRepoFor(t, srv, "other.example").Put(context.Background(), repotest.Fixture(t), nil)
 	if err != nil {

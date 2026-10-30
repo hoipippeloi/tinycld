@@ -202,7 +202,7 @@ func run(app core.App, req Request, row *core.Record, job *installjob.Job) (err 
 		})
 		// The same lifetime as the transfer: a shutdown has to reach the
 		// network calls here too, or StopAll waits on a peer that never answers.
-		ctx, cancel := format.Lifetime(context.Background())
+		ctx, cancel := context.WithCancel(TransferContext(app))
 		defer cancel()
 		survive(row.Id, "announce", func() { announce(ctx, app, req, row, status, errMsg) })
 		survive(row.Id, "callback", func() { postCallback(ctx, req.Callback, row) })
@@ -235,9 +235,9 @@ func run(app core.App, req Request, row *core.Record, job *installjob.Job) (err 
 	// A repository's client owns its sockets, and one whose server goes silent
 	// blocks forever: the run would keep the interlock and keep renewing the
 	// delete hold, so every storage delete is journaled for the life of the
-	// process. The watchdog ends a Put whose count stops moving, and a shutdown
+	// process. The watchdog ends a Put whose count stops moving, and app's stop
 	// ends it too.
-	ctx, watchdog := format.Watch(context.Background())
+	ctx, watchdog := format.Watch(TransferContext(app))
 	defer watchdog.Stop()
 	putRan = true
 	result, err = r.Put(ctx, snap, func(n int64) {

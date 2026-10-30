@@ -143,7 +143,6 @@ func TestHumanBytesReadsAsSizes(t *testing.T) {
 func TestRestoreRefusesWhenThereIsNoRoomForTheStagedArchive(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	fakeFreeSpace(t, 1)
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: identity})
@@ -167,7 +166,6 @@ func TestRestoreRefusesWhenThereIsNoRoomForTheStagedArchive(t *testing.T) {
 func TestRestoreSweepsAnEarlierFailedRestoresCopies(t *testing.T) {
 	data, identity := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
 	fakeFreeSpace(t, 1<<40)
 
 	stale := preBackupPath(app, "older")

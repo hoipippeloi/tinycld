@@ -79,7 +79,6 @@ func TestInstalledPackagesSkipsCore(t *testing.T) {
 // reach the same verdict as phase 2 while writing NOTHING: a check that staged
 // or armed anything would turn a refusal into a half-started restore.
 func TestCheckManifestDecidesWithoutSideEffects(t *testing.T) {
-	resetRestoreState(t)
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 
@@ -120,7 +119,6 @@ func TestCheckManifestDecidesWithoutSideEffects(t *testing.T) {
 // A deployment that can rebuild itself has nothing to refuse: it becomes whatever
 // the archive names, so the check must pass a set this binary does not carry.
 func TestCheckManifestAcceptsAnyoneWithARebuilder(t *testing.T) {
-	resetRestoreState(t)
 	data, id := archiveFor(t)
 	app := newTestApp(t)
 	regs, err := app.FindRecordsByFilter("pkg_registry", "slug = 'widgets'", "", 0, 0)
@@ -130,7 +128,7 @@ func TestCheckManifestAcceptsAnyoneWithARebuilder(t *testing.T) {
 	if err := app.Delete(regs[0]); err != nil {
 		t.Fatal(err)
 	}
-	RegisterRebuilder(func(context.Context, *installjob.Job, format.Lockfile) error { return nil })
+	RegisterRebuilder(app, func(context.Context, *installjob.Job, format.Lockfile) error { return nil })
 	if _, err := CheckManifest(app, bytes.NewReader(data), id); err != nil {
 		t.Fatalf("a rebuilder must make any package set acceptable: %v", err)
 	}

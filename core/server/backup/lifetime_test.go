@@ -22,10 +22,9 @@ import (
 // deferred func — and end the process mid-shutdown with the wrong exit status.
 func TestATerminalStepThatPanicsIsLoggedNotFatal(t *testing.T) {
 	buf := captureLog(t)
-	t.Cleanup(ResetForTesting)
-	SetShutdown(context.Background())
 
 	app := newTestApp(t)
+	Arm(app)
 	makeUser(t, app, "owner@example.com", "owner")
 	r := newBlockingRepo("put")
 	done := make(chan error, 1)
@@ -42,7 +41,7 @@ func TestATerminalStepThatPanicsIsLoggedNotFatal(t *testing.T) {
 	if err := app.ResetBootstrapState(); err != nil {
 		t.Fatal(err)
 	}
-	CancelAll()
+	lifetimeOf(app).cancel()
 
 	select {
 	case <-done:
@@ -113,10 +112,9 @@ func (r *stubbornRepo) Put(context.Context, *snapshot.Snapshot, func(int64)) (re
 // The stop is bounded: a run it cannot end must not hold the process open, and
 // the caller is told how many runs it is closing the app under.
 func TestStopAllReportsARunItCouldNotWaitFor(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	SetShutdown(context.Background())
 
 	app := newTestApp(t)
+	Arm(app)
 	r := &stubbornRepo{entered: make(chan struct{}), release: make(chan struct{})}
 	if _, err := Start(app, Request{Kind: KindScheduled, Repo: r}); err != nil {
 		t.Fatal(err)
@@ -163,7 +161,6 @@ func (panickingFetchRepo) Fetch(_ context.Context, _ repo.Ref, dir string) error
 // the row as failed, tell the administrators, and release the interlock.
 func TestARestoreThatPanicsFailsLikeAnyOtherRestore(t *testing.T) {
 	app := newTestApp(t)
-	resetRestoreState(t)
 	makeUser(t, app, "owner@example.com", "owner")
 
 	// On a goroutine of its own, as StartRestore runs it: a panic that escaped
@@ -204,7 +201,7 @@ func TestARestoreThatPanicsFailsLikeAnyOtherRestore(t *testing.T) {
 	if _, err := os.Stat(pendingDir(app, jobID)); !os.IsNotExist(err) {
 		t.Error("the half-staged pending dir was left behind")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Error("the restoring flag is still set")
 	}
 	if installjob.Running(app) {

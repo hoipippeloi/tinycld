@@ -90,7 +90,7 @@ type stallGuard struct {
 // The caller must call stop() once the transfer is over, or the timer holds a
 // reference to the context for StallDeadline after it ends.
 func newStallGuard(parent context.Context) (context.Context, *stallGuard) {
-	ctx, cancel := transferContext(parent)
+	ctx, cancel := context.WithCancel(parent)
 	g := &stallGuard{cancel: cancel}
 	g.timer = newStallTimer(StallDeadline, g.fire)
 	return ctx, g
@@ -139,7 +139,7 @@ func (g *stallGuard) fired() bool {
 
 // classify turns the cancellation the guard caused back into ErrStalled. Without
 // it the caller sees "context canceled" and cannot tell a stalled transfer from
-// a shutdown or an operator's cancel.
+// a stop of its owner or an operator's cancel.
 func (g *stallGuard) classify(err error) error {
 	if err == nil {
 		return nil
@@ -155,9 +155,10 @@ func (g *stallGuard) classify(err error) error {
 // no socket and progress is only what the caller reports.
 type Watchdog struct{ g *stallGuard }
 
-// Watch derives a context that ends when parent does, at shutdown, at CancelAll,
-// or once Progressed has not been called for StallDeadline. The caller must
-// call Stop once the transfer is over.
+// Watch derives a context that ends when parent does, or once Progressed has
+// not been called for StallDeadline. The caller must call Stop once the
+// transfer is over. A caller binds parent to the lifetime of whatever owns the
+// transfer, so a graceful stop reaches it.
 func Watch(parent context.Context) (context.Context, *Watchdog) {
 	ctx, g := newStallGuard(parent)
 	return ctx, &Watchdog{g: g}
@@ -187,53 +188,6 @@ func (r *watchedReader) Read(p []byte) (int, error) {
 		r.w.Progressed()
 	}
 	return n, err
-}
-
-// Lifetime is a transfer's context without a stall deadline, for a call whose
-// progress the caller cannot see: it still ends at shutdown and at CancelAll.
-func Lifetime(parent context.Context) (context.Context, context.CancelFunc) {
-	return transferContext(parent)
-}
-
-// Shutdown is the process-wide parent every transfer derives from, so a graceful
-// stop cancels the ones in flight instead of letting them hold the installjob
-// interlock until the process is killed.
-//
-// It is a package var rather than a parameter because the transports are built
-// from an HTTP handler, which has no reason to know about process lifetime, and
-// because a transfer started before the shutdown must be cancelled by it too.
-var (
-	shutdownMu  sync.Mutex
-	shutdownCtx = context.Background()
-	shutdownAll context.CancelFunc
-)
-
-// SetShutdown binds the process's lifetime. Every transfer started afterwards is
-// cancelled when ctx is done.
-func SetShutdown(ctx context.Context) {
-	shutdownMu.Lock()
-	defer shutdownMu.Unlock()
-	shutdownCtx, shutdownAll = context.WithCancel(ctx)
-}
-
-// CancelAll cancels every transfer in flight. Safe to call more than once, and
-// safe to call when nothing registered a shutdown.
-func CancelAll() {
-	shutdownMu.Lock()
-	cancel := shutdownAll
-	shutdownMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-// ResetShutdownForTesting drops the bound lifetime. A test that cancels the
-// process-wide context would otherwise kill every transfer in every later test
-// in the binary.
-func ResetShutdownForTesting() {
-	shutdownMu.Lock()
-	defer shutdownMu.Unlock()
-	shutdownCtx, shutdownAll = context.Background(), nil
 }
 
 // ManualStallTimerForTesting is a Watchdog's timer driven by explicit steps
@@ -293,28 +247,4 @@ func InstallManualStallTimerForTesting(onCreate func(*ManualStallTimerForTesting
 		return mt
 	}
 	return func() { newStallTimer = prev }
-}
-
-// transferContext merges a caller's context with the process lifetime: whichever
-// ends first ends the transfer.
-func transferContext(parent context.Context) (context.Context, context.CancelFunc) {
-	shutdownMu.Lock()
-	shutdown := shutdownCtx
-	shutdownMu.Unlock()
-	ctx, cancel := context.WithCancel(parent)
-	if shutdown.Done() == nil {
-		return ctx, cancel
-	}
-	// AfterFunc runs cancel on its own goroutine even when shutdown has already
-	// ended, so a transfer begun after a stop would start on a live context and
-	// race its own cancellation. It must not start at all.
-	if shutdown.Err() != nil {
-		cancel()
-		return ctx, cancel
-	}
-	stop := context.AfterFunc(shutdown, cancel)
-	return ctx, func() {
-		stop()
-		cancel()
-	}
 }
