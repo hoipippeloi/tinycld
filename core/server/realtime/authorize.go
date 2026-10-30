@@ -139,6 +139,11 @@ type RoomKindOptions struct {
 	// this callback.
 	OnEmpty func(roomID string)
 
+	// EditCheckpoints, when true, makes the room record who edits and fire
+	// an editcheckpoint after an idle period and when the last client
+	// leaves. The package that keeps versions listens on editcheckpoint.
+	EditCheckpoints bool
+
 	// ForceFlush, if non-nil, synchronously persists the current state of
 	// the given room to durable storage, returning only when the write
 	// has landed (or failed). Wired to SaveCoordinator.FlushNow. The

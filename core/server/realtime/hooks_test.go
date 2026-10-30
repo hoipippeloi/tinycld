@@ -157,7 +157,12 @@ func startTestServerWithOpts(t *testing.T, broker *Broker, opts RoomKindOptions)
 			IdleTimeout:   defaultIdleTimeout,
 			MaxFrameBytes: defaultMaxFrameBytes,
 			PingInterval:  defaultPingInterval,
-		}, connIdentity{kind: kind, roomID: roomID, authID: r.Header.Get("X-Test-User")}, conn)
+		}, connIdentity{
+			kind:        kind,
+			roomID:      roomID,
+			authID:      r.Header.Get("X-Test-User"),
+			displayName: r.Header.Get("X-Test-Display-Name"),
+		}, conn)
 	})
 
 	srv := httptest.NewServer(mux)

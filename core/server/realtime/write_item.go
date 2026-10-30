@@ -44,6 +44,9 @@ func (b *Broker) WriteItem(id string, write func() error) error {
 		b.mu.Lock()
 		if b.fenced[id]--; b.fenced[id] == 0 {
 			delete(b.fenced, id)
+			// Editors the write did not take: the write replaced their
+			// state, so no later version is theirs.
+			delete(b.heldEditors, id)
 		}
 		b.mu.Unlock()
 	}()
