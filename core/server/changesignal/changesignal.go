@@ -128,3 +128,32 @@ func isSignedIn(client subscriptions.Client) bool {
 	auth, _ := client.Get(apis.RealtimeClientAuthKey).(*core.Record)
 	return auth != nil
 }
+
+// Touch signals collection after a write that model hooks did not see: a
+// raw app.DB() statement, a bulk INSERT … SELECT, a migration. Pass the
+// app that ran the write; inside a transaction the signal waits for the
+// commit and is dropped on a rollback. An unknown or system collection
+// logs a warning and sends nothing, as a model write to a system
+// collection sends nothing.
+func Touch(app core.App, collection string) {
+	s, _ := app.Store().Get(storeKey).(*signaler)
+	if s == nil {
+		return
+	}
+	col, err := app.FindCachedCollectionByNameOrId(collection)
+	if err != nil || col.System {
+		log.Warn("touch names no signalable collection", "collection", collection)
+		return
+	}
+	name := col.Name
+	if tx := app.TxInfo(); tx != nil {
+		tx.OnComplete(func(txErr error) error {
+			if txErr == nil {
+				s.changed(name)
+			}
+			return nil
+		})
+		return
+	}
+	s.changed(name)
+}
