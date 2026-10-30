@@ -33,7 +33,7 @@ func TestMailDomainsWiredFromSettings(t *testing.T) {
 // boot order, not the inverted one the other tests here use for convenience.
 //
 // In production (system_config.go RegisterSystemConfig), wireMailDomains(noOrgName)
-// runs synchronously and FIRST — before systemConfig.load(app), which only
+// runs synchronously and FIRST — before SystemSettings(app).load(app), which only
 // happens later inside an OnServe hook. So at wiring time syscfg.Get returns
 // "" for every key, including the account token. A registrar that captures
 // the token at construction (the old behaviour) is permanently starved: it

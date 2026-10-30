@@ -10,6 +10,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/maildomains"
 	"tinycld.org/core/mailer"
 	"tinycld.org/core/syscfg"
@@ -32,13 +33,20 @@ type SystemConfig struct {
 	onChange []func(key, value string)
 }
 
-// systemConfig is the process-wide instance, constructed by RegisterSystemConfig
-// and read by subsystems (sentry.go, push, mail) via SystemSettings().
-var systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+// systemConfigKey holds each app's SystemConfig: the values of that app's own
+// system_settings collection and the change callbacks of that app's
+// consumers. Kept on the app so that one app's settings, secret flags and
+// callbacks never reach another app in the process.
+var systemConfigKey = appstate.NewKey[*SystemConfig]("coreserver.systemConfig")
 
-// SystemSettings returns the process-wide SystemConfig. Always non-nil; before
-// load() runs (i.e. before the DB is ready) every Get returns "".
-func SystemSettings() *SystemConfig { return systemConfig }
+// SystemSettings returns app's SystemConfig, read by subsystems (sentry.go,
+// push, mail, backup repository). Always non-nil; before load() runs (i.e.
+// before the DB is ready) every Get returns "".
+func SystemSettings(app core.App) *SystemConfig {
+	return systemConfigKey.GetOrInit(app, func() *SystemConfig {
+		return &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+	})
+}
 
 // Get returns the current value for key, or "" if unset. Pure in-memory read.
 func (c *SystemConfig) Get(key string) string {
@@ -147,6 +155,8 @@ func refuseManagedWrite(e *core.RecordEvent) error {
 // in-memory map in sync as rows are created or updated. Edits take effect without
 // a restart — re-init handlers registered via OnChange run on each change.
 func RegisterSystemConfig(app *pocketbase.PocketBase) {
+	cfg := SystemSettings(app)
+
 	// Point the syscfg seam at this collection, and the mailer at the seam.
 	// The resolver reads lazily (per-send), so it's safe to set here before the
 	// OnServe load — Get returns "" until then, and sends only happen well
@@ -161,9 +171,9 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// whose config failed to load claims the seam managing nothing yet, and
 	// treating that as unclaimed would silently restore the org's own
 	// collection — the precise fallback the supervisor exists to prevent.
-	syscfg.SetResolver(systemConfig.Get)
+	syscfg.SetResolver(cfg.Get)
 	wireMailDomains(func() string { return app.Settings().Meta.AppName })
-	// syscfg, not systemConfig.Get, is what keeps the mailer out of an import
+	// syscfg, not cfg.Get, is what keeps the mailer out of an import
 	// cycle with this package (mailer can't import coreserver).
 	mailer.ConfigResolver = syscfg.Get
 	mailer.ServerTokenResolver = maildomains.ServerToken
@@ -172,7 +182,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// initial load so no early change is missed. Sentry is the only stateful
 	// consumer; push reads VAPID per-send and mail builds its provider per-call,
 	// so both pick up changes via Get without a re-init handler.
-	systemConfig.OnChange(func(key, _ string) {
+	cfg.OnChange(func(key, _ string) {
 		if strings.HasPrefix(key, "sentry.") {
 			initSentryFromConfig(app)
 		}
@@ -184,7 +194,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// bound (registerSharedMiddleware); this supplies the client the middleware
 	// reports to.
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		systemConfig.load(app)
+		cfg.load(app)
 		initSentryFromConfig(app)
 		return e.Next()
 	})
@@ -209,7 +219,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	app.OnRecordDelete("system_settings").BindFunc(refuseManagedWrite)
 
 	syncRow := func(e *core.RecordEvent) error {
-		systemConfig.set(
+		cfg.set(
 			e.Record.GetString("key"),
 			e.Record.GetString("value"),
 			e.Record.GetBool("is_secret"),
@@ -225,7 +235,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 // account token — and installs the server-token source every sender asks.
 //
 // Called synchronously from RegisterSystemConfig, which runs BEFORE
-// systemConfig.load(app) (that happens later, in an OnServe hook — see the
+// SystemSettings(app).load(app) (that happens later, in an OnServe hook — see the
 // comment above). So syscfg.Get("mail.postmark_account_token") returns "" at
 // the moment this function runs. That is fine ONLY because every consumer is
 // given an accessor, not a value: the registrar re-reads syscfg.Get on every

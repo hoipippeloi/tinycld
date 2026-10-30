@@ -43,6 +43,18 @@ func saveSetting(t *testing.T, app core.App, key, value string) *core.Record {
 	return rec
 }
 
+// configApp returns a fresh test app and its own SystemConfig, so each test
+// drives a config no other test or app can see.
+func configApp(t *testing.T) (*tests.TestApp, *SystemConfig) {
+	t.Helper()
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	return app, SystemSettings(app)
+}
+
 // Get returns "" before anything is loaded, and the stored value after load().
 func TestSystemConfigLoadAndGet(t *testing.T) {
 	app, err := tests.NewTestApp()
@@ -119,13 +131,11 @@ func TestSystemConfigRecordHooksSync(t *testing.T) {
 	t.Cleanup(func() { app.Cleanup() })
 	createSystemSettingsCollection(t, app)
 
-	// Point the package-global at a fresh instance and wire the hooks to it.
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}}
+	// Wire the hooks to this app's own config.
+	cfg := SystemSettings(app)
 
 	syncRow := func(e *core.RecordEvent) error {
-		systemConfig.set(
+		cfg.set(
 			e.Record.GetString("key"),
 			e.Record.GetString("value"),
 			e.Record.GetBool("is_secret"),
@@ -136,7 +146,7 @@ func TestSystemConfigRecordHooksSync(t *testing.T) {
 	app.OnRecordAfterUpdateSuccess("system_settings").BindFunc(syncRow)
 
 	rec := saveSetting(t, app, "vapid.subject", "mailto:admin@example.com")
-	if got := systemConfig.Get("vapid.subject"); got != "mailto:admin@example.com" {
+	if got := cfg.Get("vapid.subject"); got != "mailto:admin@example.com" {
 		t.Errorf("after create hook: got %q", got)
 	}
 
@@ -144,7 +154,7 @@ func TestSystemConfigRecordHooksSync(t *testing.T) {
 	if err := app.Save(rec); err != nil {
 		t.Fatalf("update setting: %v", err)
 	}
-	if got := systemConfig.Get("vapid.subject"); got != "mailto:ops@example.com" {
+	if got := cfg.Get("vapid.subject"); got != "mailto:ops@example.com" {
 		t.Errorf("after update hook: got %q", got)
 	}
 }
@@ -176,21 +186,19 @@ func TestSystemConfigIsSecret(t *testing.T) {
 }
 
 // injectPublicConfig publishes only non-secret values into the HTML, before
-// </head>, and never leaks a secret. Drives the package-global systemConfig.
+// </head>, and never leaks a secret. Drives the test app's own config.
 func TestInjectPublicConfig(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+	app, cfg := configApp(t)
 	// The injector resolves values through the syscfg seam, so point it at the
 	// config this test drives.
 	syscfg.ResetForTesting()
-	syscfg.SetResolver(systemConfig.Get)
+	syscfg.SetResolver(cfg.Get)
 	t.Cleanup(syscfg.ResetForTesting)
-	systemConfig.set("sentry.dsn", "https://abc@o1.ingest.sentry.io/1", false)
-	systemConfig.set("sentry.auth_token", "super-secret", true)
+	cfg.set("sentry.dsn", "https://abc@o1.ingest.sentry.io/1", false)
+	cfg.set("sentry.auth_token", "super-secret", true)
 
 	html := []byte("<html><head><title>x</title></head><body></body></html>")
-	out := string(injectPublicConfig(html))
+	out := string(injectPublicConfig(app, html))
 
 	if !strings.Contains(out, "window.__TINYCLD_PUBLIC_CONFIG__=") {
 		t.Fatalf("injection missing: %s", out)
@@ -212,12 +220,10 @@ func TestInjectPublicConfig(t *testing.T) {
 
 // A value containing "</script>" must not terminate the tag early.
 func TestInjectPublicConfigEscapesScriptClose(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
-	systemConfig.set("sentry.dsn", "https://x/</script><script>alert(1)</script>", false)
+	app, cfg := configApp(t)
+	cfg.set("sentry.dsn", "https://x/</script><script>alert(1)</script>", false)
 
-	out := string(injectPublicConfig([]byte("<head></head>")))
+	out := string(injectPublicConfig(app, []byte("<head></head>")))
 	if strings.Contains(out, "</script><script>alert(1)") {
 		t.Errorf("unescaped </script> breakout in injected config: %s", out)
 	}
@@ -225,13 +231,11 @@ func TestInjectPublicConfigEscapesScriptClose(t *testing.T) {
 
 // Nothing to publish (no non-secret values) → HTML unchanged.
 func TestInjectPublicConfigNoop(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
-	systemConfig.set("sentry.auth_token", "only-a-secret", true)
+	app, cfg := configApp(t)
+	cfg.set("sentry.auth_token", "only-a-secret", true)
 
 	html := []byte("<head></head>")
-	if got := string(injectPublicConfig(html)); got != string(html) {
+	if got := string(injectPublicConfig(app, html)); got != string(html) {
 		t.Errorf("expected HTML unchanged when nothing public, got %q", got)
 	}
 }
@@ -258,12 +262,10 @@ func TestSystemConfigPublicValue(t *testing.T) {
 // The injector relies on publicValue: a sentry.dsn mis-flagged secret must NOT
 // appear in the injected HTML.
 func TestInjectPublicConfigSkipsSecretSentryDsn(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
-	systemConfig.set("sentry.dsn", "https://leak.dsn", true) // mis-flagged secret
+	app, cfg := configApp(t)
+	cfg.set("sentry.dsn", "https://leak.dsn", true) // mis-flagged secret
 
-	out := string(injectPublicConfig([]byte("<head></head>")))
+	out := string(injectPublicConfig(app, []byte("<head></head>")))
 	if out != "<head></head>" {
 		t.Errorf("a secret-flagged sentry.dsn must not be injected, got %q", out)
 	}
@@ -274,18 +276,16 @@ func TestInjectPublicConfigSkipsSecretSentryDsn(t *testing.T) {
 // this, the key reached the browser by no route at all and web push could never
 // subscribe. The PRIVATE key must never follow it out.
 func TestInjectPublicConfigPublishesVapidPublicKey(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+	app, cfg := configApp(t)
 	// The injector resolves values through the syscfg seam, so point it at the
 	// config this test drives.
 	syscfg.ResetForTesting()
-	syscfg.SetResolver(systemConfig.Get)
+	syscfg.SetResolver(cfg.Get)
 	t.Cleanup(syscfg.ResetForTesting)
-	systemConfig.set("vapid.public_key", "BPublicKey123", false)
-	systemConfig.set("vapid.private_key", "PrivateKeyNeverLeak", true)
+	cfg.set("vapid.public_key", "BPublicKey123", false)
+	cfg.set("vapid.private_key", "PrivateKeyNeverLeak", true)
 
-	out := string(injectPublicConfig([]byte("<head></head>")))
+	out := string(injectPublicConfig(app, []byte("<head></head>")))
 
 	if !strings.Contains(out, `"vapidPublicKey"`) {
 		t.Errorf("public key should be published as vapidPublicKey, got %q", out)
@@ -301,12 +301,10 @@ func TestInjectPublicConfigPublishesVapidPublicKey(t *testing.T) {
 // A VAPID public key mis-flagged is_secret=true must be blanked by the
 // publicValue gate rather than injected.
 func TestInjectPublicConfigSkipsSecretVapidPublicKey(t *testing.T) {
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
-	systemConfig.set("vapid.public_key", "BLeakKey", true) // mis-flagged secret
+	app, cfg := configApp(t)
+	cfg.set("vapid.public_key", "BLeakKey", true) // mis-flagged secret
 
-	if out := string(injectPublicConfig([]byte("<head></head>"))); out != "<head></head>" {
+	if out := string(injectPublicConfig(app, []byte("<head></head>"))); out != "<head></head>" {
 		t.Errorf("a secret-flagged vapid.public_key must not be injected, got %q", out)
 	}
 }
@@ -340,10 +338,6 @@ func TestManagedKeysRefuseWrites(t *testing.T) {
 	t.Cleanup(func() { app.Cleanup() })
 	createSystemSettingsCollection(t, app)
 
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
-
 	managed := saveSetting(t, app, "mail.provider", "postmark")
 	ownKey := saveSetting(t, app, "storage_limit_bytes", "100")
 
@@ -376,11 +370,9 @@ func TestUnmanagedDeploymentKeepsWritingEverySetting(t *testing.T) {
 	t.Cleanup(func() { app.Cleanup() })
 	createSystemSettingsCollection(t, app)
 
-	prev := systemConfig
-	t.Cleanup(func() { systemConfig = prev })
-	systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+	cfg := SystemSettings(app)
 	syscfg.ResetForTesting()
-	syscfg.SetResolver(systemConfig.Get)
+	syscfg.SetResolver(cfg.Get)
 	t.Cleanup(syscfg.ResetForTesting)
 
 	app.OnRecordUpdate("system_settings").BindFunc(refuseManagedWrite)

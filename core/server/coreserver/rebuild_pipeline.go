@@ -11,12 +11,12 @@ import (
 // runBuildPipeline turns an assembled build dir into a runnable one via the
 // shared pkgbuild pipeline. The Pipeline value is constructed PER INVOCATION,
 // not at init: binaryName is set by Register() after package init, and
-// systemConfig values (the Sentry keys the export steps read) must be the
+// the app's SystemConfig values (the Sentry keys the export steps read) must be the
 // live settings at build time.
 func runBuildPipeline(ctx context.Context, job *installjob.Job, buildDir, buildID string) (buildOutput, error) {
 	p := pkgbuild.Pipeline{
 		BinaryName: binaryName,
-		// Through the seam, not systemConfig directly. A self-rebuild only ever
+		// Through the seam, not SystemSettings(app) directly. A self-rebuild only ever
 		// runs on a deployment that administers its own settings — an org on a
 		// managed deployment never registers the install endpoints, because its
 		// supervisor owns its deploys — so the two resolve identically today.

@@ -30,7 +30,7 @@ import (
 // The JSON is marshaled (not string-built) so values are safely escaped; we then
 // guard against "</script>" appearing in a value, which would otherwise close the
 // tag early — JSON-encodes "<" as-is, so a malicious DSN could break out.
-func publicConfigScript() string {
+func publicConfigScript(app core.App) string {
 	// Two gates keep secrets out of the HTML, and the FIRST is the load-bearing
 	// one: (1) the explicit whitelist below names the exact keys the client may
 	// consume, under their client-facing names — adding a public client value is
@@ -49,10 +49,10 @@ func publicConfigScript() string {
 	// is stored is_secret=false. The private key is never whitelisted here.
 	const vapidPublicKeyKey = "vapid.public_key"
 	out := map[string]string{}
-	if v := publishableValue(sentryDSNKey); v != "" {
+	if v := publishableValue(app, sentryDSNKey); v != "" {
 		out["sentryDsn"] = v
 	}
-	if v := publishableValue(vapidPublicKeyKey); v != "" {
+	if v := publishableValue(app, vapidPublicKeyKey); v != "" {
 		out["vapidPublicKey"] = v
 	}
 	if len(out) == 0 {
@@ -84,20 +84,20 @@ func publicConfigScript() string {
 // The rule for anyone adding a key here: it must be publishable on its face.
 // Never widen this to a loop over provider values — that is how a private key
 // ends up in the page.
-func publishableValue(key string) string {
-	if systemConfig.isSecret(key) {
+func publishableValue(app core.App, key string) string {
+	if SystemSettings(app).isSecret(key) {
 		return ""
 	}
 	return syscfg.Get(key)
 }
 
-// injectPublicConfig inserts the public-config <script> just before </head> in
+// injectPublicConfig inserts app's public-config <script> just before </head> in
 // the SPA shell HTML. The script runs before the deferred bundle JS, so the
 // window global is set by the time lib/configure-core reads it at module init.
 // Falls back to returning the HTML unchanged when there's nothing to inject or
 // no </head> is present.
-func injectPublicConfig(html []byte) []byte {
-	script := publicConfigScript()
+func injectPublicConfig(app core.App, html []byte) []byte {
+	script := publicConfigScript(app)
 	if script == "" {
 		return html
 	}
@@ -140,10 +140,10 @@ func pinShellAssets(html []byte, releaseID string) []byte {
 	})
 }
 
-// renderAppShell prepares the on-disk shell for a client: public config
-// injected, asset URLs pinned to releaseID.
-func renderAppShell(html []byte, releaseID string) []byte {
-	return pinShellAssets(injectPublicConfig(html), releaseID)
+// renderAppShell prepares the on-disk shell for a client of app: app's
+// public config injected, asset URLs pinned to releaseID.
+func renderAppShell(app core.App, html []byte, releaseID string) []byte {
+	return pinShellAssets(injectPublicConfig(app, html), releaseID)
 }
 
 // binaryDir returns the directory containing the running executable, or
@@ -373,12 +373,12 @@ func StaticWithDynamicFallbackFS(publicFs, websiteFs, releasesFs fs.FS, releases
 		if releasesFs != nil {
 			if data, err := fs.ReadFile(releasesFs, "app.html"); err == nil {
 				id, _ := fs.ReadFile(releasesFs, "release-id.txt")
-				return writeAppShell(e, renderAppShell(data, strings.TrimSpace(string(id))))
+				return writeAppShell(e, renderAppShell(e.App, data, strings.TrimSpace(string(id))))
 			}
 		} else if releasesDir != "" {
 			current := filepath.Join(releasesDir, "current")
 			if data, err := os.ReadFile(filepath.Join(current, "app.html")); err == nil {
-				return writeAppShell(e, renderAppShell(data, readReleaseID(current)))
+				return writeAppShell(e, renderAppShell(e.App, data, readReleaseID(current)))
 			}
 		}
 
@@ -386,7 +386,7 @@ func StaticWithDynamicFallbackFS(publicFs, websiteFs, releasesFs fs.FS, releases
 		// streaming via FileFS) so the same public-config injection applies.
 		// There is no release to pin to here.
 		if data, err := fs.ReadFile(publicFs, "app.html"); err == nil {
-			return writeAppShell(e, renderAppShell(data, ""))
+			return writeAppShell(e, renderAppShell(e.App, data, ""))
 		}
 
 		return e.NotFoundError("", nil)

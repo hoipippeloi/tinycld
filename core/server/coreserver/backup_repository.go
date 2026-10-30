@@ -34,7 +34,7 @@ func RegisterBackupRepository(app core.App) {
 		scheduleRepositoryBackup(app)
 		return e.Next()
 	})
-	SystemSettings().OnChange(func(key, _ string) {
+	SystemSettings(app).OnChange(func(key, _ string) {
 		if strings.HasPrefix(key, repoKeyPrefix) {
 			scheduleRepositoryBackup(app)
 		}
