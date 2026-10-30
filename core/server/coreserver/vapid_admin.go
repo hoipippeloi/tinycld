@@ -39,7 +39,7 @@ func handleGenerateVapid(app core.App, re *core.RequestEvent) error {
 	// every existing browser subscription. The record hook below already refuses
 	// the write; refusing here too gives the caller a reason rather than an
 	// opaque save failure.
-	if syscfg.IsManaged("vapid.public_key") {
+	if syscfg.IsManaged(app, "vapid.public_key") {
 		return re.ForbiddenError("Web push is configured by your hosting provider.", nil)
 	}
 	privateKey, publicKey, err := push.GenerateVAPIDKeys()

@@ -191,9 +191,7 @@ func TestInjectPublicConfig(t *testing.T) {
 	app, cfg := configApp(t)
 	// The injector resolves values through the syscfg seam, so point it at the
 	// config this test drives.
-	syscfg.ResetForTesting()
-	syscfg.SetResolver(cfg.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, cfg.Get)
 	cfg.set("sentry.dsn", "https://abc@o1.ingest.sentry.io/1", false)
 	cfg.set("sentry.auth_token", "super-secret", true)
 
@@ -279,9 +277,7 @@ func TestInjectPublicConfigPublishesVapidPublicKey(t *testing.T) {
 	app, cfg := configApp(t)
 	// The injector resolves values through the syscfg seam, so point it at the
 	// config this test drives.
-	syscfg.ResetForTesting()
-	syscfg.SetResolver(cfg.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, cfg.Get)
 	cfg.set("vapid.public_key", "BPublicKey123", false)
 	cfg.set("vapid.private_key", "PrivateKeyNeverLeak", true)
 
@@ -344,8 +340,7 @@ func TestManagedKeysRefuseWrites(t *testing.T) {
 	// Bind the REAL guard RegisterSystemConfig installs, not a copy of it.
 	app.OnRecordUpdate("system_settings").BindFunc(refuseManagedWrite)
 
-	syscfg.SetProvider(managedProvider{prefixes: []string{"mail.", "vapid.", "sentry."}})
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetProvider(app, managedProvider{prefixes: []string{"mail.", "vapid.", "sentry."}})
 
 	err = updateSetting(t, app, managed, "smtp")
 	if err == nil {
@@ -371,9 +366,7 @@ func TestUnmanagedDeploymentKeepsWritingEverySetting(t *testing.T) {
 	createSystemSettingsCollection(t, app)
 
 	cfg := SystemSettings(app)
-	syscfg.ResetForTesting()
-	syscfg.SetResolver(cfg.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, cfg.Get)
 
 	app.OnRecordUpdate("system_settings").BindFunc(refuseManagedWrite)
 

@@ -6,14 +6,23 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
 	"tinycld.org/core/syscfg"
 )
 
-func configure(t *testing.T, value string) {
+func newApp(t *testing.T) core.App {
 	t.Helper()
-	syscfg.ResetForTesting()
-	t.Cleanup(syscfg.ResetForTesting)
-	syscfg.SetResolver(func(key string) string {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	return app
+}
+
+func configure(app core.App, value string) {
+	syscfg.SetResolver(app, func(key string) string {
 		if key == Key {
 			return value
 		}
@@ -22,6 +31,7 @@ func configure(t *testing.T, value string) {
 }
 
 func TestConfiguredNormalizesTheSetting(t *testing.T) {
+	app := newApp(t)
 	for _, tc := range []struct{ in, want string }{
 		{"", ""},
 		{"mail.example.com", "mail.example.com"},
@@ -35,22 +45,24 @@ func TestConfiguredNormalizesTheSetting(t *testing.T) {
 		{"-mail.example.com", ""},
 		{"[::1]:8090", ""},
 	} {
-		configure(t, tc.in)
-		if got := Configured(); got != tc.want {
-			t.Errorf("Configured() with %q = %q, want %q", tc.in, got, tc.want)
+		configure(app, tc.in)
+		if got := Configured(app); got != tc.want {
+			t.Errorf("Configured(app) with %q = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
 func TestHostPrefersTheSetting(t *testing.T) {
-	configure(t, "mail.example.com")
-	if got := Host("https://web.example.com"); got != "mail.example.com" {
+	app := newApp(t)
+	configure(app, "mail.example.com")
+	if got := Host(app, "https://web.example.com"); got != "mail.example.com" {
 		t.Fatalf("Host = %q, want mail.example.com", got)
 	}
 }
 
 func TestHostFallsBackToTheWebHost(t *testing.T) {
-	configure(t, "")
+	app := newApp(t)
+	configure(app, "")
 	for _, tc := range []struct{ in, want string }{
 		{"https://Web.Example.com", "web.example.com"},
 		{"http://localhost:8090", "localhost"},
@@ -58,15 +70,16 @@ func TestHostFallsBackToTheWebHost(t *testing.T) {
 		{"", ""},
 		{"not a host", ""},
 	} {
-		if got := Host(tc.in); got != tc.want {
-			t.Errorf("Host(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := Host(app, tc.in); got != tc.want {
+			t.Errorf("Host(app, %q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
 func TestHostIgnoresAnInvalidSetting(t *testing.T) {
-	configure(t, "mail example.com")
-	if got := Host("https://web.example.com"); got != "web.example.com" {
+	app := newApp(t)
+	configure(app, "mail example.com")
+	if got := Host(app, "https://web.example.com"); got != "web.example.com" {
 		t.Fatalf("Host = %q, want web.example.com", got)
 	}
 }
@@ -107,20 +120,21 @@ func captureWarnings(t *testing.T) *recordSink {
 }
 
 func TestConfiguredWarnsOncePerInvalidValue(t *testing.T) {
+	app := newApp(t)
 	sink := captureWarnings(t)
 
-	configure(t, "mail.example.com/")
-	Configured()
+	configure(app, "mail.example.com/")
+	Configured(app)
 	if got := sink.count(); got != 1 {
 		t.Fatalf("invalid value: %d warnings, want 1", got)
 	}
-	Configured()
+	Configured(app)
 	if got := sink.count(); got != 1 {
 		t.Fatalf("same invalid value again: %d warnings, want 1", got)
 	}
 
-	configure(t, "mail example.com")
-	Configured()
+	configure(app, "mail example.com")
+	Configured(app)
 	if got := sink.count(); got != 2 {
 		t.Fatalf("different invalid value: %d warnings, want 2", got)
 	}
@@ -139,11 +153,12 @@ func TestConfiguredWarnsOncePerInvalidValue(t *testing.T) {
 }
 
 func TestConfiguredNeverWarnsForValidOrBlank(t *testing.T) {
+	app := newApp(t)
 	sink := captureWarnings(t)
 	for _, v := range []string{"", "   ", "mail.example.com", "https://mail.example.com:443/"} {
-		configure(t, v)
-		Configured()
-		Host("https://app.example.com")
+		configure(app, v)
+		Configured(app)
+		Host(app, "https://app.example.com")
 	}
 	if got := sink.count(); got != 0 {
 		t.Fatalf("%d warnings, want 0", got)

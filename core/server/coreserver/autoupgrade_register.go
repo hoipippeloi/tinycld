@@ -115,7 +115,7 @@ func handleAutoUpgradeStatus(re *core.RequestEvent) error {
 		st = s
 	}
 	return re.JSON(http.StatusOK, map[string]any{
-		"windowManaged": syscfg.IsManaged(autoupgrade.KeyWindow),
+		"windowManaged": syscfg.IsManaged(re.App, autoupgrade.KeyWindow),
 		"status":        st,
 	})
 }

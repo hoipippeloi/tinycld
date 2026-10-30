@@ -77,9 +77,9 @@ func SendToUserContext(ctx context.Context, app core.App, userID string, payload
 	// memory and were never written to this deployment's database. A direct
 	// lookup would find nothing, and every send would sign with an empty key —
 	// silently, since a push failure is only logged.
-	vapidPublicKey := syscfg.Get("vapid.public_key")
-	vapidPrivateKey := syscfg.Get("vapid.private_key")
-	vapidSubject := syscfg.Get("vapid.subject")
+	vapidPublicKey := syscfg.Get(app, "vapid.public_key")
+	vapidPrivateKey := syscfg.Get(app, "vapid.private_key")
+	vapidSubject := syscfg.Get(app, "vapid.subject")
 	if vapidSubject == "" {
 		vapidSubject = "mailto:admin@tinycld.com"
 	}

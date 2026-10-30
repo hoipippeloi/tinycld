@@ -24,6 +24,10 @@ package syscfg
 import (
 	"strings"
 	"sync"
+
+	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/appstate"
 )
 
 // Provider resolves a system-settings key and declares which key namespaces
@@ -41,9 +45,12 @@ type Provider interface {
 	ManagedPrefixes() []string
 }
 
-var (
+// seam is one app's provider. It lives on the app because two apps in one
+// process are two deployments: each may be supervised or standalone, and one
+// app's operator-owned credentials must never answer another app's read.
+type seam struct {
 	mu      sync.RWMutex
-	current Provider = unmanaged{}
+	current Provider
 	// claimed records that a SUPERVISING composition installed the provider,
 	// as opposed to this deployment pointing the seam at its own collection.
 	//
@@ -54,7 +61,19 @@ var (
 	// back and hand the deployment its own settings — exactly the fallback the
 	// supervisor exists to prevent.
 	claimed bool
-)
+}
+
+var seamKey = appstate.NewKey[*seam]("syscfg.seam")
+
+func seamFor(app core.App) *seam {
+	return seamKey.GetOrInit(app, func() *seam { return &seam{current: unmanaged{}} })
+}
+
+func (s *seam) provider() Provider {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.current
+}
 
 // unmanaged is the zero provider: it resolves nothing and manages nothing. It
 // stands in before SetProvider or SetResolver runs so that a Get during boot
@@ -73,103 +92,82 @@ type resolverProvider struct{ get func(string) string }
 func (r resolverProvider) Get(key string) string   { return r.get(key) }
 func (resolverProvider) ManagedPrefixes() []string { return nil }
 
-// SetResolver points the seam at this deployment's own settings — what
+// SetResolver points app's seam at the deployment's own settings — what
 // coreserver calls with SystemConfig.Get once the collection is loadable.
 //
-// Ignored once a supervising composition has claimed the seam. Core's wiring
+// Ignored once a supervising composition has claimed app's seam. Core's wiring
 // runs after a supervisor's, so without this the deployment would silently
 // reclaim settings its operator owns.
-func SetResolver(get func(key string) string) {
+func SetResolver(app core.App, get func(key string) string) {
 	if get == nil {
 		return
 	}
-	mu.RLock()
-	taken := claimed
-	mu.RUnlock()
-	if taken {
+	s := seamFor(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed {
 		return
 	}
-	mu.Lock()
-	current = resolverProvider{get: get}
-	mu.Unlock()
+	s.current = resolverProvider{get: get}
 }
 
-// SetProvider installs the process-wide provider. A supervising composition
-// calls this BEFORE any package registers, so that every consumer's first read
+// SetProvider installs app's provider. A supervising composition calls this
+// BEFORE any package registers on app, so that every consumer's first read
 // already resolves through it.
 //
-// This CLAIMS the seam: SetResolver becomes a no-op afterwards, so core's own
-// wiring cannot later point these reads back at this deployment's collection.
-// That matters most in the failure case — a supervisor whose config would not
-// load still owns these settings, and the correct degraded state is "no mail,
-// no push, no error reporting", never "the deployment supplies its own".
+// This CLAIMS app's seam: SetResolver becomes a no-op on app afterwards, so
+// core's own wiring cannot later point these reads back at this deployment's
+// collection. That matters most in the failure case — a supervisor whose
+// config would not load still owns these settings, and the correct degraded
+// state is "no mail, no push, no error reporting", never "the deployment
+// supplies its own".
 //
 // A nil provider is ignored rather than installed: losing the resolver would
 // turn every subsequent read into "" — silently disabling mail, push and error
 // reporting — and a caller that passes nil has a bug, not an intent.
-func SetProvider(p Provider) {
+func SetProvider(app core.App, p Provider) {
 	if p == nil {
 		return
 	}
-	mu.Lock()
-	current = p
-	claimed = true
-	mu.Unlock()
+	s := seamFor(app)
+	s.mu.Lock()
+	s.current, s.claimed = p, true
+	s.mu.Unlock()
 }
 
-// ResetForTesting restores the zero state: no provider, no claim. Tests that
-// install a provider must call it (t.Cleanup) so the claim does not leak into
-// the next test and make SetResolver inert there.
-//
-// Mirrors the Reset*ForTesting escape hatch every other core registry exposes.
-func ResetForTesting() {
-	mu.Lock()
-	current, claimed = unmanaged{}, false
-	mu.Unlock()
+// IsClaimed reports whether a supervising composition installed app's provider.
+func IsClaimed(app core.App) bool {
+	s := seamFor(app)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claimed
 }
 
-// IsClaimed reports whether a supervising composition installed the provider.
-// Core's own wiring consults this before pointing the seam at the deployment's
-// settings collection.
-func IsClaimed() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return claimed
+// Get resolves a key through app's provider. Unset keys return "".
+func Get(app core.App, key string) string {
+	return seamFor(app).provider().Get(key)
 }
 
-// Get resolves a key through the current provider. Unset keys return "".
-func Get(key string) string {
-	mu.RLock()
-	p := current
-	mu.RUnlock()
-	return p.Get(key)
-}
-
-// ManagedPrefixes reports the key namespaces the current provider owns.
-// Empty on a standalone deployment.
+// ManagedPrefixes reports the key namespaces app's provider owns. Empty on a
+// standalone deployment.
 //
 // The result is a copy: callers range over it outside the lock, and a Provider
 // that returned its live backing array would race with its own next update.
-// Copying here rather than trusting each implementation makes that impossible
-// to get wrong from outside this package.
-func ManagedPrefixes() []string {
-	mu.RLock()
-	p := current
-	mu.RUnlock()
-	prefixes := p.ManagedPrefixes()
+func ManagedPrefixes(app core.App) []string {
+	prefixes := seamFor(app).provider().ManagedPrefixes()
 	out := make([]string, len(prefixes))
 	copy(out, prefixes)
 	return out
 }
 
-// IsManaged reports whether key falls in a namespace the provider owns, and so
-// must not be written or edited from inside this deployment.
+// IsManaged reports whether key falls in a namespace app's provider owns, and
+// so must not be written or edited from inside this deployment.
 //
 // An empty prefix is ignored rather than treated as "everything": it would
 // match every key and lock the deployment out of its own settings, which is
 // never what a supplier of an empty list meant.
-func IsManaged(key string) bool {
-	for _, prefix := range ManagedPrefixes() {
+func IsManaged(app core.App, key string) bool {
+	for _, prefix := range ManagedPrefixes(app) {
 		if prefix == "" {
 			continue
 		}

@@ -382,9 +382,7 @@ func TestInitSentryFromConfig(t *testing.T) {
 
 	// The DSN now arrives through the syscfg seam, so drive it from there.
 	cfg := &SystemConfig{values: map[string]string{}}
-	syscfg.ResetForTesting()
-	syscfg.SetResolver(cfg.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, cfg.Get)
 
 	initSentryFromConfig(app) // empty DSN — no-op, no panic
 

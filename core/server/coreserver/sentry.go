@@ -30,7 +30,7 @@ import (
 // operator owns error reporting, the DSN is theirs and never reaches this
 // deployment's own collection.
 func initSentryFromConfig(app core.App) {
-	logging.InitAppSentry(app, syscfg.Get("sentry.dsn"))
+	logging.InitAppSentry(app, syscfg.Get(app, "sentry.dsn"))
 }
 
 // registerSentryMiddlewareCore binds the per-request capture logic. Takes

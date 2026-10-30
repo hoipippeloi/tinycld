@@ -31,7 +31,7 @@ func RegisterOrgInfoEndpoint(app core.App) {
 			// the injected page config: a native client connects to a server it
 			// only learns about at runtime, so this cannot be a build constant.
 			// Empty on a standalone deployment, where nothing is managed.
-			managed := syscfg.ManagedPrefixes()
+			managed := syscfg.ManagedPrefixes(app)
 			if managed == nil {
 				managed = []string{}
 			}
@@ -43,7 +43,7 @@ func RegisterOrgInfoEndpoint(app core.App) {
 				// The host mail apps connect to, when the deployment names
 				// one. Empty means "the web host": the client then uses the
 				// host it talks to, which is right even where AppURL is not.
-				"mailHost": mailhost.Configured(),
+				"mailHost": mailhost.Configured(app),
 			})
 		})
 		return e.Next()

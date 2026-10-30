@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/mrz1836/postmark"
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
@@ -143,7 +142,7 @@ func (c *SystemConfig) set(key, value string, isSecret bool) {
 // no protection at all. A hand-placed check at each call site is not a boundary;
 // this is.
 func refuseManagedWrite(e *core.RecordEvent) error {
-	if syscfg.IsManaged(e.Record.GetString("key")) {
+	if syscfg.IsManaged(e.App, e.Record.GetString("key")) {
 		return apis.NewForbiddenError(
 			"This setting is managed by the server's operator and cannot be changed here.", nil)
 	}
@@ -154,7 +153,7 @@ func refuseManagedWrite(e *core.RecordEvent) error {
 // once the server starts, init the consumers that depend on them, and keep the
 // in-memory map in sync as rows are created or updated. Edits take effect without
 // a restart — re-init handlers registered via OnChange run on each change.
-func RegisterSystemConfig(app *pocketbase.PocketBase) {
+func RegisterSystemConfig(app core.App) {
 	cfg := SystemSettings(app)
 
 	// Point the syscfg seam at this collection, and the mailer at the seam.
@@ -171,11 +170,11 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// whose config failed to load claims the seam managing nothing yet, and
 	// treating that as unclaimed would silently restore the org's own
 	// collection — the precise fallback the supervisor exists to prevent.
-	syscfg.SetResolver(cfg.Get)
-	wireMailDomains(func() string { return app.Settings().Meta.AppName })
+	syscfg.SetResolver(app, cfg.Get)
+	wireMailDomains(app)
 	// syscfg, not cfg.Get, is what keeps the mailer out of an import
 	// cycle with this package (mailer can't import coreserver).
-	mailer.ConfigResolver = syscfg.Get
+	mailer.ConfigResolver = func(key string) string { return syscfg.Get(app, key) }
 	mailer.ServerTokenResolver = maildomains.ServerToken
 
 	// Re-init Sentry whenever a sentry.* value changes. Registered before the
@@ -236,9 +235,9 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 //
 // Called synchronously from RegisterSystemConfig, which runs BEFORE
 // SystemSettings(app).load(app) (that happens later, in an OnServe hook — see the
-// comment above). So syscfg.Get("mail.postmark_account_token") returns "" at
+// comment above). So syscfg.Get(app, "mail.postmark_account_token") returns "" at
 // the moment this function runs. That is fine ONLY because every consumer is
-// given an accessor, not a value: the registrar re-reads syscfg.Get on every
+// given an accessor, not a value: the registrar re-reads syscfg.Get(app, …) on every
 // AddDomain/GetDomain call, and the token source rebuilds its resolver
 // whenever the settings it keys on change, long after load() has populated
 // the map. Do not "simplify" this back to reading the token once here and
@@ -254,17 +253,17 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 // the org the account credentials the supervisor exists to keep from it.
 // SetResolver enforces this itself; the early return is so we do not build a
 // client we will discard.
-func wireMailDomains(orgName func() string) {
+func wireMailDomains(app core.App) {
 	// Installed whether or not the seam is claimed: every sender asks this
 	// source, and a supervising composition satisfies it by shipping the org
 	// a configured server token, which the source returns without deriving.
 	// Skipping it there would leave senders with no token at all.
-	maildomains.SetServerTokenSource(newServerTokenSource(orgName))
+	maildomains.SetServerTokenSource(newServerTokenSource(app))
 	if maildomains.IsClaimed() {
 		return
 	}
-	client := postmark.NewClient(syscfg.Get("mail.postmark_server_token"), syscfg.Get("mail.postmark_account_token"))
-	accountToken := func() string { return syscfg.Get("mail.postmark_account_token") }
+	client := postmark.NewClient(syscfg.Get(app, "mail.postmark_server_token"), syscfg.Get(app, "mail.postmark_account_token"))
+	accountToken := func() string { return syscfg.Get(app, "mail.postmark_account_token") }
 	maildomains.SetResolver(maildomains.NewPostmarkRegistrar(accountToken, client))
 }
 
@@ -277,9 +276,9 @@ type serverTokenInputs struct {
 
 // newServerTokenSource memoizes one TokenResolver per set of inputs, so the
 // derived token is fetched once and served from cache on every later send.
-// orgName is read per call: the organization is named in the setup wizard,
+// The organization name is read per call: it is named in the setup wizard,
 // after boot, and the Postmark server takes that name when it is created.
-func newServerTokenSource(orgName func() string) func(context.Context) (string, error) {
+func newServerTokenSource(app core.App) func(context.Context) (string, error) {
 	var (
 		mu       sync.Mutex
 		inputs   serverTokenInputs
@@ -287,12 +286,12 @@ func newServerTokenSource(orgName func() string) func(context.Context) (string, 
 	)
 	return func(ctx context.Context) (string, error) {
 		now := serverTokenInputs{
-			accountToken:    syscfg.Get("mail.postmark_account_token"),
-			configuredToken: syscfg.Get("mail.postmark_server_token"),
-			serverName:      syscfg.Get("mail.postmark_server_name"),
+			accountToken:    syscfg.Get(app, "mail.postmark_account_token"),
+			configuredToken: syscfg.Get(app, "mail.postmark_server_token"),
+			serverName:      syscfg.Get(app, "mail.postmark_server_name"),
 			// The server is created under the organization's name, so it is
 			// recognizable in the Postmark account.
-			createAs: orgName(),
+			createAs: app.Settings().Meta.AppName,
 		}
 		mu.Lock()
 		if resolver == nil || now != inputs {

@@ -361,7 +361,7 @@ func productionRebuildDeps(run *jobRun, app *pocketbase.PocketBase, job *install
 		},
 		prepareTools: func(bd string) error { return prepareBuildTools(ctx, job, bd) },
 		pipeline: func(j *installjob.Job, bd string) (buildOutput, error) {
-			return runBuildPipeline(ctx, j, bd, m.BuildID)
+			return runBuildPipeline(ctx, app, j, bd, m.BuildID)
 		},
 		tagLog: func(buildID string) error { return tagInstallLog(app, logRecord, buildID) },
 		backupDB: func() error {

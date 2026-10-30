@@ -31,15 +31,14 @@ func hasJob(app core.App, id string) bool {
 
 func TestScheduleFollowsTheConfig(t *testing.T) {
 	app := backupTestApp(t)
-	t.Cleanup(syscfg.ResetForTesting)
 
-	syscfg.SetResolver(mapProvider{values: map[string]string{}}.Get)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{}}.Get)
 	scheduleRepositoryBackup(app)
 	if hasJob(app, repoJobID) {
 		t.Fatal("scheduled with nothing configured")
 	}
 
-	syscfg.SetResolver(mapProvider{values: map[string]string{
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{
 		repoKeyKind: "pbs", repoKeyEnabled: "true", repoKeySchedule: "15 2 * * *",
 	}}.Get)
 	scheduleRepositoryBackup(app)
@@ -47,7 +46,7 @@ func TestScheduleFollowsTheConfig(t *testing.T) {
 		t.Fatal("not scheduled")
 	}
 
-	syscfg.SetResolver(mapProvider{values: map[string]string{repoKeyKind: "pbs", repoKeyEnabled: "false"}}.Get)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{repoKeyKind: "pbs", repoKeyEnabled: "false"}}.Get)
 	scheduleRepositoryBackup(app)
 	if hasJob(app, repoJobID) {
 		t.Fatal("still scheduled after disable")
@@ -56,8 +55,7 @@ func TestScheduleFollowsTheConfig(t *testing.T) {
 
 func TestManagedPrefixTurnsTheScheduleOff(t *testing.T) {
 	app := backupTestApp(t)
-	t.Cleanup(syscfg.ResetForTesting)
-	syscfg.SetProvider(mapProvider{
+	syscfg.SetProvider(app, mapProvider{
 		values:  map[string]string{repoKeyKind: "pbs", repoKeyEnabled: "true"},
 		managed: []string{"backup.repository."},
 	})

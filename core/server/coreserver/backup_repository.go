@@ -48,13 +48,13 @@ func RegisterBackupRepository(app core.App) {
 func scheduleRepositoryBackup(app core.App) {
 	app.Cron().Remove(repoJobID)
 	// A composition that owns these keys backs the deployment up itself.
-	if syscfg.IsManaged(repoKeyKind) {
+	if syscfg.IsManaged(app, repoKeyKind) {
 		return
 	}
-	if syscfg.Get(repoKeyKind) == "" || syscfg.Get(repoKeyEnabled) != "true" {
+	if syscfg.Get(app, repoKeyKind) == "" || syscfg.Get(app, repoKeyEnabled) != "true" {
 		return
 	}
-	schedule := strings.TrimSpace(syscfg.Get(repoKeySchedule))
+	schedule := strings.TrimSpace(syscfg.Get(app, repoKeySchedule))
 	if schedule == "" {
 		schedule = defaultRepoSchedule
 	}
@@ -66,7 +66,7 @@ func scheduleRepositoryBackup(app core.App) {
 func runScheduledRepositoryBackup(app core.App) {
 	r, err := openRepository(app)
 	if err != nil {
-		if ferr := backup.FailedRun(app, backup.KindScheduled, syscfg.Get(repoKeyKind), err); ferr != nil {
+		if ferr := backup.FailedRun(app, backup.KindScheduled, syscfg.Get(app, repoKeyKind), err); ferr != nil {
 			srvLog.Error("could not record a failed scheduled backup", "err", ferr)
 		}
 		return
@@ -85,11 +85,11 @@ func runScheduledRepositoryBackup(app core.App) {
 }
 
 func openRepository(app core.App) (repo.Repository, error) {
-	kind := syscfg.Get(repoKeyKind)
+	kind := syscfg.Get(app, repoKeyKind)
 	if kind == "" {
 		return nil, errNoRepository
 	}
-	return openRepositoryWith(app, kind, json.RawMessage(syscfg.Get(repoKeyConfig)))
+	return openRepositoryWith(app, kind, json.RawMessage(syscfg.Get(app, repoKeyConfig)))
 }
 
 // openRepositoryWith fills the backup ID from this deployment's hostname and

@@ -55,8 +55,7 @@ func registerFakeRepository(t *testing.T, snaps []repo.SnapshotInfo) {
 func TestRepositoryBackupSucceedsAsAdmin(t *testing.T) {
 	app := backupTestApp(t)
 	registerFakeRepository(t, nil)
-	syscfg.SetResolver(mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
 
 	token := authFor(t, app, "admin@example.com", "admin")
 	(&tests.ApiScenario{
@@ -90,8 +89,7 @@ func TestRepositoryBackupSucceedsAsAdmin(t *testing.T) {
 
 func TestRepositoryBackupWithNoKindConfiguredIs400(t *testing.T) {
 	app := backupTestApp(t)
-	syscfg.SetResolver(mapProvider{values: map[string]string{}}.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{}}.Get)
 
 	token := authFor(t, app, "admin@example.com", "admin")
 	(&tests.ApiScenario{
@@ -113,8 +111,7 @@ func TestRepositoryBackupWithNoKindConfiguredIs400(t *testing.T) {
 func TestSnapshotsListAsAdminForbiddenForMember(t *testing.T) {
 	app := backupTestApp(t)
 	registerFakeRepository(t, []repo.SnapshotInfo{{Ref: "fake/1", Bytes: 10}})
-	syscfg.SetResolver(mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
 
 	adminTok := authFor(t, app, "admin@example.com", "admin")
 	(&tests.ApiScenario{
@@ -186,8 +183,7 @@ func TestGenerateKeyReturnsParsablePBSKey(t *testing.T) {
 func TestRestoreFromSnapshotRefusesAnAdminAllowsOwner(t *testing.T) {
 	app := backupTestApp(t)
 	registerFakeRepository(t, []repo.SnapshotInfo{{Ref: "fake/1", Bytes: 10}})
-	syscfg.SetResolver(mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
 
 	adminTok := authFor(t, app, "admin@example.com", "admin")
 	(&tests.ApiScenario{
@@ -209,8 +205,7 @@ func TestRestoreFromSnapshotRefusesAnAdminAllowsOwner(t *testing.T) {
 func TestRestoreRefusesBothSourceAndSnapshot(t *testing.T) {
 	app := backupTestApp(t)
 	registerFakeRepository(t, []repo.SnapshotInfo{{Ref: "fake/1", Bytes: 10}})
-	syscfg.SetResolver(mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, mapProvider{values: map[string]string{repoKeyKind: "fake"}}.Get)
 
 	token := authFor(t, app, "owner@example.com", "owner")
 	(&tests.ApiScenario{

@@ -3,6 +3,7 @@ package coreserver
 import (
 	"context"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/installjob"
 	"tinycld.org/core/pkgbuild"
 	"tinycld.org/core/syscfg"
@@ -13,7 +14,7 @@ import (
 // not at init: binaryName is set by Register() after package init, and
 // the app's SystemConfig values (the Sentry keys the export steps read) must be the
 // live settings at build time.
-func runBuildPipeline(ctx context.Context, job *installjob.Job, buildDir, buildID string) (buildOutput, error) {
+func runBuildPipeline(ctx context.Context, app core.App, job *installjob.Job, buildDir, buildID string) (buildOutput, error) {
 	p := pkgbuild.Pipeline{
 		BinaryName: binaryName,
 		// Through the seam, not SystemSettings(app) directly. A self-rebuild only ever
@@ -22,7 +23,7 @@ func runBuildPipeline(ctx context.Context, job *installjob.Job, buildDir, buildI
 		// supervisor owns its deploys — so the two resolve identically today.
 		// Using the seam keeps that true if a supervising composition ever gains
 		// this path, rather than silently building with an empty Sentry DSN.
-		ConfigValue: syscfg.Get,
+		ConfigValue: func(key string) string { return syscfg.Get(app, key) },
 	}
 	return p.ExecuteContext(ctx, installJobSink{job}, buildDir, buildID)
 }

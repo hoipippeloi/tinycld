@@ -88,7 +88,7 @@ func publishableValue(app core.App, key string) string {
 	if SystemSettings(app).isSecret(key) {
 		return ""
 	}
-	return syscfg.Get(key)
+	return syscfg.Get(app, key)
 }
 
 // injectPublicConfig inserts app's public-config <script> just before </head> in
