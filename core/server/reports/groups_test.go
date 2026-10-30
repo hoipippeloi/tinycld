@@ -105,6 +105,23 @@ func TestGroupByAMonthBucket(t *testing.T) {
 
 // A formula column groups like a field: its value per row is the key, and
 // its group row shows the key.
+// A formula over a group column is computed where the column is a key and
+// blank where it is not (the total row), never computed from a blank.
+func TestAFormulaOverAGroupColumnIsBlankWhereThereIsNoKey(t *testing.T) {
+	z := newZoo(t)
+	byGrams := z.run(t, "ann", `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"grams","path":[{"field":"grams"}]},
+		{"id":"g2","formula":{"op":"mul","args":[{"col":"grams"},{"value":2}]}}],
+		"groups":[{"id":"g","col":"grams"}]}`, Options{}, nil)
+	requireRows(t, byGrams, "g2", int64(200), int64(600), int64(1000), int64(1600), nil)
+
+	byBand := z.run(t, "ann", `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"band","formula":{"op":"div","args":[{"path":[{"field":"grams"}]},{"value":400}],"scale":0}},
+		{"id":"band2","formula":{"op":"mul","args":[{"col":"band"},{"value":2}]}}],
+		"groups":[{"id":"g","col":"band"}]}`, Options{}, nil)
+	requireRows(t, byBand, "band2", int64(0), int64(2), int64(4), nil)
+}
+
 func TestGroupByAFormulaColumn(t *testing.T) {
 	z := newZoo(t)
 	spec := `{"version":1,"source":"zoo.feedings","columns":[

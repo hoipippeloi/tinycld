@@ -250,7 +250,7 @@ func (lc *levelCtx) col(id, at string) (expr, error) {
 		}
 		// A formula that reads a row's value has none for a group of rows;
 		// computing it from blanks would show a wrong figure (0).
-		if lv.c.p.readsRowValue(cp.col.Formula, false, map[string]bool{}) {
+		if lv.readsRowValue(cp.col.Formula, false, map[string]bool{}) {
 			e.sql = "NULL"
 		}
 		return e, nil
@@ -295,10 +295,11 @@ func aggregateOp(n *Node) bool {
 }
 
 // readsRowValue is true when a formula reads, outside an aggregate, a value
-// that exists only per row: a {path}, a path column with no aggregate that is
-// not a group column, or a formula column that does. Such a formula is blank
-// as a whole on a group, subtotal or total row.
-func (p *plan) readsRowValue(n *Node, inAggregate bool, seen map[string]bool) bool {
+// that exists only per row on this level: a {path}, a path column with no
+// aggregate, a group column on a level where it is not a key, or a formula
+// column that reads one. Such a formula is blank as a whole on the level's
+// rows.
+func (lv *level) readsRowValue(n *Node, inAggregate bool, seen map[string]bool) bool {
 	if n == nil {
 		return false
 	}
@@ -306,20 +307,23 @@ func (p *plan) readsRowValue(n *Node, inAggregate bool, seen map[string]bool) bo
 		return !inAggregate
 	}
 	if n.Col != "" && !inAggregate && !seen[n.Col] {
-		cp := p.byID[n.Col]
-		if cp == nil || cp.col.Aggregate != "" {
+		cp := lv.c.p.byID[n.Col]
+		if cp == nil || cp.col.Aggregate != "" || lv.groupKey(cp) != "" {
 			return false
 		}
 		if cp.path != nil {
-			return cp.tm < 0 && !slices.ContainsFunc(p.groups, func(g *groupPlan) bool { return g.col == cp })
+			return cp.tm < 0
+		}
+		if lv.isGroupColumn(cp) {
+			return true
 		}
 		seen[n.Col] = true
 		defer delete(seen, n.Col)
-		return p.readsRowValue(cp.col.Formula, false, seen)
+		return lv.readsRowValue(cp.col.Formula, false, seen)
 	}
 	inAggregate = inAggregate || aggregateOp(n)
 	for _, a := range n.Args {
-		if p.readsRowValue(a, inAggregate, seen) {
+		if lv.readsRowValue(a, inAggregate, seen) {
 			return true
 		}
 	}
