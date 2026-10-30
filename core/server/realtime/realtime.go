@@ -106,6 +106,9 @@ type Broker struct {
 	mu     sync.Mutex
 	rooms  map[roomKey]*Room
 	parked map[roomKey]*parkedDoc
+	// fenced holds the ids a WriteItem is replacing. A join for a fenced id
+	// waits, so its room seeds from the file the write leaves.
+	fenced map[string]int
 
 	janitorOnce sync.Once
 	stop        chan struct{}
@@ -134,6 +137,7 @@ func NewBroker() *Broker {
 	return &Broker{
 		rooms:  map[roomKey]*Room{},
 		parked: map[roomKey]*parkedDoc{},
+		fenced: map[string]int{},
 		stop:   make(chan struct{}),
 		gate:   newExitGate(),
 		conns:  map[*Client]*liveConn{},
@@ -154,6 +158,11 @@ func (b *Broker) join(kind, id string, c *Client) {
 	key := roomKey{kind, id}
 	for {
 		b.mu.Lock()
+		if b.fenced[id] > 0 {
+			b.mu.Unlock()
+			time.Sleep(2 * time.Millisecond)
+			continue
+		}
 		room, ok := b.rooms[key]
 		if !ok {
 			// optionsFor returning ErrUnknownRoomKind is normally
