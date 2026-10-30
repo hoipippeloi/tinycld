@@ -263,7 +263,7 @@ func (p *plugin) registerMigrations() error {
 		return err
 	}
 
-	registry := p.newRequireRegistry() // this can be shared by multiple runtimes
+	registry := p.newRequireRegistry(absHooksDir) // this can be shared by multiple runtimes
 	templateRegistry := template.NewRegistry()
 
 	for file, content := range files {
@@ -348,7 +348,7 @@ func (p *plugin) registerHooks() error {
 	})
 
 	// safe to be shared across multiple vms
-	requireRegistry := p.newRequireRegistry()
+	requireRegistry := p.newRequireRegistry(absHooksDir)
 	templateRegistry := template.NewRegistry()
 
 	sharedBinds := func(vm *goja.Runtime) {
