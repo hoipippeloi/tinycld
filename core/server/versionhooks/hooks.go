@@ -9,12 +9,12 @@
 // of every package's dependency graph, so the hook registry lives here.
 //
 // Wiring:
-//   - drive calls versionhooks.For(item.mime_type) in handleSnapshotVersion /
+//   - drive calls versionhooks.For(app, item.mime_type) in handleSnapshotVersion /
 //     handleRestoreVersion and invokes the matching callback.
 //   - drive calls Render / Diff from GET /api/drive/versions/{id}/render
 //     and /diff, for the version history preview and compare.
-//   - a package calls versionhooks.Register(<mime type>, versionhooks.Hook{...})
-//     once per MIME type it edits, in its Register() at process bootstrap.
+//   - a package calls versionhooks.Register(app, <mime type>, versionhooks.Hook{...})
+//     once per MIME type it edits, in its Register(app).
 //     The key is drive_items.mime_type: drive_items has no other field
 //     that names the editing package.
 //
@@ -28,6 +28,8 @@ import (
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/appstate"
 )
 
 // Hook bundles a snapshot + restore callback for a given drive_items.type.
@@ -59,33 +61,36 @@ type RenderFn func(ctx context.Context, app core.App, item, version *core.Record
 // from is nil when `to` is the first version: everything is inserted.
 type DiffFn func(ctx context.Context, app core.App, item, from, to *core.Record, authUserID string) (string, error)
 
-var (
+// registry is one app's hooks. Each app keeps its own: a hook closes over the
+// registering package's runtime for that app (text's live documents), so one
+// app's snapshot must never reach another app's runtime.
+type registry struct {
 	mu    sync.RWMutex
-	hooks = map[string]Hook{}
-)
-
-// Register records a hook for the given drive_items.mime_type. Idempotent —
-// re-registering replaces. Called from a package's Register() during
-// process bootstrap.
-func Register(mimeType string, hook Hook) {
-	mu.Lock()
-	defer mu.Unlock()
-	hooks[mimeType] = hook
+	hooks map[string]Hook
 }
 
-// For returns the registered hook for mimeType, or a zero-value Hook
-// (all fields nil) if none. Drive checks the returned fields for nil
-// before invoking.
-func For(mimeType string) Hook {
-	mu.RLock()
-	defer mu.RUnlock()
-	return hooks[mimeType]
+var registryKey = appstate.NewKey[*registry]("versionhooks.hooks")
+
+func registryFor(app core.App) *registry {
+	return registryKey.GetOrInit(app, func() *registry {
+		return &registry{hooks: map[string]Hook{}}
+	})
 }
 
-// ResetForTest clears the registry. Exposed only for tests — production
-// callers never invoke this.
-func ResetForTest() {
-	mu.Lock()
-	defer mu.Unlock()
-	hooks = map[string]Hook{}
+// Register records app's hook for the given drive_items.mime_type. Idempotent —
+// re-registering replaces. Called from a package's Register(app).
+func Register(app core.App, mimeType string, hook Hook) {
+	r := registryFor(app)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hooks[mimeType] = hook
+}
+
+// For returns app's hook for mimeType, or a zero-value Hook (all fields nil)
+// if none. Drive checks the returned fields for nil before invoking.
+func For(app core.App, mimeType string) Hook {
+	r := registryFor(app)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.hooks[mimeType]
 }

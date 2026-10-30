@@ -429,7 +429,7 @@ func writeAppShell(e *core.RequestEvent, html []byte) error {
 	// the response it actually received, and a 304 carrying no directive is
 	// how a page becomes framable again the second time it is loaded.
 	e.Response.Header().Set("Content-Security-Policy",
-		"frame-ancestors "+embedpolicy.FrameAncestors(e.Request))
+		"frame-ancestors "+embedpolicy.FrameAncestors(e.App, e.Request))
 
 	// http.ServeContent isn't usable here (the body is built in memory, not a
 	// ReadSeeker file), so match If-None-Match ourselves. A comma-split covers
