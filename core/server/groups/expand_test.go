@@ -264,7 +264,7 @@ func TestDirectRowsAreLeftAlone(t *testing.T) {
 func TestMembershipListenerFiresAfterCommit(t *testing.T) {
 	app := newZooApp(t)
 	var events []MembershipEvent
-	OnMembershipChange(func(e MembershipEvent) error {
+	OnMembershipChange("test.events", func(e MembershipEvent) error {
 		events = append(events, e)
 		return nil
 	})

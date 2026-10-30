@@ -105,7 +105,7 @@ var sendEmailAction = map[string]any{
 
 func TestSendGuard_SkipsCoreSendEmail(t *testing.T) {
 	z := zooEngineApp(t)
-	RegisterSendGuard("zoo_messages", func(_ core.App, record *core.Record) (bool, string) {
+	RegisterSendGuard("zoo_messages", "zoo.automatic", func(_ core.App, record *core.Record) (bool, string) {
 		return record.GetBool("is_automatic"), "The zoo message was automatic."
 	})
 	rule := z.rule(t, sendEmailAction)
@@ -136,7 +136,7 @@ func TestSendGuard_SkipsCoreSendEmail(t *testing.T) {
 // A guard registered for another collection does not apply.
 func TestSendGuard_OnlyItsCollection(t *testing.T) {
 	z := zooEngineApp(t)
-	RegisterSendGuard("zoo_keepers", func(core.App, *core.Record) (bool, string) {
+	RegisterSendGuard("zoo_keepers", "zoo.keepers", func(core.App, *core.Record) (bool, string) {
 		return true, "not for zoo_messages"
 	})
 	rule := z.rule(t, sendEmailAction)
@@ -190,7 +190,7 @@ func TestSendGuard_SkipDoesNotConsumeTheSendBudget(t *testing.T) {
 	app, rule := runsApp(t)
 	t.Cleanup(ResetRegistriesForTest)
 	captureEmails(t)
-	RegisterSendGuard("rules", func(core.App, *core.Record) (bool, string) { return true, "always" })
+	RegisterSendGuard("rules", "test.always", func(core.App, *core.Record) (bool, string) { return true, "always" })
 
 	req := ActionRequest{
 		Rule: rule, Record: rule,

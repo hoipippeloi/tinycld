@@ -69,8 +69,13 @@ type MembershipEvent struct {
 var (
 	mu        sync.RWMutex
 	tables    []GrantTable
-	listeners []func(MembershipEvent) error
+	listeners []namedListener
 )
+
+type namedListener struct {
+	name string
+	fn   func(MembershipEvent) error
+}
 
 // RegisterGrantTable adds a membership table to the registry. Idempotent, and
 // a blank collection or resource field is ignored, so a half-filled struct
@@ -102,10 +107,20 @@ func RegisteredGrantTables() []GrantTable {
 // listener runs, in registration order. An error is logged and not retried,
 // and one listener's error does not stop the others. A package uses this to
 // grant or remove per-member resources.
-func OnMembershipChange(fn func(MembershipEvent) error) {
+//
+// name identifies the listener ("<pkg>.<what>"). A second registration with
+// the same name is ignored: every app in a process runs Register, and the
+// listener must hear each event once. It does its work through the event's
+// App, so one registration serves every app.
+func OnMembershipChange(name string, fn func(MembershipEvent) error) {
 	mu.Lock()
 	defer mu.Unlock()
-	listeners = append(listeners, fn)
+	for _, existing := range listeners {
+		if existing.name == name {
+			return
+		}
+	}
+	listeners = append(listeners, namedListener{name: name, fn: fn})
 }
 
 // notifyMembership runs every listener. The listeners belong to different
@@ -113,12 +128,12 @@ func OnMembershipChange(fn func(MembershipEvent) error) {
 // event.
 func notifyMembership(e MembershipEvent) {
 	mu.RLock()
-	fns := make([]func(MembershipEvent) error, len(listeners))
+	fns := make([]namedListener, len(listeners))
 	copy(fns, listeners)
 	mu.RUnlock()
-	for i, fn := range fns {
-		if err := fn(e); err != nil {
-			log.Error("membership listener failed", "listener", i, "user", e.UserID, "group", e.GroupID, "joined", e.Joined, "err", err)
+	for _, l := range fns {
+		if err := l.fn(e); err != nil {
+			log.Error("membership listener failed", "listener", l.name, "user", e.UserID, "group", e.GroupID, "joined", e.Joined, "err", err)
 		}
 	}
 }

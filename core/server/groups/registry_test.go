@@ -24,11 +24,11 @@ func TestMembershipListenersAllRunInOrderAfterAnError(t *testing.T) {
 	ResetForTesting()
 	t.Cleanup(ResetForTesting)
 	var seen []string
-	OnMembershipChange(func(e MembershipEvent) error {
+	OnMembershipChange("zoo.keepers", func(e MembershipEvent) error {
 		seen = append(seen, "zoo:"+e.UserID)
 		return errors.New("zoo keepers refused")
 	})
-	OnMembershipChange(func(e MembershipEvent) error {
+	OnMembershipChange("acme.listener", func(e MembershipEvent) error {
 		seen = append(seen, "acme:"+e.UserID)
 		return nil
 	})
