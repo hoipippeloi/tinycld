@@ -25,6 +25,11 @@ test.describe('admin sign-in help', () => {
     // SPA navigation, as in invite-flow.spec.ts.
     async function openMember(page: Page) {
         await page.getByTestId('nav-settings').click()
+        // The invite in beforeEach leaves this page on Settings › Members, whose
+        // heading and "Members" role group also match the link text below.
+        // Since expo-router 58 a link press commits on a later render, not
+        // inside the click, so wait for the Settings index to replace it.
+        await expect(page.getByText('Account', { exact: true })).toBeVisible()
         await page.getByText('Members', { exact: true }).click()
         await page.getByTestId(`member-row-${invited.username}`).click()
         await page.getByTestId('member-sign-in-help').waitFor({ state: 'visible' })
