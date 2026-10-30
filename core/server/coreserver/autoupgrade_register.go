@@ -35,7 +35,7 @@ func registerAutoUpgradeOn(app core.App) {
 			return handleAutoUpgradeStatus(re)
 		}).BindFunc(requireOwner)
 
-		if d := autoupgrade.Current(); d != nil {
+		if d := autoupgrade.Current(app); d != nil {
 			pushBootPolicy(ctx, e.App, d)
 			if s, ok := d.(autoupgrade.Starter); ok {
 				s.Start(ctx)
@@ -82,7 +82,7 @@ func guardAutoUpgradeWrite(e *core.RecordRequestEvent) error {
 
 func notifyPolicy(e *core.RecordEvent) error {
 	if e.Record.GetString("key") == autoupgrade.KeyEnabled {
-		pushPolicy(e.Record.GetString("value") == "true")
+		pushPolicy(e.App, e.Record.GetString("value") == "true")
 	}
 	return e.Next()
 }
@@ -90,13 +90,13 @@ func notifyPolicy(e *core.RecordEvent) error {
 // notifyPolicyDeleted: a missing flag reads as off, so the Delegate is told so.
 func notifyPolicyDeleted(e *core.RecordEvent) error {
 	if e.Record.GetString("key") == autoupgrade.KeyEnabled {
-		pushPolicy(false)
+		pushPolicy(e.App, false)
 	}
 	return e.Next()
 }
 
-func pushPolicy(enabled bool) {
-	d := autoupgrade.Current()
+func pushPolicy(app core.App, enabled bool) {
+	d := autoupgrade.Current(app)
 	if d == nil {
 		return
 	}
@@ -107,7 +107,7 @@ func pushPolicy(enabled bool) {
 
 func handleAutoUpgradeStatus(re *core.RequestEvent) error {
 	st := autoupgrade.Unavailable("This build cannot update itself. Download a new release to update.")
-	if d := autoupgrade.Current(); d != nil {
+	if d := autoupgrade.Current(re.App); d != nil {
 		s, err := d.Status(re.Request.Context())
 		if err != nil {
 			return re.InternalServerError("Failed to read update status", err)

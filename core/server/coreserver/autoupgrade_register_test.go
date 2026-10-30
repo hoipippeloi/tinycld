@@ -24,8 +24,7 @@ func (d *recordingDelegate) Status(context.Context) (autoupgrade.Status, error) 
 func TestPolicyHookCallsDelegate(t *testing.T) {
 	app := adminConsoleTestApp(t)
 	d := &recordingDelegate{}
-	autoupgrade.SetDelegate(d)
-	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
+	autoupgrade.SetDelegate(app, d)
 	app.OnRecordAfterUpdateSuccess("system_settings").BindFunc(notifyPolicy)
 
 	row, err := app.FindFirstRecordByFilter("system_settings", "key = 'autoupgrade.enabled'")
@@ -42,8 +41,7 @@ func TestPolicyHookCallsDelegate(t *testing.T) {
 func TestDeletingTheFlagTellsTheDelegateOff(t *testing.T) {
 	app := adminConsoleTestApp(t)
 	d := &recordingDelegate{}
-	autoupgrade.SetDelegate(d)
-	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
+	autoupgrade.SetDelegate(app, d)
 	registerAutoUpgradeOn(app)
 
 	other, err := app.FindCollectionByNameOrId("system_settings")
@@ -66,10 +64,6 @@ func TestDeletingTheFlagTellsTheDelegateOff(t *testing.T) {
 }
 
 func TestStatusRouteAndWriteGuard(t *testing.T) {
-	// The "no delegate" scenario depends on the process global; do not trust
-	// whatever an earlier test left installed.
-	autoupgrade.SetDelegate(nil)
-	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
 	app := adminConsoleTestApp(t)
 	registerAutoUpgradeOn(app)
 	ownerTok, err := newUser(t, app, "owner@x.test", "owner", false).NewAuthToken()

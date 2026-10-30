@@ -32,10 +32,9 @@ func serve(t *testing.T, app core.App) {
 	}
 }
 
-func installDelegate(t *testing.T, d autoupgrade.Delegate) {
+func installDelegate(t *testing.T, app core.App, d autoupgrade.Delegate) {
 	t.Helper()
-	autoupgrade.SetDelegate(d)
-	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
+	autoupgrade.SetDelegate(app, d)
 }
 
 // The production boot path: serving pushes the STORED flag once and starts the
@@ -48,7 +47,7 @@ func TestServePushesStoredPolicyAndStartsDelegate(t *testing.T) {
 	mustNil(t, app.Save(row))
 
 	d := &startingDelegate{}
-	installDelegate(t, d)
+	installDelegate(t, app, d)
 	registerAutoUpgradeOn(app)
 	serve(t, app)
 
@@ -73,7 +72,7 @@ func TestServePushesStoredPolicyAndStartsDelegate(t *testing.T) {
 func TestServeSkipsBootPushWhenFlagUnreadable(t *testing.T) {
 	app := adminConsoleTestApp(t)
 	d := &startingDelegate{}
-	installDelegate(t, d)
+	installDelegate(t, app, d)
 	registerAutoUpgradeOn(app)
 	dropSystemSettings(t, app)
 	serve(t, app)

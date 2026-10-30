@@ -270,7 +270,7 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 		// A deployment that can rebuild itself also schedules its own updates.
 		// SetDelegate binds no hook, so the composition parity test is
 		// unaffected.
-		autoupgrade.SetDelegate(newLocalScheduler(app))
+		autoupgrade.SetDelegate(app, newLocalScheduler(app))
 	}
 
 	// Serving on a supervisor's listeners, reporting ready and draining on
