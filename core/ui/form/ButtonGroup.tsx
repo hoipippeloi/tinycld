@@ -4,6 +4,12 @@ import { Pressable, Text, View, type ViewProps } from 'react-native'
 export type SelectOption = {
     label: string
     value: string
+    /**
+     * Levels of leading space in a select's menu row, to show a hierarchy.
+     * Menu only, never the trigger: a chosen value sits at the same inset as
+     * every other. ButtonGroup and MultiSelectInput ignore it.
+     */
+    indent?: number
 }
 
 export type ButtonGroupProps<T extends FieldValues = Record<string, unknown>> = {
