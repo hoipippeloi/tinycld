@@ -20,8 +20,8 @@ import (
 // a code. Keyed by user, not IP or pending token: whoever holds the password
 // can mint new pending tokens at will, so only the account is a stable key.
 // Ten tries in 15 minutes leaves a six-digit code about a 1-in-30,000 chance
-// per window.
-var codeLimiter = ratelimit.New(10, 15*time.Minute)
+// per window. The budget is per app: a user id is unique only in its app.
+var codeLimiter = ratelimit.NewPerApp("mfa.code", 10, 15*time.Minute)
 
 type codeRequest struct {
 	Code           string `json:"code"`
@@ -279,7 +279,7 @@ func hasPasskey(app core.App, userID string) bool {
 }
 
 func allowCode(re *core.RequestEvent, user *core.Record) bool {
-	if codeLimiter.Allow(user.Id) {
+	if codeLimiter.For(re.App).Allow(user.Id) {
 		return true
 	}
 	log.WarnContext(re.Request.Context(), "mfa code attempts rate limited", "userID", user.Id)

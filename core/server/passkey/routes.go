@@ -22,10 +22,10 @@ import (
 
 const maxPasskeysPerUser = 20
 
-// loginLimiter bounds passkey sign-in attempts per IP. A passkey cannot be
-// guessed, so this only stops a client from making the server do signature
-// checks without end.
-var loginLimiter = ratelimit.New(30, time.Minute)
+// loginLimiter bounds passkey sign-in attempts per IP, per app. A passkey
+// cannot be guessed, so this only stops a client from making the server do
+// signature checks without end.
+var loginLimiter = ratelimit.NewPerApp("passkey.login", 30, time.Minute)
 
 var errNoMatch = errors.New("passkey: no matching passkey")
 
@@ -201,7 +201,7 @@ func handleRegisterFinish(app core.App, re *core.RequestEvent) error {
 }
 
 func handleLoginBegin(app core.App, re *core.RequestEvent) error {
-	if !loginLimiter.AllowOrLog(re.RealIP(), "passkey.login") {
+	if !loginLimiter.For(app).AllowOrLog(re.RealIP(), "passkey.login") {
 		return tooMany(re)
 	}
 	wa, err := relyingParty(app, re)
@@ -223,7 +223,7 @@ func handleLoginBegin(app core.App, re *core.RequestEvent) error {
 // biometric on the device) is required, so the passkey is already two
 // factors and the sign-in gate lets it through.
 func handleLoginFinish(app core.App, re *core.RequestEvent) error {
-	if !loginLimiter.AllowOrLog(re.RealIP(), "passkey.login") {
+	if !loginLimiter.For(app).AllowOrLog(re.RealIP(), "passkey.login") {
 		return tooMany(re)
 	}
 	req, err := readRequest(re)

@@ -29,7 +29,6 @@ type recoveryEnv struct {
 
 func newRecoveryEnv(t *testing.T) *recoveryEnv {
 	t.Helper()
-	adminResetLimiter.Reset()
 	t.Setenv("TINYCLD_EMAIL_LOG", filepath.Join(t.TempDir(), "emails.log"))
 	app := rlstest.NewAssembledApp(t)
 	registerUsersFieldGuardCore(app)

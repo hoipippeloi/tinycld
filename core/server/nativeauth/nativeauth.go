@@ -47,9 +47,10 @@ const (
 
 var (
 	errBadTicket = errors.New("nativeauth: invalid or expired ticket")
-	// exchangeLimiter bounds code redemption per IP. A code is single use and
-	// lives 60 seconds; this only stops a client from spinning on guesses.
-	exchangeLimiter = ratelimit.New(20, time.Minute)
+	// exchangeLimiter bounds code redemption per IP, per app. A code is
+	// single use and lives 60 seconds; this only stops a client from
+	// spinning on guesses.
+	exchangeLimiter = ratelimit.NewPerApp("nativeauth.exchange", 20, time.Minute)
 )
 
 // Register wires the three handoff routes.
@@ -192,7 +193,7 @@ func handleCode(re *core.RequestEvent) error {
 }
 
 func handleExchange(app core.App, re *core.RequestEvent) error {
-	if !exchangeLimiter.AllowOrLog(re.RealIP(), "nativeauth.exchange") {
+	if !exchangeLimiter.For(app).AllowOrLog(re.RealIP(), "nativeauth.exchange") {
 		return re.Error(http.StatusTooManyRequests, "Too many attempts. Wait a minute and try again.", nil)
 	}
 	var req codeRequest
