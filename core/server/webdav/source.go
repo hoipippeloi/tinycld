@@ -148,4 +148,11 @@ type Hooks struct {
 	// drive uses it to snapshot the outgoing version. An error here is logged,
 	// not fatal: failing to archive the old blob must not lose the new write.
 	BeforeOverwrite func(app core.App, userID string, record *core.Record) error
+
+	// BeforeRead runs just before an existing entry's blob is opened for
+	// GET, HEAD or the read side of COPY — drive uses it to flush a live
+	// editor room so the bytes served are the ones the editor shows. An
+	// error here fails the read: a file that cannot be brought current must
+	// not be served as if it were.
+	BeforeRead func(app core.App, record *core.Record) error
 }

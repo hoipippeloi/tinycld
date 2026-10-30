@@ -362,6 +362,17 @@ func (fs *FileSystem) openForRead(ctx context.Context, name string) (webdav.File
 		}, nil
 	}
 
+	if hook := fs.src.Hooks.BeforeRead; hook != nil && record.GetString(fs.src.Fields.File) != "" {
+		if err := hook(fs.app, record); err != nil {
+			return nil, err
+		}
+		// The hook may have rewritten the blob (a flushed editor room stores
+		// it under a new name), so read the record again before opening it.
+		if record, err = fs.app.FindRecordById(fs.src.Collection, record.Id); err != nil {
+			return nil, err
+		}
+	}
+
 	rdr, tmpPath, err := fs.openSeekableBlob(record)
 	if err != nil {
 		return nil, err
