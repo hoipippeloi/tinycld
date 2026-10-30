@@ -34,6 +34,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"tinycld.org/core/editcheckpoint"
 )
 
 // MessageType identifies the kind of payload a frame carries. The broker
@@ -106,6 +107,12 @@ type Broker struct {
 	mu     sync.Mutex
 	rooms  map[roomKey]*Room
 	parked map[roomKey]*parkedDoc
+	// fenced holds the ids a WriteItem is replacing. A join for a fenced id
+	// waits, so its room seeds from the file the write leaves.
+	fenced map[string]int
+	// heldEditors are the editors of rooms a WriteItem closed, kept for the
+	// write (TakeEditors) instead of fired as a room-empty checkpoint.
+	heldEditors map[string]editcheckpoint.Editors
 
 	janitorOnce sync.Once
 	stop        chan struct{}
@@ -132,12 +139,14 @@ type roomKey struct {
 // NewBroker returns a freshly initialized Broker.
 func NewBroker() *Broker {
 	return &Broker{
-		rooms:  map[roomKey]*Room{},
-		parked: map[roomKey]*parkedDoc{},
-		stop:   make(chan struct{}),
-		gate:   newExitGate(),
-		conns:  map[*Client]*liveConn{},
-		coords: map[*SaveCoordinator]struct{}{},
+		rooms:       map[roomKey]*Room{},
+		parked:      map[roomKey]*parkedDoc{},
+		fenced:      map[string]int{},
+		heldEditors: map[string]editcheckpoint.Editors{},
+		stop:        make(chan struct{}),
+		gate:        newExitGate(),
+		conns:       map[*Client]*liveConn{},
+		coords:      map[*SaveCoordinator]struct{}{},
 	}
 }
 
@@ -154,6 +163,11 @@ func (b *Broker) join(kind, id string, c *Client) {
 	key := roomKey{kind, id}
 	for {
 		b.mu.Lock()
+		if b.fenced[id] > 0 {
+			b.mu.Unlock()
+			time.Sleep(2 * time.Millisecond)
+			continue
+		}
 		room, ok := b.rooms[key]
 		if !ok {
 			// optionsFor returning ErrUnknownRoomKind is normally
@@ -218,6 +232,13 @@ type Client struct {
 	id       [clientIDLen]byte
 	room     *Room
 	joinedAt time.Time
+
+	// evict asks the connection to close, so an outside write can replace
+	// the item its room edits. Set before join.
+	evict func()
+	// leaveOnce makes a test client's leave run once, whether a write
+	// evicts it or the test leaves.
+	leaveOnce sync.Once
 
 	// authID is the connection's identity for room-kind logic. For an
 	// authenticated PB user it's the user record id; for an anonymous
@@ -376,6 +397,9 @@ func (b *Broker) RouteFrameForTest(kind, roomID string, from *Client, frame []by
 // see the audience as already present. Production code must not call
 // this — real connections always flow through handleConnect.
 func (b *Broker) JoinForTest(kind, roomID string, c *Client) *Room {
+	if c.evict == nil {
+		c.evict = func() { go b.LeaveForTest(c) }
+	}
 	b.join(kind, roomID, c)
 	return b.lookupRoomForTest(kind, roomID)
 }
@@ -384,9 +408,11 @@ func (b *Broker) JoinForTest(kind, roomID string, c *Client) *Room {
 // so a consumer package's test can drive the empty-room path (the final
 // flush, the park). Production code must not call this.
 func (b *Broker) LeaveForTest(c *Client) {
-	if room := c.room; room != nil {
-		room.remove(c)
-	}
+	c.leaveOnce.Do(func() {
+		if room := c.room; room != nil {
+			room.remove(c)
+		}
+	})
 }
 
 // EvictIdleForTest runs the parking janitor's pass as of now. Production

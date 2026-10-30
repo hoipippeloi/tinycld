@@ -155,4 +155,11 @@ type Hooks struct {
 	// error here fails the read: a file that cannot be brought current must
 	// not be served as if it were.
 	BeforeRead func(app core.App, record *core.Record) error
+
+	// GuardWrite, if set, wraps the blob write of an overwrite. drive runs
+	// the write under realtime.WriteItem, which first closes any editor
+	// room that has the item open, so the room's next save cannot overwrite
+	// the upload. An error fails the PUT. The write loads the record again,
+	// since the room's final save changes it.
+	GuardWrite func(app core.App, record *core.Record, write func() error) error
 }

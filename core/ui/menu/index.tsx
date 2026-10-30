@@ -201,6 +201,8 @@ export interface MenuItemProps {
     isSelected?: boolean
     isDisabled?: boolean
     isDestructive?: boolean
+    /** Levels of leading space before the leading node, to show a hierarchy. */
+    indent?: number
     /** Stable identity for tests when labels are not unique. */
     testID?: string
 }
@@ -216,6 +218,7 @@ function MenuItem({
     isSelected = false,
     isDisabled = false,
     isDestructive = false,
+    indent,
     testID,
 }: MenuItemProps) {
     const { close } = usePopoverContext()
@@ -233,6 +236,7 @@ function MenuItem({
             href={href}
             isDisabled={isDisabled}
             isDestructive={isDestructive}
+            indent={indent}
             testID={testID}
         />
     )
@@ -340,6 +344,7 @@ interface MenuRowProps {
     href?: string
     isDisabled: boolean
     isDestructive?: boolean
+    indent?: number
     testID?: string
     /** Extra keys the row answers (a submenu trigger opens on ArrowRight). */
     onKeyDown?: (event: React.KeyboardEvent) => void
@@ -353,6 +358,18 @@ interface MenuRowProps {
 
 const ROW_CLASS = 'flex-row items-center gap-2 px-3 py-2 rounded-md mx-1'
 const SHEET_ROW_CLASS = 'flex-row items-center gap-3 px-5 py-3'
+// The pixel values of `gap-2` and `gap-3` above.
+const ROW_GAP = 8
+const SHEET_ROW_GAP = 12
+const INDENT_STEP = 12
+
+// The spacer is a flex child, so the row's gap would add to it once; the negative
+// margin takes that gap back, so every level is exactly one step.
+function RowIndent({ indent, gap }: { indent?: number; gap: number }) {
+    // `!indent` also drops NaN and 0.
+    if (!indent || indent < 0) return null
+    return <View style={{ width: indent * INDENT_STEP, marginRight: -gap }} />
+}
 
 /**
  * One row, in whichever presentation the surface has. On web a `div` (or an
@@ -371,6 +388,7 @@ function MenuRow({
     href,
     isDisabled,
     isDestructive = false,
+    indent,
     testID,
     onKeyDown,
     onHoverIn,
@@ -390,6 +408,7 @@ function MenuRow({
     } web:outline-none web:cursor-pointer`
     const content = (
         <>
+            <RowIndent indent={indent} gap={isSheet ? SHEET_ROW_GAP : ROW_GAP} />
             {leading}
             <Text className={textClass} numberOfLines={1}>
                 {label}

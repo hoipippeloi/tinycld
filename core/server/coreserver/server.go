@@ -20,6 +20,7 @@ import (
 	"tinycld.org/core/automation"
 	"tinycld.org/core/autoupgrade"
 	"tinycld.org/core/backup"
+	"tinycld.org/core/changesignal"
 	"tinycld.org/core/forms"
 	"tinycld.org/core/groups"
 	"tinycld.org/core/logging"
@@ -476,6 +477,12 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	// package Register, so with no packages linked this serves an empty result
 	// rather than failing.
 	search.Register(app)
+
+	// Data-free change signals (topic collection/<name>) after each committed
+	// record write. Live reports and live view collections listen to them.
+	// Shared: every composition serves the same live reports. Inert with no
+	// subscriber; packages add views with changesignal.RegisterView.
+	changesignal.Register(app)
 
 	// Workflow rules engine: record-hook + scheduled dispatch, manual-run and
 	// dry-run endpoints. Shared for the same reason as OAuth/search above — a

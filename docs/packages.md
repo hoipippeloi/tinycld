@@ -897,6 +897,7 @@ runtime. The registries that exist:
 | which authorship FKs to reassign on offboarding | `offboard.RegisterReassignable` |
 | how to move ownership a flat FK rewrite cannot settle on offboarding | `offboard.RegisterHandler` |
 | which collections to audit-log | `audit.RegisterCollection` |
+| which view collections stay live, and the collections their SQL reads | `changesignal.RegisterView` |
 | a package membership table that carries group grants | `groups.RegisterGrantTable` |
 | join and leave events for group membership, sent after the change commits. Every listener runs, in registration order. Errors are logged, not retried; one listener's error does not stop the others. Boot sends no events, so a package reconciles its own state at boot. The event carries the app that saved the change; the registry is process global, so a listener works through `e.App`, not an app it captured | `groups.OnMembershipChange` |
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
@@ -984,6 +985,70 @@ shell's tracked runtime code. The script carries an allowlist of pre-existing
 debt, each entry naming the registry that should replace it; it fails when an
 entry goes stale, so the list only shrinks. Do not add to it to make a change
 pass.
+
+### Change signals and live views
+
+After a record of any collection is created, updated or deleted and the write
+commits, core sends a message on the realtime topic `collection/<name>`. The
+payload is `{}`. A client of the fork's resumable realtime receives
+`{"seq":N}`. The message carries no record data. It says only that the
+collection changed, and when.
+
+Messages are coalesced per topic over 200 ms, so a batch of writes sends one.
+Only signed-in realtime clients subscribed to the topic receive it. System
+collections (`_otps`, `_mfas`, `_authOrigins`, `_externalAuths` and the rest)
+send no signal, from a hook or from `Touch`. Any signed-in client may subscribe
+to any topic, and the timing of sign-in or one-time-password writes is
+information.
+
+A live report subscribes to the topic of every collection it reads. It runs
+again on a message. On the client, pbtsdb (2.1.0 and later) provides
+`subscribeTopic(pb, topic, onMessage)` and the collection option `liveTopics`.
+
+**Raw SQL sends no signal.** A write through `app.DB()` (a raw `UPDATE`, a
+bulk `INSERT … SELECT`, a migration) runs no model hook. After such a write to
+a collection that a report can read, call `Touch` with the app that ran the
+write:
+
+```go
+if _, err := txApp.DB().NewQuery("UPDATE zoo_feedings SET grams = 0").Execute(); err != nil {
+    return err
+}
+changesignal.Touch(txApp, "zoo_feedings")
+```
+
+Inside a transaction the signal waits for the commit and is dropped on a
+rollback. `Touch` for an unknown or system collection logs a warning and sends
+nothing.
+
+**View collections.** PocketBase sends no record events for a view, so a view
+is live only when it declares the collections its SQL reads. Do it from the
+package's `Register(app)`:
+
+```go
+changesignal.RegisterView("zoo_fed", "zoo_animals", "zoo_feedings", "zoo_keepers")
+```
+
+`RegisterView` takes collection names, not ids, for the view and for each
+source: topics and writes are matched by name. A write to any source then also
+signals `collection/zoo_fed`. The client keeps
+the view live with `liveTopics: ['collection/zoo_fed']`
+(`...liveViewOptions('zoo_fed')` from `@tinycld/core/lib/change-signal`). List
+every collection the SQL reads, including one read only in a subquery, an
+`EXISTS` or a CTE: PocketBase's view parser reads only the outer FROM and
+JOIN. A source may be another registered view. Pin the list in the package's
+tests, after its migrations apply:
+
+```go
+if err := changesignal.CheckViews(app); err != nil {
+    t.Fatal(err)
+}
+```
+
+`CheckViews` compiles each registered view with SQLite `EXPLAIN` and fails
+when its bytecode opens a table, or an index of a table, that the
+registration does not cover. It also fails when the view or a source is
+registered by an id or by a spelling other than the collection's name.
 
 ### Test build tag
 

@@ -129,6 +129,8 @@ func TakeEditors(id string) editcheckpoint.Editors {
 
 func (b *Broker) TakeEditors(id string) editcheckpoint.Editors {
 	b.mu.Lock()
+	out := b.heldEditors[id]
+	delete(b.heldEditors, id)
 	var rooms []*Room
 	for key, room := range b.rooms {
 		if key.id == id && room.opts.EditCheckpoints {
@@ -136,11 +138,25 @@ func (b *Broker) TakeEditors(id string) editcheckpoint.Editors {
 		}
 	}
 	b.mu.Unlock()
-	var out editcheckpoint.Editors
 	for _, room := range rooms {
 		e := room.edits.take()
 		out.UserIDs = append(out.UserIDs, e.UserIDs...)
 		out.ShareNames = append(out.ShareNames, e.ShareNames...)
 	}
 	return out
+}
+
+// holdEditorsIfFenced keeps a closing room's editors for the WriteItem that
+// closed it, and reports whether it did.
+func (b *Broker) holdEditorsIfFenced(id string, editors editcheckpoint.Editors) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.fenced[id] == 0 {
+		return false
+	}
+	held := b.heldEditors[id]
+	held.UserIDs = append(held.UserIDs, editors.UserIDs...)
+	held.ShareNames = append(held.ShareNames, editors.ShareNames...)
+	b.heldEditors[id] = held
+	return true
 }
