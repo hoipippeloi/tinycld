@@ -894,3 +894,61 @@ func TestMultipleSourcesRegisterOneWellKnown(t *testing.T) {
 		t.Fatal("expected a handler")
 	}
 }
+
+// Opening a file for GET must call BeforeRead so the feature can flush a live
+// editor room, and the read must then serve the blob the hook wrote — not the
+// one the record held when the hook was called.
+func TestReadCallsBeforeReadAndServesTheRewrittenBlob(t *testing.T) {
+	app, alice, _ := setupTree(t)
+	allowAuthenticated(t, app)
+	src := testSource()
+
+	var sawRecord string
+	src.Hooks.BeforeRead = func(app core.App, rec *core.Record) error {
+		sawRecord = rec.Id
+		// Stand in for a flush: store new bytes under a new blob name.
+		f, err := filesystem.NewFileFromBytes([]byte("flushed"), "doc.txt")
+		if err != nil {
+			return err
+		}
+		rec.Set("file", f)
+		rec.Set("size", f.Size)
+		return app.Save(rec)
+	}
+	fs := newFS(t, app, src)
+
+	existing := mkFile(t, app, alice, "doc.txt", "", "stale")
+
+	f, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if sawRecord != existing.Id {
+		t.Fatalf("BeforeRead saw %q, want %q", sawRecord, existing.Id)
+	}
+	body, err := io.ReadAll(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "flushed" {
+		t.Fatalf("read %q, want the bytes BeforeRead wrote", body)
+	}
+}
+
+// A BeforeRead error fails the open: a file the hook could not bring current
+// is not served as if it were.
+func TestReadFailsWhenBeforeReadFails(t *testing.T) {
+	app, alice, _ := setupTree(t)
+	allowAuthenticated(t, app)
+	src := testSource()
+	src.Hooks.BeforeRead = func(core.App, *core.Record) error {
+		return errors.New("room is read-only")
+	}
+	fs := newFS(t, app, src)
+	mkFile(t, app, alice, "doc.txt", "", "stale")
+
+	if _, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_RDONLY, 0); err == nil {
+		t.Fatal("OpenFile succeeded although BeforeRead failed")
+	}
+}
