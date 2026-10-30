@@ -421,14 +421,19 @@ export async function navigateToPackage(page: Page, pkg: string, options?: { wai
     // committed" → the sidebar watchdog remounts for ~45s → the list lands
     // scrolled and double-clicks misfire).
     //
-    // The short wait only applies on the bare root, where that redirect is the
-    // thing possibly in flight; anywhere else nothing is auto-heading here, so
-    // a miss costs nothing and we click the rail.
+    // The short wait only applies where that redirect may still be in flight;
+    // anywhere else nothing is auto-heading here, so a miss costs nothing and
+    // we click the rail.
     // The app root is APP_PREFIX ('/a'), and '/' is the pre-auth landing that
     // redirects into it — either can be the transient spot the post-login
-    // redirect is passing through.
+    // redirect is passing through. The package's own root counts too: the URL
+    // can already read `/a/<pkg>` while that package is still mounting, and a
+    // rail click then sends a second navigation into a screen that is landing.
     const landingPathname = new URL(page.url()).pathname
-    const redirectMayBeInFlight = landingPathname === '/' || landingPathname === APP_PREFIX
+    const redirectMayBeInFlight =
+        landingPathname === '/' ||
+        landingPathname === APP_PREFIX ||
+        landingPathname === appHref(pkg)
     // Visible is not enough: a screen another screen covers is still laid out
     // (Settings -> Groups stays mounted under a board pushed over it) and
     // Playwright reports it visible. Trusting it skips the navigation and the
