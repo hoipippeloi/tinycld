@@ -70,6 +70,7 @@
             "values": { "a": 5, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 3
         },
         {
@@ -78,6 +79,7 @@
             "values": { "a": -5, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": -3
         },
         {
@@ -189,6 +191,7 @@
                     0
                 ]
             },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 21
         },
         {
@@ -197,6 +200,7 @@
             "values": { "a": 9007199254740991, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 4503599627370496
         },
         {
@@ -205,6 +209,7 @@
             "values": { "a": 1000, "b": 0.075 },
             "formula": { "op": "mul", "args": [{ "col": "a" }, { "col": "b" }] },
             "forms": { "round": [{ "mul": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 75
         },
         {
@@ -213,6 +218,7 @@
             "values": { "a": 100, "b": 0.5 },
             "formula": { "op": "add", "args": [{ "col": "a" }, { "col": "b" }] },
             "forms": { "round": [{ "add": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 101
         },
         {
@@ -235,6 +241,7 @@
             "values": { "a": 1000, "b": 3 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
             "expect": 333
         },
         {

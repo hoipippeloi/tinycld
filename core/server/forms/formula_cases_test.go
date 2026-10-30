@@ -13,11 +13,12 @@ import (
 const formulaCasesPath = "../../lib/forms/fixtures/formula-cases.json"
 
 type sharedFormulaCase struct {
-	Name   string           `json:"name"`
-	Values map[string]any   `json:"values"`
-	Rows   []map[string]any `json:"rows"`
-	Forms  any              `json:"forms"`
-	Expect any              `json:"expect"`
+	Name      string           `json:"name"`
+	Values    map[string]any   `json:"values"`
+	Rows      []map[string]any `json:"rows"`
+	Forms     any              `json:"forms"`
+	FormsNote string           `json:"formsNote"`
+	Expect    any              `json:"expect"`
 }
 
 func TestSharedFormulaCases_FormsEngine(t *testing.T) {

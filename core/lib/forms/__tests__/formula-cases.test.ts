@@ -12,6 +12,7 @@ const caseSchema = z.object({
     values: z.record(z.string(), z.unknown()).optional(),
     rows: z.array(z.record(z.string(), z.unknown())).optional(),
     forms: z.unknown().optional(),
+    formsNote: z.string().optional(),
     expect: z.unknown().optional(),
 })
 

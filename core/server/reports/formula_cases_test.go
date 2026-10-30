@@ -28,6 +28,7 @@ type formulaCase struct {
 	Formula     *Node                `json:"formula"`
 	Forms       any                  `json:"forms"`
 	FormsSkip   string               `json:"formsSkip"`
+	FormsNote   string               `json:"formsNote"`
 	Expect      any                  `json:"expect"`
 	Error       string               `json:"error"`
 }
@@ -207,6 +208,20 @@ func onlyFormsOps(n *Node) bool {
 	return true
 }
 
+// wrapsRoundToWhole is true for a forms formula {"round": [x, 0]}.
+func wrapsRoundToWhole(forms any) bool {
+	m, ok := forms.(map[string]any)
+	if !ok {
+		return false
+	}
+	args, ok := m["round"].([]any)
+	if !ok || len(args) != 2 {
+		return false
+	}
+	n, ok := args[1].(json.Number)
+	return ok && n.String() == "0"
+}
+
 // A case the forms engine can express must run there too, or say why not.
 func TestFormulaCasesCarryFormsWhenTheFormsEngineHasTheOperators(t *testing.T) {
 	withForms := 0
@@ -215,6 +230,12 @@ func TestFormulaCasesCarryFormsWhenTheFormsEngineHasTheOperators(t *testing.T) {
 			withForms++
 			if c.FormsSkip != "" {
 				t.Errorf("%q has both forms and formsSkip", c.Name)
+			}
+			// The forms engine has no money type: a computed field rounds to
+			// its decimals (default 0). A forms formula wrapped in round(…, 0)
+			// for a formula that is not itself a round says so.
+			if wrapsRoundToWhole(c.Forms) && c.Formula.Op != "round" && c.FormsNote == "" {
+				t.Errorf("%q wraps forms in round(…, 0): add a formsNote", c.Name)
 			}
 		}
 		if c.Error != "" || !onlyFormsOps(c.Formula) {
