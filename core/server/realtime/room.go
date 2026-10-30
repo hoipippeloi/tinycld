@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"tinycld.org/core/editcheckpoint"
 	"tinycld.org/core/logging"
 )
 
@@ -53,6 +54,9 @@ type Room struct {
 	// tests: "parked", "checkpoint", "seed" or "relay".
 	openedFrom string
 	members    map[*Client]struct{}
+	// edits tracks who edited since the last version checkpoint, for a kind
+	// with EditCheckpoints.
+	edits editTracker
 }
 
 func newRoom(b *Broker, key roomKey, opts RoomKindOptions, parked *parkedDoc) *Room {
@@ -275,6 +279,12 @@ func (r *Room) remove(c *Client) {
 	close(c.send)
 	r.mu.Unlock()
 	if empty {
+		// Before OnEmpty: the listener flushes through the kind's ForceFlush
+		// and the kind's snapshot hook reads the live document, and both are
+		// gone after OnEmpty. draining keeps new members out meanwhile.
+		if r.opts.EditCheckpoints {
+			r.fireCheckpoint(editcheckpoint.ReasonRoomEmpty)
+		}
 		if r.opts.OnEmpty != nil {
 			r.opts.OnEmpty(r.key.id)
 		}
@@ -432,6 +442,9 @@ func (r *Room) route(from *Client, frame []byte) {
 		}
 		if r.opts.OnDocUpdateContent != nil {
 			r.opts.OnDocUpdateContent(r.key.id, from, payload)
+		}
+		if r.opts.EditCheckpoints {
+			r.noteEditForCheckpoint(from)
 		}
 	case MsgAwarenessUpdate:
 		r.fanOut(from, frame)
