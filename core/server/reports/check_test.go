@@ -52,6 +52,10 @@ func TestCheckSourcesRefusesASourceThatDoesNotMatchTheSchema(t *testing.T) {
 			Source{Key: "zoo.x", Collection: "zoo_animals", Label: "X", Links: []Link{{Key: "pen", Label: "Pen", Target: "zoo.pens", Cardinality: ToOne, Field: "site"}}},
 			`target source "zoo.pens" is not registered`,
 		},
+		"auth email": {
+			Source{Key: "zoo.x", Collection: "users", Label: "X", Fields: []Field{{Key: "email", Label: "Email", Type: Text}}},
+			`column "email" is visible only by emailVisibility`,
+		},
 		"system collection": {
 			Source{Key: "zoo.x", Collection: "_superusers", Label: "X"},
 			`is a system collection`,
@@ -103,6 +107,25 @@ func TestCheckSourcesRefusesARuleThatCannotBeBuiltAndEveryLinkToIt(t *testing.T)
 	}
 	if _, bad := refusedNow["zoo.people"]; bad {
 		t.Error("zoo.people links nowhere and must stay usable")
+	}
+}
+
+func TestCheckSourcesRefusesARuleThatBuildsButDoesNotCompile(t *testing.T) {
+	z := newZoo(t)
+	sites, err := z.app.FindCollectionByNameOrId("zoo_sites")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sites.ListRule = rule(`name != ""`)
+	z.save(t, sites)
+	// The collection still lists the column, so the rule builds, but the
+	// table no longer has it: only SQLite can tell.
+	if _, err := z.app.DB().NewQuery("ALTER TABLE zoo_sites DROP COLUMN name").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	err = CheckSources(z.app)
+	if err == nil || !strings.Contains(err.Error(), `the list rule of "zoo_sites" does not compile`) {
+		t.Fatalf("CheckSources = %v", err)
 	}
 }
 

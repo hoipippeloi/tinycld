@@ -18,7 +18,7 @@ import (
 // The zoo: a fictional package's collections on core's real schema (the
 // users collection and its rules come from core's migrations).
 //
-//	zoo_sites     list: any signed-in user
+//	zoo_sites     list: a signed-in user whose role is member
 //	zoo_animals   list: the owner, or a keeper of the animal (back-relation)
 //	zoo_keepers   list: the keeper themself
 //	zoo_feedings  list: keepers of the fed animal (@collection rule)
@@ -53,7 +53,8 @@ func newZoo(t testing.TB) *zoo {
 	}
 
 	sites := core.NewBaseCollection("zoo_sites")
-	sites.ListRule = rule(`@request.auth.id != ""`)
+	// A non-plain auth field makes the resolver join the auth record's table.
+	sites.ListRule = rule(`@request.auth.id != "" && @request.auth.role = "member"`)
 	sites.ViewRule = sites.ListRule
 	sites.Fields.Add(
 		&core.TextField{Name: "name"},

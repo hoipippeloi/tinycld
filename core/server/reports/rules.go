@@ -3,6 +3,7 @@ package reports
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
@@ -35,6 +36,19 @@ func ruleSelect(app core.App, col *core.Collection, info *core.RequestInfo) (str
 	}
 	built := q.Build()
 	return built.SQL(), built.Params(), nil
+}
+
+// mergeParams copies src into dst for a statement that holds several rule
+// CTEs. Each rule is built with its own {:p0}, so the same name with another
+// value would silently change one rule; it is an error instead.
+func mergeParams(dst, src dbx.Params) error {
+	for k, v := range src {
+		if old, ok := dst[k]; ok && !reflect.DeepEqual(old, v) {
+			return fmt.Errorf("query parameter %q is set twice with different values", k)
+		}
+		dst[k] = v
+	}
+	return nil
 }
 
 // listRequestInfo is the request a list rule sees for a report: the reader,

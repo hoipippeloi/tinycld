@@ -69,7 +69,7 @@ func checkSource(app core.App, src *Source) []string {
 		return []string{fmt.Sprintf("collection %q does not exist", src.Collection)}
 	}
 	if col.Name != src.Collection {
-		return []string{fmt.Sprintf("collection %q must be named %q, not by id", col.Name, col.Name)}
+		return []string{fmt.Sprintf("collection %q must be named %q, not by id", src.Collection, col.Name)}
 	}
 	if col.System {
 		return []string{fmt.Sprintf("collection %q is a system collection", col.Name)}
@@ -97,6 +97,11 @@ func checkField(col *core.Collection, f Field) string {
 			return "the id column is a relation or text field"
 		}
 		return ""
+	}
+	if col.IsAuth() && f.Column == core.FieldNameEmail {
+		// The rule CTE selects every column, but PocketBase shows an email
+		// only when its owner allows it (emailVisibility).
+		return `column "email" is visible only by emailVisibility`
 	}
 	pf := col.Fields.GetByName(f.Column)
 	if pf == nil {

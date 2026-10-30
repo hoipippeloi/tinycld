@@ -2,6 +2,7 @@ package reports
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/pocketbase/dbx"
@@ -47,6 +48,35 @@ func TestRuleSelectMatchesTheListAPI(t *testing.T) {
 	}
 }
 
+func TestRuleSelectReadsTheReadersOwnAuthFields(t *testing.T) {
+	z := newZoo(t)
+	if got, want := ruleIDs(t, z, "zoo_sites", "ann"), z.ids("north", "south"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("a member sees %v, want %v", got, want)
+	}
+	// The resolver joins the auth record's stored row, so the role must be saved.
+	z.recs["ann"].Set("role", "guest")
+	if err := z.app.Save(z.recs["ann"]); err != nil {
+		t.Fatal(err)
+	}
+	if got := ruleIDs(t, z, "zoo_sites", "ann"); len(got) != 0 {
+		t.Fatalf("a guest sees %v, want none", got)
+	}
+}
+
+func TestMergeParamsRefusesAConflict(t *testing.T) {
+	dst := dbx.Params{"p0": "a"}
+	if err := mergeParams(dst, dbx.Params{"p0": "a", "p1": 2}); err != nil {
+		t.Fatalf("same value: %v", err)
+	}
+	if dst["p1"] != 2 {
+		t.Fatalf("p1 not merged: %v", dst)
+	}
+	err := mergeParams(dst, dbx.Params{"p0": "b"})
+	if err == nil || !strings.Contains(err.Error(), `"p0"`) {
+		t.Fatalf("conflict gave %v", err)
+	}
+}
+
 func TestRuleSelectOfANullRuleIsEmpty(t *testing.T) {
 	z := newZoo(t)
 	if got := ruleIDs(t, z, "zoo_vault", "ann"); len(got) != 0 {
@@ -68,8 +98,8 @@ func TestTwoRuleCTEsShareOneStatement(t *testing.T) {
 	}
 	params := dbx.Params{}
 	for _, p := range []dbx.Params{fParams, aParams} {
-		for k, v := range p {
-			params[k] = v
+		if err := mergeParams(params, p); err != nil {
+			t.Fatal(err)
 		}
 	}
 	var names []string
