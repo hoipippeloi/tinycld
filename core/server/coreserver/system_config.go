@@ -174,7 +174,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// so both pick up changes via Get without a re-init handler.
 	systemConfig.OnChange(func(key, _ string) {
 		if strings.HasPrefix(key, "sentry.") {
-			initSentryFromConfig()
+			initSentryFromConfig(app)
 		}
 	})
 
@@ -185,7 +185,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// reports to.
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		systemConfig.load(app)
-		initSentryFromConfig()
+		initSentryFromConfig(app)
 		return e.Next()
 	})
 

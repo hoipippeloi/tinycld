@@ -8,6 +8,7 @@ import (
 
 	"tinycld.org/core/autoupgrade"
 	"tinycld.org/core/backup"
+	"tinycld.org/core/logging"
 	"tinycld.org/core/quota"
 	"tinycld.org/core/rlstest"
 )
@@ -97,6 +98,9 @@ func TestRegisterBindsTheRecordedHandlerCounts(t *testing.T) {
 	// Register installs a self-rebuilding build's auto-upgrade Delegate, a
 	// process global; left in place it answers every later test's status route.
 	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
+	// Register names its app the process's default log owner; later tests
+	// must not write their records into this test's terminated app.
+	t.Cleanup(func() { logging.SetDefaultApp(nil) })
 
 	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
 	Register(app, Options{

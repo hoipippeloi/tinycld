@@ -42,7 +42,7 @@ func Run(args []string, getenv func(string) string) int {
 // runWith is Run with the given options, so a test can run the whole
 // supervisor in its own process with shorter bounds or another child user.
 func runWith(args []string, getenv func(string) string, opts options) int {
-	logging.Install(nil)
+	logging.Install()
 	initSentry(getenv)
 	// Every exit path returns through here, so a report logged just before
 	// the supervisor exits (no build became ready) still reaches Sentry.

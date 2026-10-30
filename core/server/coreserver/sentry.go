@@ -12,22 +12,25 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tools/hook"
 
 	"github.com/pocketbase/pocketbase/tools/router"
 	"tinycld.org/core/logging"
 	"tinycld.org/core/syscfg"
 )
 
-// initSentryFromConfig (re)initializes the global Sentry client from the current
-// system settings. Safe to call repeatedly: sentry.Init swaps the active client,
-// so a DSN change applied here takes effect immediately for subsequent captures.
+// initSentryFromConfig (re)binds app's Sentry client from the current system
+// settings. Safe to call repeatedly: the new client replaces the old one on
+// the app's hub, so a DSN change applied here takes effect immediately for
+// subsequent captures. Other apps in the process keep their own clients.
 //
 // Reads through syscfg rather than SystemConfig directly: on a deployment whose
 // operator owns error reporting, the DSN is theirs and never reaches this
 // deployment's own collection.
-func initSentryFromConfig() {
-	logging.InitSentry(syscfg.Get("sentry.dsn"))
+func initSentryFromConfig(app core.App) {
+	logging.InitAppSentry(app, syscfg.Get("sentry.dsn"))
 }
 
 // registerSentryMiddlewareCore binds the per-request capture logic. Takes
@@ -42,13 +45,34 @@ func initSentryFromConfig() {
 // the system_settings collection is loaded — the DSN comes from there, not an env
 // var. Until then (and whenever the DSN is empty) the SDK is a no-op: events drop,
 // the middleware still runs, and panic recovery still re-panics so PB's normal 500
-// path is unaffected. initSentryFromConfig performs the actual Init and is reused
+// path is unaffected. initSentryFromConfig binds the app's client and is reused
 // for live re-init when the DSN changes.
 func registerSentryMiddlewareCore(app core.App) {
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		e.Router.Bind(&hook.Handler[*core.RequestEvent]{
+			Id:       appContextMiddlewareId,
+			Priority: appContextMiddlewarePriority,
+			Func:     appContextMiddleware,
+		})
 		e.Router.BindFunc(sentryMiddleware)
 		return e.Next()
 	})
+}
+
+const (
+	appContextMiddlewareId = "tinycldAppContext"
+	// Before every other middleware, PocketBase's included, so whatever they
+	// log with the request's ctx is filed under this app.
+	appContextMiddlewarePriority = apis.DefaultWWWRedirectMiddlewarePriority - 1
+)
+
+// appContextMiddleware names the serving app on the request's ctx. A handler
+// that logs with that ctx then writes to this app's _logs table, even when
+// other apps share the process. Bound in the same OnServe handler as the
+// Sentry middleware, so the composition's hook counts do not change.
+func appContextMiddleware(re *core.RequestEvent) error {
+	re.Request = re.Request.WithContext(logging.WithApp(re.Request.Context(), re.App))
+	return re.Next()
 }
 
 // sentrySkipPaths are request paths fully excluded from Sentry — no
@@ -66,7 +90,9 @@ func sentryMiddleware(re *core.RequestEvent) error {
 		return re.Next()
 	}
 
-	hub := sentry.CurrentHub().Clone()
+	// A clone of this app's hub: its client and tags are this app's, and the
+	// user set below stays on this one request.
+	hub := logging.Hub(re.App).Clone()
 	ctx := sentry.SetHubOnContext(re.Request.Context(), hub)
 	re.Request = re.Request.WithContext(ctx)
 
