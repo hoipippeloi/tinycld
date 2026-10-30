@@ -217,7 +217,9 @@ func (sc *scope) exists(prefix []hopPlan, link *pathPlan, where *Node, mk func(*
 			if err != nil {
 				return expr{}, err
 			}
-			cond += " AND " + w.sql
+			// A blank where field makes the condition NULL, which NOT would
+			// keep NULL: exists is 0 or 1, like SQL EXISTS.
+			cond += " AND COALESCE(" + w.sql + ", 0)"
 		}
 		return expr{sql: "(" + cond + ")", typ: Bool}, nil
 	}

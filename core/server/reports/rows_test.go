@@ -367,3 +367,44 @@ func TestAFilterPathFollowsFourLinksAndNotFive(t *testing.T) {
 	_, err = z.wRows(t, "ann", fmt.Sprintf(base, five), nil)
 	requireSpecError(t, err, 400, "filter.args.0.path.4", "at most 4 links")
 }
+
+// A visible linked row whose where field is blank: exists is false, so
+// notExists is true, as not(exists) is.
+func TestExistsWithABlankWhereFieldIsFalseNotNull(t *testing.T) {
+	z := newZoo(t)
+	blank := z.rec(t, "blank", "zoo_sites", map[string]any{"name": "Blank"})
+	z.rec(t, "ivy", "zoo_animals", map[string]any{"name": "Ivy", "species": "ibis", "site": blank.Id, "owner": z.id("ann")})
+	where := `{"op":"gt","args":[{"path":[{"field":"region"}]},{"value":"a"}]}`
+	link := `[{"link":"site"}]`
+	cases := map[string]struct {
+		filter string
+		want   []any
+	}{
+		"exists":     {`{"op":"exists","link":` + link + `,"where":` + where + `}`, []any{"Leo", "Zed"}},
+		"notExists":  {`{"op":"notExists","link":` + link + `,"where":` + where + `}`, []any{"Ivy", "Kit"}},
+		"not exists": {`{"op":"not","args":[{"op":"exists","link":` + link + `,"where":` + where + `}]}`, []any{"Ivy", "Kit"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			rows := z.mustW(t, "ann", `{"version":1,"source":"zoo.animals","columns":[{"id":"name","path":[{"field":"name"}]}],"filter":`+c.filter+`}`, nil)
+			if got := column(rows, "name"); !reflect.DeepEqual(got, c.want) {
+				t.Fatalf("animals = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+func TestWithDoesNotApplyToAnExistsLink(t *testing.T) {
+	z := newZoo(t)
+	base := `{"version":1,"source":"zoo.animals","columns":[{"id":"name","path":[{"field":"name"}]}],"filter":%s}`
+	cases := map[string]string{
+		"notExists": `{"op":"notExists","link":[{"link":"site","with":"required"}]}`,
+		"or":        `{"op":"or","args":[{"op":"exists","link":[{"link":"site","with":"required"}]},{"op":"eq","args":[{"path":[{"field":"name"}]},{"value":"Kit"}]}]}`,
+	}
+	for name, filter := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := z.wRows(t, "ann", fmt.Sprintf(base, filter), nil)
+			requireSpecError(t, err, 400, map[string]string{"notExists": "filter.link.0", "or": "filter.args.0.link.0"}[name], "with does not apply to an exists link")
+		})
+	}
+}

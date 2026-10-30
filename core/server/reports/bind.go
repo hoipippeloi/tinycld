@@ -318,6 +318,10 @@ func (b *binder) path(src *Source, path Path, at string, kind pathKind, agg Aggr
 			b.bad(hat+".with", "with is required or optional")
 			return nil
 		}
+		if kind == pathLinks && hop.With != "" {
+			b.bad(hat, "with does not apply to an exists link")
+			return nil
+		}
 		h := hopPlan{link: link, from: src, to: target, mode: hop.Mode, required: hop.With == "required"}
 		if msg := hopProblem(h, kind, agg, modes); msg != "" {
 			b.bad(hat, msg)
