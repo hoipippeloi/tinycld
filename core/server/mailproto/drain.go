@@ -133,13 +133,6 @@ func newDrain(label string, endIdle bool) *drain {
 	}
 }
 
-// listen wraps a raw listener so the drain tracks every connection it
-// accepts. Wrap the raw listener, under any TLS listener: the drain closes
-// connections at the network layer.
-func (d *drain) listen(ln net.Listener) net.Listener {
-	return &trackedListener{Listener: ln, d: d}
-}
-
 // serve runs serve on ln in its own goroutine. The stop closes ln and waits
 // for serve to return.
 func (d *drain) serve(ln net.Listener, label, addr string, serve func(net.Listener) error) {
@@ -387,26 +380,6 @@ func (d *drain) shutdown(end context.Context) {
 	}
 	d.served.Wait()
 	d.byes.Wait()
-}
-
-// trackedListener tracks each connection it accepts in its drain, and closes
-// one accepted as the drain began.
-type trackedListener struct {
-	net.Listener
-	d *drain
-}
-
-func (l *trackedListener) Accept() (net.Conn, error) {
-	for {
-		c, err := l.Listener.Accept()
-		if err != nil {
-			return nil, err
-		}
-		if tc := l.d.track(c); tc != nil {
-			return tc, nil
-		}
-		_ = c.Close()
-	}
 }
 
 // trackedConn is one network connection a drain tracks. Its fields after d
