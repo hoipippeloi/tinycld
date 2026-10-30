@@ -103,6 +103,8 @@ func (d *drain) begin() {
 // which are dups: the supervisor's own copies stay open for the next child)
 // and answers every request already accepted, within ChildDrainTimeout or
 // what is left of the terminate's shared deadline, whichever ends first.
+// The supervised drain is the standalone path: it drains the whole process,
+// so it runs every app's handlers.
 //
 // Accepting stops first, with keep-alives off, so a client whose connection
 // a begin handler ends (a realtime stream) reconnects to the next server
@@ -125,7 +127,7 @@ func (d *drain) shutdown(app core.App) {
 	for _, dr := range drainers {
 		dr.StopAccepting()
 	}
-	drainhooks.RunBegin()
+	drainhooks.RunBeginAll()
 	ctx, cancel := shutdown.Within(app, supervise.ChildDrainTimeout)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -150,7 +152,7 @@ func (d *drain) shutdown(app core.App) {
 // same reason.
 func endRealtimeOnDrain(app core.App) {
 	var draining atomic.Bool
-	drainhooks.OnBegin("realtime", func() {
+	drainhooks.OnBegin(app, "realtime", func() {
 		draining.Store(true)
 		broker := app.SubscriptionsBroker()
 		for id := range broker.Clients() {

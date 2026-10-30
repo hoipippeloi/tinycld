@@ -58,15 +58,15 @@ const (
 var draining atomic.Bool
 
 // registerLifecycle binds the hooks above. The read-only hook is bound per
-// app (each app's mode has its own OnEnter list); the drain hook replaces
-// itself by name; the terminate hook is per app.
+// app (each app's mode has its own OnEnter list); the drain hook is bound per
+// app and replaces itself by name; the terminate hook is per app.
 func registerLifecycle(app core.App) {
 	readonly.OnEnter(app, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), readOnlySuspendMax)
 		defer cancel()
 		Suspend(ctx, "read-only")
 	})
-	drainhooks.OnBegin("realtime-rooms", func() { beginDrain(app) })
+	drainhooks.OnBegin(app, "realtime-rooms", func() { beginDrain(app) })
 	shutdown.Register(app)
 	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 		Id:       "tinycldRealtimeSuspend",

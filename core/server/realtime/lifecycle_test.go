@@ -79,7 +79,7 @@ func TestDrainBeginSuspendsThenClosesGoingAway(t *testing.T) {
 	// releases the document, after which DocEpoch is 0.
 	epoch := room.DocEpoch()
 
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	expectClose(t, a.conn, websocket.StatusGoingAway)
 	cp, found, _ := f.store.Load("test", "room-d")
@@ -99,7 +99,7 @@ func TestDrainBeginSkipsSuspendWhileReadOnly(t *testing.T) {
 	t.Cleanup(func() { readonly.Leave(f.app) })
 	// Enter stored the state; the drain must not write again under the pause.
 	_ = f.store.Delete("test", "room-ro")
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	expectClose(t, a.conn, websocket.StatusGoingAway)
 	if _, found, _ := f.store.Load("test", "room-ro"); found {
@@ -111,7 +111,7 @@ func TestConnectionRefusedWhileDraining(t *testing.T) {
 	broker := NewBroker()
 	t.Cleanup(broker.Close)
 	f := newLifecycleFixture(t, broker)
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	hdr := http.Header{}
 	hdr.Set("X-Test-User", "alice")
@@ -169,7 +169,7 @@ func TestUpgradeAnswers503WhileDraining(t *testing.T) {
 	if res := get(); res.StatusCode == http.StatusServiceUnavailable {
 		t.Fatal("refused before any drain")
 	}
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(app)
 	res := get()
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status while draining = %d; want 503", res.StatusCode)

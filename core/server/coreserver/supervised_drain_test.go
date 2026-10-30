@@ -99,13 +99,13 @@ func serveApp(t *testing.T, app core.App, cfg apis.ServeConfig) <-chan error {
 // holdDrainBegin registers a drain-begin handler, after the ones already
 // registered, that blocks until the returned release is called. The test
 // then sees the state the drain has right after its begin handlers ran.
-func holdDrainBegin(t *testing.T) (begun <-chan struct{}, release func()) {
+func holdDrainBegin(t *testing.T, app core.App) (begun <-chan struct{}, release func()) {
 	t.Helper()
 	b, hold := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	release = func() { once.Do(func() { close(hold) }) }
 	t.Cleanup(release)
-	drainhooks.OnBegin("acme-hold", func() {
+	drainhooks.OnBegin(app, "acme-hold", func() {
 		close(b)
 		<-hold
 	})
@@ -203,7 +203,7 @@ func TestSupervisedDrainEndsRealtimeStreamsAtOnce(t *testing.T) {
 	app := bootstrappedApp(t)
 	terminated := terminateOnDrain(t, app)
 	registerSupervised(app)
-	begun, release := holdDrainBegin(t)
+	begun, release := holdDrainBegin(t, app)
 	served := serveApp(t, app, apis.ServeConfig{HttpAddr: addr})
 	if got := recvLine(t, parent, bufio.NewReader(parent)); got != `{"type":"ready","version":1}` {
 		t.Fatalf("control message = %q", got)
@@ -264,7 +264,7 @@ func TestSupervisedDrainFinishesAnInFlightRedirect(t *testing.T) {
 	app := bootstrappedApp(t)
 	terminated := terminateOnDrain(t, app)
 	registerSupervised(app)
-	begun, release := holdDrainBegin(t)
+	begun, release := holdDrainBegin(t, app)
 	served := serveApp(t, app, apis.ServeConfig{
 		HttpAddr:           redirect.Addr().String(),
 		HttpsAddr:          https.Addr().String(),

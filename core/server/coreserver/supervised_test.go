@@ -715,10 +715,10 @@ func TestSupervisedDrainRunsBeginHandlersFirst(t *testing.T) {
 	}()
 	<-inFlight
 
-	drainhooks.OnBegin("acme-listeners", func() { close(release) })
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	drainhooks.OnBegin(app, "acme-listeners", func() { close(release) })
 	d := &drain{drainer: dr, requested: true}
 	done := make(chan struct{})
-	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	go func() { d.shutdown(app); close(done) }()
 	select {
 	case <-done:
