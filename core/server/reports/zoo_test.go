@@ -110,6 +110,10 @@ func newZoo(t testing.TB) *zoo {
 	)
 	z.save(t, vault)
 
+	// Animals link to the vault, which no reader may list: a hidden to-one row.
+	animals.Fields.Add(&core.RelationField{Name: "vault", CollectionId: vault.Id, MaxSelect: 1})
+	z.save(t, animals)
+
 	ann := z.user(t, "ann")
 	bob := z.user(t, "bob")
 	north := z.rec(t, "north", "zoo_sites", map[string]any{"name": "North", "region": "north"})
@@ -128,7 +132,11 @@ func newZoo(t testing.TB) *zoo {
 	z.feeding(t, "f4", zed, 300, "2026-03-03", 100)
 	z.feeding(t, "f5", mo, 150, "2026-02-14", 50)
 	z.feeding(t, "f6", kit, 99, "2026-03-30", 20)
-	z.rec(t, "v1", "zoo_vault", map[string]any{"name": "Gold", "animal": leo.Id})
+	v1 := z.rec(t, "v1", "zoo_vault", map[string]any{"name": "Gold", "animal": leo.Id})
+	leo.Set("vault", v1.Id)
+	if err := app.Save(leo); err != nil {
+		t.Fatal(err)
+	}
 
 	registerZooSources()
 	return z
@@ -160,6 +168,7 @@ func registerZooSources() {
 		Links: []Link{
 			{Key: "site", Label: "Site", Target: "zoo.sites", Cardinality: ToOne, Field: "site"},
 			{Key: "owner", Label: "Owner", Target: "zoo.people", Cardinality: ToOne, Field: "owner"},
+			{Key: "vault", Label: "Vault", Target: "zoo.vault", Cardinality: ToOne, Field: "vault"},
 			{Key: "feedings", Label: "Feedings", Target: "zoo.feedings", Cardinality: ToMany, BackField: "animal"},
 			{Key: "keepers", Label: "Keepers", Target: "zoo.keepers", Cardinality: ToMany, BackField: "animal"},
 		},
