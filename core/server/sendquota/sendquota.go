@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 )
 
 // SendLimits are the outbound ceilings. Zero means UNLIMITED in both fields,
@@ -44,54 +45,65 @@ type SendLimits struct {
 // it must be cheap — a struct read, not a query.
 type SendLimitsFunc func(app core.App) SendLimits
 
-var (
+// claim is one app's resolver and whether it has been claimed. It lives on the
+// app: two apps in one process are two deployments, and each is throttled on
+// its own record, never on its neighbour's.
+type claim struct {
 	mu      sync.RWMutex
 	limits  SendLimitsFunc
 	claimed bool
-)
+}
 
-// SetLimits installs the process-wide resolver. A supervising composition
-// calls it before any package registers.
+var claimKey = appstate.NewKey[*claim]("sendquota.limits")
+
+func claimFor(app core.App) *claim {
+	return claimKey.GetOrInit(app, func() *claim { return &claim{} })
+}
+
+// SetLimits installs app's resolver. A supervising composition calls it
+// before any package registers on app.
 //
-// This CLAIMS the seam: a later call is ignored, so nothing can point these
-// ceilings back at a value the deployment controls. That matters more here
-// than for a storage ceiling — the throttle exists precisely for a deployment
-// that is behaving badly, and one that could raise its own limit would simply
-// do so.
+// This CLAIMS app's seam: a later call on app is ignored, so nothing can point
+// app's ceilings back at a value the deployment controls. That matters more
+// here than for a storage ceiling — the throttle exists precisely for a
+// deployment that is behaving badly, and one that could raise its own limit
+// would simply do so.
 //
 // A nil resolver is ignored rather than installed: it would silently mean
 // unlimited, and a caller passing nil has a bug rather than an intent.
-func SetLimits(fn SendLimitsFunc) {
+func SetLimits(app core.App, fn SendLimitsFunc) {
 	if fn == nil {
 		return
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if claimed {
+	c := claimFor(app)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.claimed {
 		return
 	}
-	limits = fn
-	claimed = true
+	c.limits, c.claimed = fn, true
 }
 
-// IsClaimed reports whether a supervising composition installed a resolver.
-// A standalone deployment's own wiring consults this before falling back to
-// what that deployment configured for itself.
-func IsClaimed() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return claimed
+// IsClaimed reports whether a supervising composition installed app's
+// resolver. A standalone deployment's own wiring consults this before falling
+// back to what that deployment configured for itself.
+func IsClaimed(app core.App) bool {
+	c := claimFor(app)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.claimed
 }
 
-// Limits resolves the current ceilings, or unlimited when nobody claimed the
-// seam. A negative value is normalized to zero here rather than at the call
-// site: a negative ceiling reaching an enforcement comparison would refuse
-// every send, and that must not depend on whoever supplies the numbers having
-// validated them.
+// Limits resolves app's current ceilings, or unlimited when nobody claimed
+// app's seam. A negative value is normalized to zero here rather than at the
+// call site: a negative ceiling reaching an enforcement comparison would
+// refuse every send, and that must not depend on whoever supplies the numbers
+// having validated them.
 func Limits(app core.App) SendLimits {
-	mu.RLock()
-	fn := limits
-	mu.RUnlock()
+	c := claimFor(app)
+	c.mu.RLock()
+	fn := c.limits
+	c.mu.RUnlock()
 
 	if fn == nil {
 		return SendLimits{}
@@ -104,13 +116,4 @@ func Limits(app core.App) SendLimits {
 		l.PerHour = 0
 	}
 	return l
-}
-
-// ResetForTesting restores the zero state: no resolver, no claim. A test that
-// installs one must call it (t.Cleanup) so the claim does not leak into the
-// next test and make SetLimits inert there.
-func ResetForTesting() {
-	mu.Lock()
-	limits, claimed = nil, false
-	mu.Unlock()
 }
