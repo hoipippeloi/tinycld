@@ -279,14 +279,21 @@ func (r *Room) remove(c *Client) {
 	close(c.send)
 	r.mu.Unlock()
 	if empty {
-		// Before OnEmpty: the listener flushes through the kind's ForceFlush
-		// and the kind's snapshot hook reads the live document, and both are
-		// gone after OnEmpty. draining keeps new members out meanwhile.
+		// Taken before OnEmpty so no idle timer fires into the teardown.
+		var editors editcheckpoint.Editors
 		if r.opts.EditCheckpoints {
-			r.fireCheckpoint(editcheckpoint.ReasonRoomEmpty)
+			editors = r.edits.take()
 		}
 		if r.opts.OnEmpty != nil {
 			r.opts.OnEmpty(r.key.id)
+		}
+		// After OnEmpty: its final save has written the file the version
+		// copies. In its own goroutine, so a slow version save does not hold
+		// the room key and keep a reloading client from rejoining.
+		// Not during a drain: the database closes after the rooms, and the
+		// edits themselves are already saved.
+		if !editors.Empty() && !draining.Load() {
+			go fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonRoomEmpty)
 		}
 		if r.serverDoc != nil {
 			r.releaseDoc()

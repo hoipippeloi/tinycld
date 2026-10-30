@@ -120,14 +120,19 @@ func TestIdleTimerResetsOnEachEdit(t *testing.T) {
 	expectNoCheckpoint(t, calls, 250*time.Millisecond)
 }
 
-func TestRoomEmptyCheckpointFiresOnceAndBeforeOnEmpty(t *testing.T) {
+// The room-empty checkpoint runs after OnEmpty (the kind's final save has
+// written the file) and off the teardown path, so a slow version save does
+// not hold the room key and block a rejoin.
+func TestRoomEmptyCheckpointFiresOnceAfterOnEmptyWithoutBlocking(t *testing.T) {
 	calls := recordCheckpoints(t, time.Hour)
+	release := make(chan struct{})
 	var mu sync.Mutex
 	var order []string
 	editcheckpoint.Register(func(_ context.Context, id string, e editcheckpoint.Editors, r editcheckpoint.Reason) {
 		mu.Lock()
 		order = append(order, "checkpoint")
 		mu.Unlock()
+		<-release
 		calls <- checkpointCall{id, e, r}
 	})
 	broker := NewBroker()
@@ -147,19 +152,25 @@ func TestRoomEmptyCheckpointFiresOnceAndBeforeOnEmpty(t *testing.T) {
 	_ = a.conn.Close(websocket.StatusNormalClosure, "bye")
 	_ = b.conn.Close(websocket.StatusNormalClosure, "bye")
 
+	// The listener is still blocked, yet the room is gone.
+	deadline := time.Now().Add(2 * time.Second)
+	for broker.roomCount() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := broker.roomCount(); n != 0 {
+		t.Fatalf("room still open while the checkpoint listener runs (%d rooms)", n)
+	}
+	close(release)
+
 	got := waitCheckpoint(t, calls)
 	if got.reason != editcheckpoint.ReasonRoomEmpty || len(got.editors.UserIDs) != 2 {
 		t.Fatalf("got %+v", got)
 	}
 	expectNoCheckpoint(t, calls, 200*time.Millisecond)
-	deadline := time.Now().Add(2 * time.Second)
-	for broker.roomCount() != 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(order) != 2 || order[0] != "checkpoint" || order[1] != "on-empty" {
-		t.Fatalf("order = %v, want checkpoint then on-empty", order)
+	if len(order) != 2 || order[0] != "on-empty" || order[1] != "checkpoint" {
+		t.Fatalf("order = %v, want on-empty then checkpoint", order)
 	}
 }
 
@@ -218,4 +229,19 @@ func TestIdleFromEnv(t *testing.T) {
 			t.Errorf("idleFromEnv(%q) = %v, want %v", value, got, want)
 		}
 	}
+}
+
+// During a drain the database closes after the rooms; the room-empty
+// version is skipped (the edits are saved by OnEmpty).
+func TestRoomEmptyCheckpointSkippedDuringDrain(t *testing.T) {
+	calls := recordCheckpoints(t, time.Hour)
+	opts := checkpointKind(t, NewBroker(), RoomKindOptions{})
+	a := dialClient(t, opts, "drain-room", "alice")
+	writeFrame(t, a, MsgDocUpdate, []byte("e1"))
+	time.Sleep(50 * time.Millisecond)
+
+	draining.Store(true)
+	t.Cleanup(func() { draining.Store(false) })
+	_ = a.conn.Close(websocket.StatusNormalClosure, "bye")
+	expectNoCheckpoint(t, calls, 300*time.Millisecond)
 }

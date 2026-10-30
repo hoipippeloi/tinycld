@@ -94,28 +94,30 @@ func sortedKeys(m map[string]struct{}) []string {
 // noteEditForCheckpoint is called from the MsgDocUpdate path of a room
 // whose kind opted in.
 func (r *Room) noteEditForCheckpoint(from *Client) {
-	r.edits.noteEdit(from, func() { r.fireCheckpoint(editcheckpoint.ReasonIdle) })
+	r.edits.noteEdit(from, r.fireIdleCheckpoint)
 }
 
-// fireCheckpoint hands the editors since the last checkpoint to the
+// fireIdleCheckpoint hands the editors since the last checkpoint to the
 // registered listener. An idle timer that fires while the room is tearing
 // down does nothing: the room-empty checkpoint in remove covers it.
-func (r *Room) fireCheckpoint(reason editcheckpoint.Reason) {
-	if reason == editcheckpoint.ReasonIdle {
-		r.mu.Lock()
-		draining := r.draining
-		r.mu.Unlock()
-		if draining {
-			return
-		}
+func (r *Room) fireIdleCheckpoint() {
+	r.mu.Lock()
+	draining := r.draining
+	r.mu.Unlock()
+	if draining {
+		return
 	}
 	editors := r.edits.take()
 	if editors.Empty() {
 		return
 	}
+	fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonIdle)
+}
+
+func fireEditCheckpoint(id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTeardownTimeout)
 	defer cancel()
-	editcheckpoint.Fire(ctx, r.key.id, editors, reason)
+	editcheckpoint.Fire(ctx, id, editors, reason)
 }
 
 // TakeEditors returns and clears the editors of every open room for id,
