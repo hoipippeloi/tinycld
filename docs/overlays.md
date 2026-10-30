@@ -137,7 +137,9 @@ the whole chain when chosen.
 - `Menu.Item`: `label`, `icon` (Lucide) or `leading` (any node) or `colorDot`,
   `onSelect`, `href` (renders an anchor on web), `shortcut` (`⌘B`, shown
   right-aligned as written), `isSelected` (a check mark),
-  `isDisabled`, `isDestructive`, `testID`. There is no children form: a row is
+  `isDisabled`, `isDestructive`, `indent` (levels of leading space, for a
+  hierarchy; `SelectInput` passes a `SelectOption`'s `indent`), `testID`.
+  There is no children form: a row is
   a label, and a Sheet renders the same props as touch rows.
 - `Menu.CheckboxItem`: `label`, `isChecked`, `onToggle`, `colorDot`. Does not
   close the menu.
