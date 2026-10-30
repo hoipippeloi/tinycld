@@ -118,11 +118,10 @@ func (r *stubRuntime) doc(roomID string) *stubDoc {
 // kind via RegisterRoomKindWith so all the new hooks are wired in.
 func startTestServerWithOpts(t *testing.T, broker *Broker, opts RoomKindOptions) dialOpts {
 	t.Helper()
-	resetRegistry()
 	if opts.Authorize == nil {
 		opts.Authorize = allowAllAuth
 	}
-	RegisterRoomKindWith("test", opts)
+	setKindForTest(broker, "test", opts)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/realtime/", func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +132,7 @@ func startTestServerWithOpts(t *testing.T, broker *Broker, opts RoomKindOptions)
 		}
 		kind, roomID := parts[0], parts[1]
 
-		fn, err := authorizeFor(kind)
+		fn, err := broker.authorizeFor(kind)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -168,7 +167,7 @@ func startTestServerWithOpts(t *testing.T, broker *Broker, opts RoomKindOptions)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/realtime/test/"
-	return dialOpts{server: srv, url: url}
+	return dialOpts{server: srv, url: url, broker: broker}
 }
 
 // expectNoFrame asserts the connection sees no frame within d. Reading

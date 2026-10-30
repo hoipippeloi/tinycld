@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/editcheckpoint"
 )
 
@@ -111,20 +112,22 @@ func (r *Room) fireIdleCheckpoint() {
 	if editors.Empty() {
 		return
 	}
-	fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonIdle)
+	fireEditCheckpoint(r.broker.app, r.key.id, editors, editcheckpoint.ReasonIdle)
 }
 
-func fireEditCheckpoint(id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
+// fireEditCheckpoint hands a checkpoint to the listener of the app whose room
+// reached it.
+func fireEditCheckpoint(app core.App, id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
 	ctx, cancel := context.WithTimeout(context.Background(), DefaultTeardownTimeout)
 	defer cancel()
-	editcheckpoint.Fire(ctx, id, editors, reason)
+	editcheckpoint.Fire(ctx, app, id, editors, reason)
 }
 
-// TakeEditors returns and clears the editors of every open room for id,
-// across the kinds that keep checkpoints. A manual version takes them so
+// TakeEditors returns and clears the editors of every open room for id in
+// app, across the kinds that keep checkpoints. A manual version takes them so
 // the next automatic one names only later editors.
-func TakeEditors(id string) editcheckpoint.Editors {
-	return sharedBroker().TakeEditors(id)
+func TakeEditors(app core.App, id string) editcheckpoint.Editors {
+	return BrokerFor(app).TakeEditors(id)
 }
 
 func (b *Broker) TakeEditors(id string) editcheckpoint.Editors {

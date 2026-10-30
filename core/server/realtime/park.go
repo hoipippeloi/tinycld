@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	ycrdt "github.com/skyterra/y-crdt"
 )
 
@@ -170,13 +171,6 @@ func restoreCheckpoint(handle DocHandle, state []byte) (ok bool) {
 	return maps.Equal(want, got) && (len(want) > 0 || bytes.Equal(state, applied))
 }
 
-// Suspend flushes every dirty room and stores every open and parked
-// document's state, for a process that is about to pause writes, drain,
-// or exit. It runs on the shared broker; see Broker.Suspend.
-func Suspend(ctx context.Context, reason string) {
-	sharedBroker().Suspend(ctx, reason)
-}
-
 // Suspend is the process-event checkpoint. Order matters: each kind's
 // FlushDirty runs first so the derived file is current, then the
 // fingerprint is read and the state stored, so the row names the file it
@@ -198,8 +192,8 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 		return
 	}
 	defer b.gate.leave()
-	for _, kind := range registeredKinds() {
-		opts, err := optionsFor(kind)
+	for _, kind := range b.registeredKinds() {
+		opts, err := b.optionsFor(kind)
 		if err != nil || opts.FlushDirty == nil {
 			continue
 		}
@@ -245,12 +239,12 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 	log.Info("suspended collaborative documents", "reason", reason, "checkpointed", len(targets))
 }
 
-// DropRoom forgets everything the broker holds for a room whose record is
+// DropRoom forgets everything app's broker holds for a room whose record is
 // gone: it closes a parked document and deletes the stored checkpoint. A
 // room with clients still in it is left alone; its own teardown follows
 // when they leave, and the kind's Authorize refuses new joiners.
-func DropRoom(kind, id string) error {
-	return sharedBroker().DropRoom(kind, id)
+func DropRoom(app core.App, kind, id string) error {
+	return BrokerFor(app).DropRoom(kind, id)
 }
 
 func (b *Broker) DropRoom(kind, id string) error {
@@ -261,7 +255,7 @@ func (b *Broker) DropRoom(kind, id string) error {
 	if p != nil {
 		p.close(key)
 	}
-	opts, err := optionsFor(kind)
+	opts, err := b.optionsFor(kind)
 	if err != nil || opts.Checkpoints == nil {
 		return nil
 	}

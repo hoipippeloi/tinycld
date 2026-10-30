@@ -23,6 +23,8 @@ type dialOpts struct {
 	// noHello tells dialClient not to wait for a hello frame from a kind
 	// that would normally send one (its OnConnect fails in the test).
 	noHello bool
+	// broker is the broker the server runs connections on.
+	broker *Broker
 }
 
 // startTestServerForKind mounts a minimal HTTP handler that drives
@@ -32,12 +34,9 @@ type dialOpts struct {
 // AuthorizeFn signature receives nil for *core.Record. X-Test-Role threads
 // a share role into the connection's connIdentity so per-connection write
 // gating can be exercised.
-//
-// Each call resets the registry first so prior tests don't leak.
 func startTestServerForKind(t *testing.T, broker *Broker, kind string, kindOpts RoomKindOptions) dialOpts {
 	t.Helper()
-	resetRegistry()
-	RegisterRoomKindWith(kind, kindOpts)
+	setKindForTest(broker, kind, kindOpts)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/realtime/", func(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +47,7 @@ func startTestServerForKind(t *testing.T, broker *Broker, kind string, kindOpts 
 		}
 		k, roomID := parts[0], parts[1]
 
-		fn, err := authorizeFor(k)
+		fn, err := broker.authorizeFor(k)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -78,7 +77,7 @@ func startTestServerForKind(t *testing.T, broker *Broker, kind string, kindOpts 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/realtime/" + kind + "/"
-	return dialOpts{server: srv, url: url}
+	return dialOpts{server: srv, url: url, broker: broker}
 }
 
 // startTestServer mounts a minimal HTTP handler for the "test" room kind
@@ -148,7 +147,7 @@ func kindSendsHello(opts dialOpts) bool {
 		return false
 	}
 	kind := strings.Trim(rest[i+len("/api/realtime/"):], "/")
-	ko, err := optionsFor(kind)
+	ko, err := opts.broker.optionsFor(kind)
 	if err != nil {
 		return false
 	}
@@ -228,24 +227,38 @@ func readFrame(t *testing.T, tc *testClient, timeout time.Duration) (MessageType
 // allowAllAuth is the AuthorizeFn most tests use — admit everyone.
 var allowAllAuth AuthorizeFn = func(_ *core.Record, _ string) error { return nil }
 
+// setKindForTest installs or replaces kind on b. Tests that swap a kind's
+// options mid-test use it; production registration panics on a duplicate.
+func setKindForTest(b *Broker, kind string, opts RoomKindOptions) {
+	b.kindsMu.Lock()
+	defer b.kindsMu.Unlock()
+	b.kinds[kind] = opts
+}
+
+// attachBrokerForTest makes broker the one app serves, so app's lifecycle
+// hooks and package-level calls for app reach it.
+func attachBrokerForTest(app core.App, broker *Broker) {
+	broker.app = app
+	brokerKey.Set(app, broker)
+}
+
 // TestRegistryUnknownKind: looking up an unregistered kind returns the sentinel.
 func TestRegistryUnknownKind(t *testing.T) {
-	resetRegistry()
-	if _, err := authorizeFor("nope"); !errors.Is(err, ErrUnknownRoomKind) {
+	if _, err := NewBroker().authorizeFor("nope"); !errors.Is(err, ErrUnknownRoomKind) {
 		t.Fatalf("expected ErrUnknownRoomKind, got %v", err)
 	}
 }
 
 // TestRegistryDuplicatePanics: double-registration is a configuration mistake.
 func TestRegistryDuplicatePanics(t *testing.T) {
-	resetRegistry()
-	RegisterRoomKind("dup", allowAllAuth)
+	b := NewBroker()
+	b.RegisterRoomKind("dup", allowAllAuth)
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic on duplicate registration")
 		}
 	}()
-	RegisterRoomKind("dup", allowAllAuth)
+	b.RegisterRoomKind("dup", allowAllAuth)
 }
 
 // TestBrokerFanOutSameRoom: A's DOC_UPDATE reaches B in the same room.
@@ -626,14 +639,13 @@ func (stubDocRuntime) Seed(context.Context, string, DocHandle) error { return ni
 
 func TestRoomRouteOversizeFrameDropped(t *testing.T) {
 	kind := "test-kind-cap"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 		MaxUpdateBytes:  4,
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	c1 := &Client{joinedAt: time.Now()}
 	c2 := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-1", c1)
@@ -667,13 +679,12 @@ func TestRoomRouteOversizeFrameDropped(t *testing.T) {
 // reach the server document. Awareness is ephemeral by design.
 func TestRoomRouteAwarenessNotAppliedToDoc(t *testing.T) {
 	kind := "test-kind-awareness"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	c1 := &Client{joinedAt: time.Now()}
 	c2 := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-1", c1)
@@ -798,14 +809,13 @@ func TestUpdateContentValidatorRejectsUpdate(t *testing.T) {
 	}
 
 	kind := "test-kind-content-validator"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:              allowAllAuth,
 		RuntimeProvider:        stubDocRuntime{},
 		UpdateContentValidator: validator,
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	c1 := &Client{joinedAt: time.Now()}
 	c2 := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-1", c1)
@@ -878,8 +888,7 @@ func TestUpdateContentValidatorRejectsUpdate(t *testing.T) {
 // iterations; the test is meaningless unless it has been seen to do so.
 func TestFanOutRacesClientRemoval(t *testing.T) {
 	broker := NewBroker()
-	resetRegistry()
-	RegisterRoomKindWith("racekind", RoomKindOptions{Authorize: allowAllAuth})
+	broker.RegisterRoomKindWith("racekind", RoomKindOptions{Authorize: allowAllAuth})
 
 	// A resident keeps the room alive, so churning members never trips the
 	// last-one-out teardown and every iteration exercises fanOut with a

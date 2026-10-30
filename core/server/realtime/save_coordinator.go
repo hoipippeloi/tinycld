@@ -11,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/logging"
 	"tinycld.org/core/readonly"
 )
 
@@ -172,7 +173,7 @@ func NewSaveCoordinator(app core.App, flush FlushFn) *SaveCoordinator {
 		maxAttempts:     DefaultMaxSaveAttempts,
 		logger:          log,
 		backoff:         RetryBackoff,
-		captureGiveUp:   captureGiveUpToSentry,
+		captureGiveUp:   func(d giveUpDetail) { captureGiveUpToSentry(app, d) },
 		rooms:           map[string]*roomSaver{},
 	}
 }
@@ -728,9 +729,10 @@ type giveUpDetail struct {
 // Capturing the underlying flush error (rather than a synthetic message)
 // preserves Sentry's grouping by error value, so all give-ups sharing a
 // root cause (e.g. one unrepresentable document) collapse into a single
-// issue. No-op when the Sentry SDK has no DSN configured (dev).
-func captureGiveUpToSentry(d giveUpDetail) {
-	hub := sentry.CurrentHub().Clone()
+// issue. It reports on app's own hub. No-op when that hub has no DSN
+// configured (dev).
+func captureGiveUpToSentry(app core.App, d giveUpDetail) {
+	hub := logging.Hub(app).Clone()
 	hub.WithScope(func(scope *sentry.Scope) {
 		scope.SetLevel(sentry.LevelError)
 		scope.SetTag("realtime.give_up", "true")

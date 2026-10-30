@@ -34,13 +34,12 @@ func fillSendBuffer(t *testing.T, c *Client) {
 
 func TestFanOutResyncsAPeerWhoseBufferOverflowed(t *testing.T) {
 	kind := "test-kind-fanout-overflow"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	sender := &Client{joinedAt: time.Now()}
 	slow := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-overflow", sender)
@@ -93,13 +92,12 @@ func TestFanOutDoesNotResyncOnAnAwarenessDrop(t *testing.T) {
 	// dropped, so paying for a full document encode there would be waste on
 	// every cursor move a busy room makes.
 	kind := "test-kind-fanout-awareness"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	sender := &Client{joinedAt: time.Now()}
 	slow := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-aware", sender)
@@ -126,13 +124,12 @@ func TestFanOutSkipsAPeerThatLeftDuringTheRepair(t *testing.T) {
 	// have gone by the time it runs — and room.remove closes its send channel
 	// under that same lock. Writing to it then panics the whole process.
 	kind := "test-kind-fanout-departed"
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	resident := &Client{joinedAt: time.Now()}
 	leaver := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-departed", resident)

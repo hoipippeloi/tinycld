@@ -418,7 +418,7 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	// tokens so calc/text editable share links can open a WS without a
 	// PB account. Adapts sharelink.VerifySession to the broker's
 	// ShareClaims shape (the broker stays decoupled from drive's feature).
-	realtime.SetShareSessionResolver(func(a core.App, token string) (realtime.ShareClaims, error) {
+	realtime.SetShareSessionResolver(app, func(a core.App, token string) (realtime.ShareClaims, error) {
 		claims, err := sharelink.VerifySession(a, token)
 		if err != nil {
 			return realtime.ShareClaims{}, err

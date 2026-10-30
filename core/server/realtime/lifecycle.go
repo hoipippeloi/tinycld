@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -52,80 +51,51 @@ const (
 	realtimeSuspendPriority = -10001
 )
 
-// draining flips when a drain begins; an upgrade that still reaches this
-// process (on a connection accepted before accepting stopped) is turned away
-// so the client reconnects to the next process.
-var draining atomic.Bool
-
-// registerLifecycle binds the hooks above. The read-only hook is bound per
-// app (each app's mode has its own OnEnter list); the drain hook is bound per
-// app and replaces itself by name; the terminate hook is per app.
-func registerLifecycle(app core.App) {
+// registerLifecycle binds the hooks above for app's broker b. Register runs it
+// once per broker; read-only and drain hooks register per app, and the
+// terminate hook stops only b.
+func registerLifecycle(app core.App, b *Broker) {
 	readonly.OnEnter(app, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), readOnlySuspendMax)
 		defer cancel()
-		Suspend(ctx, "read-only")
+		b.Suspend(ctx, "read-only")
 	})
-	drainhooks.OnBegin(app, "realtime-rooms", func() { beginDrain(app) })
+	drainhooks.OnBegin(app, "realtime-rooms", b.beginDrain)
 	shutdown.Register(app)
 	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 		Id:       "tinycldRealtimeSuspend",
 		Priority: realtimeSuspendPriority,
 		Func: func(e *core.TerminateEvent) error {
-			stopForExit(shutdown.Context(app), "terminate")
+			b.Stop(shutdown.Context(app), "terminate")
 			return e.Next()
 		},
 	})
 }
 
-func beginDrain(app core.App) {
-	draining.Store(true)
-	suspendForExit(app, "drain")
-	sharedBroker().closeAllConns()
+// beginDrain turns away new upgrades, stores every document, and closes every
+// connection of b's app.
+func (b *Broker) beginDrain() {
+	b.draining.Store(true)
+	b.suspendForExit("drain")
+	b.closeAllConns()
 }
 
-// stopForExit stops the shared broker and lets it go, so an app built later
-// in the same process (a test binary builds many) gets a fresh one. end is
-// the terminate's end (see Broker.Stop).
-func stopForExit(end context.Context, reason string) {
-	b := sharedBroker()
-	b.Stop(end, reason)
-	processBrokerMu.Lock()
-	if processBroker == b {
-		processBroker = nil
-	}
-	processBrokerMu.Unlock()
-}
-
-// suspendForExit stores every document unless app is read-only, in which
+// suspendForExit stores every document unless b's app is read-only, in which
 // case the pause's own Suspend already did and nothing may write.
-func suspendForExit(app core.App, reason string) {
-	if readonly.Active(app) {
+func (b *Broker) suspendForExit(reason string) {
+	if b.readOnly() {
 		log.Info("documents were stored when read-only began; nothing to write now", "reason", reason)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), suspendBudget)
 	defer cancel()
-	Suspend(ctx, reason)
+	b.Suspend(ctx, reason)
 }
 
-// bindApp names the app whose read-only mode the broker obeys. The first app
-// to register keeps it.
-func (b *Broker) bindApp(app core.App) {
-	b.appMu.Lock()
-	defer b.appMu.Unlock()
-	if b.app == nil {
-		b.app = app
-	}
-}
-
-// readOnly reports whether the broker's app is read-only. A broker with no
-// app is never read-only.
+// readOnly reports whether the app b serves is read-only. A broker built
+// without an app (NewBroker, in tests) serves none and never is.
 func (b *Broker) readOnly() bool {
-	b.appMu.Lock()
-	app := b.app
-	b.appMu.Unlock()
-	return app != nil && readonly.Active(app)
+	return b.app != nil && readonly.Active(b.app)
 }
 
 // closeAllConns sends every connection a going-away close and does not wait:
@@ -157,9 +127,4 @@ func refuseWhileDraining(re *core.RequestEvent) error {
 		"code":    "retry_later",
 		"message": "The server is restarting; reconnect.",
 	})
-}
-
-// resetLifecycleForTest clears the draining flag. Tests only.
-func resetLifecycleForTest() {
-	draining.Store(false)
 }

@@ -3,7 +3,6 @@ package realtime
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -248,41 +247,48 @@ var ErrUnknownRoomKind = errors.New("yroom: unknown room kind")
 // while the former is an access decision.
 var ErrUnauthorized = errors.New("yroom: unauthorized")
 
-var (
-	registryMu sync.RWMutex
-	registry   = map[string]RoomKindOptions{}
-)
-
-// RegisterRoomKind registers an authorize-only handler for the given
-// kind. Suitable for room kinds that just need fan-out (no server-side
-// document mirroring). For richer integration, use RegisterRoomKindWith.
+// RegisterRoomKind registers an authorize-only kind on app's broker. Suitable
+// for room kinds that just need fan-out (no server-side document mirroring).
+// For richer integration, use RegisterRoomKindWith.
 //
-// Panics on duplicate registration so that misconfiguration surfaces
-// loudly during dev rather than silently shadowing a handler.
-func RegisterRoomKind(kind string, fn AuthorizeFn) {
-	RegisterRoomKindWith(kind, RoomKindOptions{Authorize: fn})
+// Panics on a duplicate kind within one app so that misconfiguration surfaces
+// loudly during dev rather than silently shadowing a handler. Another app
+// registering the same kind gets its own entry.
+func RegisterRoomKind(app core.App, kind string, fn AuthorizeFn) {
+	BrokerFor(app).RegisterRoomKind(kind, fn)
 }
 
-// RegisterRoomKindWith registers a room kind with the full bundle of
-// hooks. Authorize is required; everything else is optional. Panics on
-// duplicate registration.
-func RegisterRoomKindWith(kind string, opts RoomKindOptions) {
+// RegisterRoomKindWith registers a room kind with the full bundle of hooks on
+// app's broker. Authorize is required; everything else is optional. Panics on
+// a duplicate kind within one app.
+func RegisterRoomKindWith(app core.App, kind string, opts RoomKindOptions) {
+	BrokerFor(app).RegisterRoomKindWith(kind, opts)
+}
+
+// RegisterRoomKind is the package-level RegisterRoomKind on a broker a caller
+// holds directly (a test's own broker).
+func (b *Broker) RegisterRoomKind(kind string, fn AuthorizeFn) {
+	b.RegisterRoomKindWith(kind, RoomKindOptions{Authorize: fn})
+}
+
+// RegisterRoomKindWith is the package-level RegisterRoomKindWith on a broker a
+// caller holds directly (a test's own broker).
+func (b *Broker) RegisterRoomKindWith(kind string, opts RoomKindOptions) {
 	if kind == "" || opts.Authorize == nil {
 		panic("yroom: kind and Authorize must be non-empty")
 	}
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	if _, exists := registry[kind]; exists {
+	b.kindsMu.Lock()
+	defer b.kindsMu.Unlock()
+	if _, exists := b.kinds[kind]; exists {
 		panic("yroom: room kind already registered: " + kind)
 	}
-	registry[kind] = opts
+	b.kinds[kind] = opts
 }
 
-// authorizeFor looks up the registered authorize handler for a room
-// kind. Returns ErrUnknownRoomKind if no plugin owns this kind. Kept
-// as a thin wrapper for back-compat with the existing connect path.
-func authorizeFor(kind string) (AuthorizeFn, error) {
-	opts, err := optionsFor(kind)
+// authorizeFor looks up the registered authorize handler for a room kind.
+// Returns ErrUnknownRoomKind if no plugin owns this kind.
+func (b *Broker) authorizeFor(kind string) (AuthorizeFn, error) {
+	opts, err := b.optionsFor(kind)
 	if err != nil {
 		return nil, err
 	}
@@ -290,70 +296,41 @@ func authorizeFor(kind string) (AuthorizeFn, error) {
 }
 
 // optionsFor returns the full RoomKindOptions for a registered kind.
-func optionsFor(kind string) (RoomKindOptions, error) {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	opts, ok := registry[kind]
+func (b *Broker) optionsFor(kind string) (RoomKindOptions, error) {
+	b.kindsMu.RLock()
+	defer b.kindsMu.RUnlock()
+	opts, ok := b.kinds[kind]
 	if !ok {
 		return RoomKindOptions{}, ErrUnknownRoomKind
 	}
 	return opts, nil
 }
 
-// registeredKinds lists every registered kind, for the broker's
-// process-wide operations (Suspend).
-func registeredKinds() []string {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	kinds := make([]string, 0, len(registry))
-	for k := range registry {
+// registeredKinds lists every kind registered on b, for the broker-wide
+// operations (Suspend, WriteItem, FlushItem).
+func (b *Broker) registeredKinds() []string {
+	b.kindsMu.RLock()
+	defer b.kindsMu.RUnlock()
+	kinds := make([]string, 0, len(b.kinds))
+	for k := range b.kinds {
 		kinds = append(kinds, k)
 	}
 	return kinds
 }
 
-// resetRegistry clears all registered room kinds. Intended for tests
-// only; never call from production code.
-func resetRegistry() {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	registry = map[string]RoomKindOptions{}
+// LookupOptionsForTest returns the RoomKindOptions app registered for kind,
+// plus whether it was registered. Used by consumer packages' tests to assert
+// their Register wiring landed the right hooks. Production code must not call
+// this.
+func LookupOptionsForTest(app core.App, kind string) (RoomKindOptions, bool) {
+	opts, err := BrokerFor(app).optionsFor(kind)
+	return opts, err == nil
 }
 
-// unregisterRoomKindForTest removes the given kind from the registry.
-// Used by tests to keep registrations isolated across test cases. Must
-// not be called from production code.
-func unregisterRoomKindForTest(kind string) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	delete(registry, kind)
-}
-
-// ResetRegistryForTest is the exported alias of resetRegistry, callable
-// from external _test.go files in consumer packages. Production code
-// must not call this.
-func ResetRegistryForTest() { resetRegistry() }
-
-// LookupOptionsForTest returns the full RoomKindOptions registered for
-// kind plus a bool indicating whether it was registered. Used by
-// consumer packages' tests to assert their Register wiring landed the
-// right hooks (e.g. text asserts UpdateContentValidator was set).
+// LookupForTest returns the AuthorizeFn app registered for kind, or nil.
 // Production code must not call this.
-func LookupOptionsForTest(kind string) (RoomKindOptions, bool) {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	opts, ok := registry[kind]
-	return opts, ok
-}
-
-// LookupForTest returns the AuthorizeFn registered for kind, or nil if
-// no plugin has registered. Exported for use in consumer test packages
-// that want to exercise a registered handler directly. Production code
-// must not call this.
-func LookupForTest(kind string) AuthorizeFn {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	if opts, ok := registry[kind]; ok {
+func LookupForTest(app core.App, kind string) AuthorizeFn {
+	if opts, ok := LookupOptionsForTest(app, kind); ok {
 		return opts.Authorize
 	}
 	return nil

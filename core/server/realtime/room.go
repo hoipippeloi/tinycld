@@ -294,8 +294,8 @@ func (r *Room) remove(c *Client) {
 		// edits themselves are already saved.
 		// A room closed by an outside write hands its editors to that
 		// write: a checkpoint now would race it and could copy the new file.
-		if !editors.Empty() && !draining.Load() && !r.broker.holdEditorsIfFenced(r.key.id, editors) {
-			go fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonRoomEmpty)
+		if !editors.Empty() && !r.broker.draining.Load() && !r.broker.holdEditorsIfFenced(r.key.id, editors) {
+			go fireEditCheckpoint(r.broker.app, r.key.id, editors, editcheckpoint.ReasonRoomEmpty)
 		}
 		if r.serverDoc != nil {
 			r.releaseDoc()

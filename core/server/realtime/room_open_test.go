@@ -179,11 +179,8 @@ func newOpenFixture(t *testing.T, kind string, store CheckpointStore) *openFixtu
 	if store != nil {
 		opts.Checkpoints = store
 	}
-	RegisterRoomKindWith(kind, opts)
-	t.Cleanup(func() {
-		unregisterRoomKindForTest(kind)
-		f.broker.Close()
-	})
+	f.broker.RegisterRoomKindWith(kind, opts)
+	t.Cleanup(f.broker.Close)
 	return f
 }
 

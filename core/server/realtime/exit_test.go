@@ -60,16 +60,11 @@ func newExitFixture(t *testing.T, o exitFixtureOpts) *exitFixture {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	registerLifecycle(app)
-
+	t.Cleanup(drainhooks.ResetForTest)
 	f := &exitFixture{app: app, broker: NewBroker(), rt: newStubRuntime()}
 	t.Cleanup(f.broker.Close)
-	swapSharedBrokerForTest(t, f.broker)
+	attachBrokerForTest(app, f.broker)
+	registerLifecycle(app, f.broker)
 
 	f.coord = newFastCoordWithFlush(t, f.flush).c
 	// The tests fire saves themselves; no timer of the schedule's own may

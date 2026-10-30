@@ -157,7 +157,7 @@ type liveConn struct {
 func (b *Broker) trackConn(client *Client, conn *websocket.Conn, cut context.CancelFunc) (*liveConn, bool) {
 	b.connsMu.Lock()
 	defer b.connsMu.Unlock()
-	if draining.Load() || b.gate.current() != phaseOpen {
+	if b.draining.Load() || b.gate.current() != phaseOpen {
 		return nil, false
 	}
 	lc := &liveConn{conn: conn, cut: cut, left: make(chan struct{})}

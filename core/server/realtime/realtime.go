@@ -101,8 +101,8 @@ const clientIDLen = 16
 // frameOverhead is clientID + msgType.
 const frameOverhead = clientIDLen + 1
 
-// Broker holds all currently-active rooms. One Broker instance per process
-// is the expected deployment. New rooms spring into existence on first
+// Broker holds all currently-active rooms of one app. Each app has one
+// Broker (BrokerFor). New rooms spring into existence on first
 // joiner and disappear when their last client leaves.
 type Broker struct {
 	mu     sync.Mutex
@@ -130,10 +130,28 @@ type Broker struct {
 	// stop stops their timers.
 	coordsMu sync.Mutex
 	coords   map[*SaveCoordinator]struct{}
-	// app is the app whose read-only mode this broker obeys. Nil for a broker
-	// no Register bound (unit tests): it is never read-only.
-	appMu sync.Mutex
-	app   core.App
+
+	// app is the app this broker serves; nil for a broker built by NewBroker
+	// alone (tests), which serves no app and is never read-only.
+	app core.App
+
+	// kinds are the room kinds registered on this broker. They live here, not
+	// in a process-wide map, because each kind's handlers close over the app
+	// that registered them.
+	kindsMu sync.RWMutex
+	kinds   map[string]RoomKindOptions
+
+	// shareResolver verifies anonymous share-session tokens for this app.
+	shareResolver ShareSessionResolver
+
+	// draining flips when this app's drain begins; an upgrade that still
+	// reaches the broker is turned away so the client reconnects to the next
+	// process.
+	draining atomic.Bool
+
+	// lifecycleOnce binds the read-only, drain and terminate hooks once per
+	// broker, however often Register runs for its app.
+	lifecycleOnce sync.Once
 }
 
 type roomKey struct {
@@ -144,14 +162,16 @@ type roomKey struct {
 // NewBroker returns a freshly initialized Broker.
 func NewBroker() *Broker {
 	return &Broker{
-		rooms:       map[roomKey]*Room{},
-		parked:      map[roomKey]*parkedDoc{},
-		fenced:      map[string]int{},
-		heldEditors: map[string]editcheckpoint.Editors{},
-		stop:        make(chan struct{}),
-		gate:        newExitGate(),
-		conns:       map[*Client]*liveConn{},
-		coords:      map[*SaveCoordinator]struct{}{},
+		rooms:         map[roomKey]*Room{},
+		parked:        map[roomKey]*parkedDoc{},
+		fenced:        map[string]int{},
+		heldEditors:   map[string]editcheckpoint.Editors{},
+		stop:          make(chan struct{}),
+		gate:          newExitGate(),
+		conns:         map[*Client]*liveConn{},
+		coords:        map[*SaveCoordinator]struct{}{},
+		kinds:         map[string]RoomKindOptions{},
+		shareResolver: unsupportedShareSession,
 	}
 }
 
@@ -181,7 +201,7 @@ func (b *Broker) join(kind, id string, c *Client) {
 			// kind was unregistered between authorize and join), we
 			// fall back to a zero-options room — no server doc, no
 			// hooks — which is the safest behavior.
-			opts, _ := optionsFor(kind)
+			opts, _ := b.optionsFor(kind)
 			room = newRoom(b, key, opts, b.takeParked(key))
 			b.rooms[key] = room
 		}

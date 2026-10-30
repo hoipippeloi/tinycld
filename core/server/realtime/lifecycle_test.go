@@ -36,15 +36,9 @@ func newLifecycleFixture(t *testing.T, broker *Broker) *lifecycleFixture {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	registerLifecycle(app)
-	// The process-wide hooks act on the shared broker; point it at this one.
-	swapSharedBrokerForTest(t, broker)
-	broker.bindApp(app)
+	t.Cleanup(drainhooks.ResetForTest)
+	attachBrokerForTest(app, broker)
+	registerLifecycle(app, broker)
 
 	f := &lifecycleFixture{app: app, broker: broker, store: NewMemoryCheckpointStore(), rt: newStubRuntime()}
 	f.opts = startTestServerWithOpts(t, broker, RoomKindOptions{
@@ -135,13 +129,8 @@ func TestUpgradeAnswers503WhileDraining(t *testing.T) {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	resetRegistry()
-	RegisterRoomKindWith("test", RoomKindOptions{Authorize: allowAllAuth})
+	t.Cleanup(drainhooks.ResetForTest)
+	RegisterRoomKindWith(app, "test", RoomKindOptions{Authorize: allowAllAuth})
 	Register(app, Options{})
 	router, err := apis.NewRouter(app)
 	if err != nil {
@@ -218,21 +207,6 @@ func TestReadOnlyEnterSuspends(t *testing.T) {
 	if broker.roomCount() != 1 {
 		t.Fatal("the room was closed by the pause")
 	}
-}
-
-// swapSharedBrokerForTest makes the process-wide hooks (read-only enter,
-// terminate) act on broker for the test's duration.
-func swapSharedBrokerForTest(t *testing.T, broker *Broker) {
-	t.Helper()
-	processBrokerMu.Lock()
-	prev := processBroker
-	processBroker = broker
-	processBrokerMu.Unlock()
-	t.Cleanup(func() {
-		processBrokerMu.Lock()
-		processBroker = prev
-		processBrokerMu.Unlock()
-	})
 }
 
 var _ = strings.TrimSpace
