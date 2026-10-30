@@ -108,7 +108,7 @@ func rebuildJobsFor(app core.App) *rebuildJobs {
 				// single-flight lock. Our OWN intentional restarts use
 				// os.Exit(75) or the supervisor (requestRestart), a path
 				// this guard never sees.
-				if shouldSuppressRestart(e.IsRestart) {
+				if shouldSuppressRestart(app, e.IsRestart) {
 					srvLog.Info("suppressing watcher restart — a package operation is in progress")
 					return nil // short-circuit: no other terminate handler runs
 				}

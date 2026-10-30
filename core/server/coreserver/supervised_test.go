@@ -644,7 +644,7 @@ func TestSupervisedRestartHoldsTheInterlockAndReadOnly(t *testing.T) {
 	lines := ackRestarts(t, parent)
 
 	restarting := installjob.New("install", "acme", "")
-	if _, ok := installjob.Claim(restarting); !ok {
+	if _, ok := installjob.Claim(app, restarting); !ok {
 		t.Fatal("claim on an idle interlock lost")
 	}
 	if !requestRestart(app, false) {
@@ -653,10 +653,10 @@ func TestSupervisedRestartHoldsTheInterlockAndReadOnly(t *testing.T) {
 	nextLine(t, lines)
 	finishJob(restarting)
 
-	if _, ok := installjob.Claim(installjob.New("backup", "", "")); ok {
+	if _, ok := installjob.Claim(app, installjob.New("backup", "", "")); ok {
 		t.Fatal("a new job claimed the interlock after this process asked to be replaced")
 	}
-	if !installjob.Running() {
+	if !installjob.Running(app) {
 		t.Fatal("the auto-upgrade tick would see an idle interlock")
 	}
 
@@ -677,7 +677,7 @@ func TestUnsupervisedRestartHoldsNothing(t *testing.T) {
 	requestRestart(app, false)
 
 	job := installjob.New("backup", "", "")
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		t.Fatal("an unsupervised restart left the interlock held")
 	}
 	installjob.Release(job)
@@ -685,7 +685,6 @@ func TestUnsupervisedRestartHoldsNothing(t *testing.T) {
 
 func resetReplacementForTest() {
 	beingReplaced.Store(false)
-	installjob.ResetForTesting()
 }
 
 // A package that serves its own port must stop accepting when the drain

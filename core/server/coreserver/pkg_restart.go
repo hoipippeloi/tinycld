@@ -60,7 +60,7 @@ func requestRestart(app core.App, cold bool) (underway bool) {
 		// process ends; on the exit-75 fallback below that is at once.
 		beingReplaced.Store(true)
 		readonly.Enter(app)
-		installjob.HoldForReplacement()
+		installjob.HoldForReplacement(app)
 		if askSupervisorToRestart(cold) {
 			return true
 		}

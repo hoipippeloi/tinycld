@@ -77,7 +77,7 @@ func ReconcileRolledBackInstall(app core.App) {
 
 	// Never mark a row out from under a running operation. A fresh boot has
 	// no job, so this only guards a later caller.
-	if installjob.Running() {
+	if installjob.Running(app) {
 		srvLog.Info("a rollback record is present but a job is in flight; deferring the reconcile")
 		return
 	}

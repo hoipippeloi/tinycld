@@ -2,6 +2,7 @@ package installjob
 
 import (
 	"encoding/json"
+	"github.com/pocketbase/pocketbase/core"
 	"strings"
 	"sync"
 	"testing"
@@ -16,7 +17,7 @@ import (
 // `go test` (the window is too narrow to lose reliably) and fails immediately
 // under -race. A green run without the flag proves nothing about the interlock.
 func TestClaim_OnlyOneWinnerUnderRace(t *testing.T) {
-	t.Cleanup(func() { Release(Current()) })
+	app := newApp(t)
 
 	const racers = 32
 	var (
@@ -32,7 +33,7 @@ func TestClaim_OnlyOneWinnerUnderRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, ok := Claim(New("install", "acme", "@tinycld/acme"))
+			_, ok := Claim(app, New("install", "acme", "@tinycld/acme"))
 			mu.Lock()
 			defer mu.Unlock()
 			if ok {
@@ -54,15 +55,16 @@ func TestClaim_OnlyOneWinnerUnderRace(t *testing.T) {
 }
 
 func TestClaim_ReportsTheBusyJobAndReleases(t *testing.T) {
+	app := newApp(t)
 	first := New("install", "acme", "@tinycld/acme")
-	if _, ok := Claim(first); !ok {
+	if _, ok := Claim(app, first); !ok {
 		t.Fatal("first claim must win against an idle interlock")
 	}
-	if !Running() {
+	if !Running(app) {
 		t.Fatal("Running must be true while a job holds the interlock")
 	}
 
-	busy, ok := Claim(New("uninstall", "globex", ""))
+	busy, ok := Claim(app, New("uninstall", "globex", ""))
 	if ok {
 		t.Fatal("second claim must lose")
 	}
@@ -74,28 +76,29 @@ func TestClaim_ReportsTheBusyJobAndReleases(t *testing.T) {
 	}
 
 	Release(first)
-	if Running() {
+	if Running(app) {
 		t.Fatal("Running must be false once the holder releases")
 	}
-	if _, ok := Claim(New("install", "third", "")); !ok {
+	if _, ok := Claim(app, New("install", "third", "")); !ok {
 		t.Fatal("a claim after release must win")
 	}
-	Release(Current())
+	Release(Current(app))
 }
 
 // Release compares before clearing, so a late unwind cannot evict whoever holds
 // the interlock now.
 func TestRelease_DoesNotEvictADifferentHolder(t *testing.T) {
+	app := newApp(t)
 	stale := New("install", "stale", "")
 	holder := New("install", "holder", "")
-	if _, ok := Claim(holder); !ok {
+	if _, ok := Claim(app, holder); !ok {
 		t.Fatal("claim must win")
 	}
 	t.Cleanup(func() { Release(holder) })
 
 	Release(stale)
 
-	if Current() != holder {
+	if Current(app) != holder {
 		t.Fatal("releasing a job that does not hold the interlock must not clear it")
 	}
 }
@@ -187,32 +190,73 @@ func TestUnsubscribe_StopsDelivery(t *testing.T) {
 // job may start in that time: it would work on data and a build that the
 // next process already owns.
 func TestHoldForReplacement_RefusesEveryLaterClaim(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	ResetForTesting()
+	app := newApp(t)
 
 	restarting := New("install", "acme", "")
-	if _, ok := Claim(restarting); !ok {
+	if _, ok := Claim(app, restarting); !ok {
 		t.Fatal("claim on an idle interlock lost")
 	}
-	HoldForReplacement()
+	HoldForReplacement(app)
 	Release(restarting)
 
-	busy, ok := Claim(New("backup", "", ""))
+	busy, ok := Claim(app, New("backup", "", ""))
 	if ok || busy != restarting {
 		t.Fatalf("Claim after HoldForReplacement = %v %v, want the held job and false", busy, ok)
 	}
-	if !Running() {
-		t.Fatal("Running() false while held")
+	if !Running(app) {
+		t.Fatal("Running(app) false while held")
 	}
 }
 
 func TestHoldForReplacement_WithNoJobStillRefuses(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	ResetForTesting()
+	app := newApp(t)
 
-	HoldForReplacement()
-	busy, ok := Claim(New("backup", "", ""))
+	HoldForReplacement(app)
+	busy, ok := Claim(app, New("backup", "", ""))
 	if ok || busy == nil {
 		t.Fatalf("Claim = %v %v, want a busy job and false", busy, ok)
+	}
+}
+
+func newApp(t *testing.T) core.App {
+	t.Helper()
+	return core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+}
+
+// Two apps in one process each have their own interlock: a job on app A
+// must not make app B busy, and A's hold for replacement must not refuse B.
+func TestInterlockIsPerApp(t *testing.T) {
+	a, b := newApp(t), newApp(t)
+
+	ja := New("install", "acme", "")
+	if _, ok := Claim(a, ja); !ok {
+		t.Fatal("claim on a's idle interlock lost")
+	}
+	if Running(b) || Current(b) != nil {
+		t.Fatal("a's job holds b's interlock")
+	}
+	jb := New("install", "globex", "")
+	if _, ok := Claim(b, jb); !ok {
+		t.Fatal("b could not claim while only a holds its own interlock")
+	}
+	if Current(a) != ja || Current(b) != jb {
+		t.Fatalf("Current(a)=%v Current(b)=%v, want each app's own job", Current(a), Current(b))
+	}
+
+	Release(ja)
+	if Running(a) {
+		t.Fatal("releasing a's job left a busy")
+	}
+	if Current(b) != jb {
+		t.Fatal("releasing a's job cleared b's interlock")
+	}
+
+	HoldForReplacement(a)
+	if _, ok := Claim(a, New("backup", "", "")); ok {
+		t.Fatal("a accepted a job after it asked to be replaced")
+	}
+	Release(jb)
+	if _, ok := Claim(b, New("backup", "", "")); !ok {
+		t.Fatal("a's hold for replacement refused b's job")
 	}
 }

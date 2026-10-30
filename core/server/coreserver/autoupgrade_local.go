@@ -265,7 +265,7 @@ func (s *localScheduler) tick(ctx context.Context) string {
 	if !w.Contains(now) {
 		return "waiting for window"
 	}
-	if installjob.Running() {
+	if installjob.Running(s.app) {
 		return "busy"
 	}
 	notify := func(n notice) { s.notify(ctx, n) }

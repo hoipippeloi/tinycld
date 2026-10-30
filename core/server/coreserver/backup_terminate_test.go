@@ -90,7 +90,7 @@ func terminate(t *testing.T, app core.App, rowID string) terminateSnapshot {
 			if row, err := e.App.FindRecordById("backups", rowID); err == nil {
 				seen.status = row.GetString("status")
 			}
-			seen.interlocked = installjob.Running()
+			seen.interlocked = installjob.Running(e.App)
 			return e.App.ResetBootstrapState()
 		})
 	}()

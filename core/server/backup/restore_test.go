@@ -126,7 +126,7 @@ func TestRestoreHandsItsClaimToTheRebuilder(t *testing.T) {
 	var heldDuringRebuild *installjob.Job
 	RegisterRebuilder(func(_ context.Context, job *installjob.Job, _ format.Lockfile) error {
 		gotJob = job
-		heldDuringRebuild = installjob.Current()
+		heldDuringRebuild = installjob.Current(app)
 		installjob.Release(job)
 		return nil
 	})
@@ -153,7 +153,7 @@ func TestRestoreHandsItsClaimToTheRebuilder(t *testing.T) {
 	}
 	// Released exactly once: the rebuilder released it, and runRestore's own
 	// unwind must not have taken it back or released a second time.
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still held after the rebuilder released it")
 	}
 }
@@ -177,7 +177,7 @@ func TestRestoreReleasesTheClaimWhenTheRebuilderFailsWithoutIt(t *testing.T) {
 	if _, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id}); !errors.Is(err, boom) {
 		t.Fatalf("Restore err = %v, want the rebuilder's error", err)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still held after a rebuilder failed without " +
 			"releasing it — nothing could ever claim it again")
 	}
@@ -829,7 +829,7 @@ func TestRestoreGivesUpOnAStalledSourceAndReleasesTheInterlock(t *testing.T) {
 	if err == nil {
 		t.Fatal("a stalled source must fail the restore")
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("a stalled restore must release the interlock")
 	}
 	row, rerr := app.FindRecordById("backups", jobID)
@@ -1344,7 +1344,7 @@ func TestCancelAllEndsARepositoryManifestReadInFlight(t *testing.T) {
 		if err == nil {
 			t.Fatal("a cancelled manifest read must fail the restore")
 		}
-		if installjob.Running() {
+		if installjob.Running(app) {
 			t.Fatal("the interlock is still claimed")
 		}
 	case <-time.After(10 * time.Second):

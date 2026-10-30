@@ -218,7 +218,7 @@ func Restore(app core.App, req RestoreRequest) (string, error) {
 // leaves no ledger row, because nothing was attempted.
 func beginRestore(app core.App, req RestoreRequest) (*core.Record, *installjob.Job, error) {
 	job := installjob.New("restore", "", "")
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		return nil, nil, ErrBusy
 	}
 	targetHost := req.SourceHost
@@ -438,7 +438,7 @@ func runRestore(app core.App, req RestoreRequest, row *core.Record, job *install
 		}
 		return fmt.Errorf("pre-restore backup: %w", err)
 	}
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		return ErrBusy
 	}
 	released = false

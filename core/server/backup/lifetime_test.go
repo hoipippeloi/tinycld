@@ -71,7 +71,7 @@ func TestStopAllRefusesEveryLaterRunOnThatApp(t *testing.T) {
 			t.Errorf("%s after StopAll = %v, want ErrStopping (a kind of ErrBusy)", name, err)
 		}
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Error("a refused run claimed the interlock")
 	}
 	rows, err := app.FindRecordsByFilter("backups", "id != ''", "", 0, 0)
@@ -140,7 +140,7 @@ func TestStopAllReportsARunItCouldNotWaitFor(t *testing.T) {
 	if err := StopAll(ctx, app); err != nil {
 		t.Fatalf("StopAll after the run let go = %v", err)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the run returned but still holds the interlock")
 	}
 }
@@ -207,7 +207,7 @@ func TestARestoreThatPanicsFailsLikeAnyOtherRestore(t *testing.T) {
 	if Restoring() {
 		t.Error("the restoring flag is still set")
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Error("the interlock is still claimed")
 	}
 	notes, err := app.FindRecordsByFilter("notifications", "type = 'core.restore.failed'", "", 0, 0)
@@ -263,7 +263,7 @@ func TestACallbackThatStallsAfterItsHeadersIsAbandoned(t *testing.T) {
 	if got := row.GetString("status"); got != "succeeded" {
 		t.Fatalf("status %q, want succeeded", got)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still claimed")
 	}
 }

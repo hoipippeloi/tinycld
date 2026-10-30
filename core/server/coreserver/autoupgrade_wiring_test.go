@@ -115,12 +115,12 @@ func TestLocalSchedulerApplyStartsAnAutoVersionChange(t *testing.T) {
 	for {
 		rows, err := app.FindRecordsByFilter("pkg_install_log", "status != 'running'", "", 0, 0)
 		mustNil(t, err)
-		if len(rows) == 1 && !installjob.Running() {
+		if len(rows) == 1 && !installjob.Running(app) {
 			row = rows[0]
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the version-change job did not finish; rows=%d running=%v", len(rows), installjob.Running())
+			t.Fatalf("the version-change job did not finish; rows=%d running=%v", len(rows), installjob.Running(app))
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

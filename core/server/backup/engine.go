@@ -130,7 +130,7 @@ func Run(app core.App, req Request) (string, error) {
 // interlock leaves no ledger row, because nothing was attempted.
 func begin(app core.App, req Request) (*core.Record, *installjob.Job, error) {
 	job := installjob.New("backup", "", "")
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		return nil, nil, ErrBusy
 	}
 	// The ceiling is checked AFTER the interlock, because allowManual records

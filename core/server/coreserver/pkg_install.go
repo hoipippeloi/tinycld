@@ -72,11 +72,11 @@ func RegisterPackageInstallEndpoints(app *pocketbase.PocketBase) {
 // shouldSuppressRestart reports whether an in-process restart (isRestart) must be
 // vetoed because a package pipeline is mid-flight. Pure read of the single-flight
 // state under the lock, so it's unit-testable.
-func shouldSuppressRestart(isRestart bool) bool {
+func shouldSuppressRestart(app core.App, isRestart bool) bool {
 	if !isRestart {
 		return false
 	}
-	return installjob.Running()
+	return installjob.Running(app)
 }
 
 // isOwner reports whether the given user holds the owner role. Package
@@ -126,7 +126,7 @@ func handleInstall(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 	}
 
 	job := installjob.New("install", "", body.NpmPackage)
-	if busy, ok := installjob.Claim(job); !ok {
+	if busy, ok := installjob.Claim(app, job); !ok {
 		return re.JSON(http.StatusConflict, map[string]any{
 			"error":      "Another install operation is in progress",
 			"currentJob": busy.Info(),
@@ -170,7 +170,7 @@ func handleUninstall(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 	}
 
 	job := installjob.New("uninstall", body.Slug, "")
-	if busy, ok := installjob.Claim(job); !ok {
+	if busy, ok := installjob.Claim(app, job); !ok {
 		return re.JSON(http.StatusConflict, map[string]any{
 			"error":      "Another operation is in progress",
 			"currentJob": busy.Info(),

@@ -29,12 +29,12 @@ func runTerminate(app core.App) {
 	})
 }
 
-// claimTestJob claims the process-wide interlock for a new job; the rebuild
+// claimTestJob claims app's interlock for a new job; the rebuild
 // runner releases it when the job returns.
-func claimTestJob(t *testing.T, action, slug string) *installjob.Job {
+func claimTestJob(t *testing.T, app core.App, action, slug string) *installjob.Job {
 	t.Helper()
 	job := installjob.New(action, slug, "")
-	if busy, ok := installjob.Claim(job); !ok {
+	if busy, ok := installjob.Claim(app, job); !ok {
 		t.Fatalf("interlock already held by %+v", busy.Info())
 	}
 	t.Cleanup(func() { installjob.Release(job) })
@@ -123,7 +123,7 @@ func TestRebuildJobs_TerminateKillsTheBuildCommand(t *testing.T) {
 	addInstallLogCollection(t, app)
 	saves := installLogSaves(app)
 	heartbeat := fakeBuildTool(t, "pnpm")
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 	m := RebuildManifest{BuildID: "build-7", Members: []MemberSpec{{Slug: "tinycld", Spec: "x"}}}
 
 	var tailStarted atomic.Bool
@@ -161,7 +161,7 @@ func TestRebuildJobs_TerminateKillsTheBuildCommand(t *testing.T) {
 	if got.status != "failed" || !strings.Contains(got.errMsg, errRebuildCancelled.Error()) {
 		t.Fatalf("last install log save = %+v, want failed with %q", got, errRebuildCancelled)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still held after the job ended")
 	}
 }
@@ -174,7 +174,7 @@ func TestRebuildJobs_CancelledJobFinalizesItsLogRow(t *testing.T) {
 	app := bootstrappedApp(t)
 	addInstallLogCollection(t, app)
 	saves := installLogSaves(app)
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 	m := RebuildManifest{BuildID: "build-8", Members: []MemberSpec{{Slug: "tinycld", Spec: "x"}}}
 
 	inAssemble := make(chan struct{})
@@ -234,7 +234,7 @@ func TestRebuildJobs_TerminateLetsTheTailFinish(t *testing.T) {
 	app := bootstrappedApp(t)
 	addInstallLogCollection(t, app)
 	saves := installLogSaves(app)
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 	m := RebuildManifest{BuildID: "build-9", Members: []MemberSpec{{Slug: "tinycld", Spec: "x"}}}
 
 	inSync := make(chan struct{})
@@ -297,7 +297,7 @@ func TestRebuildJobs_PanicIsRecoveredAndFinalized(t *testing.T) {
 	app := bootstrappedApp(t)
 	addInstallLogCollection(t, app)
 	saves := installLogSaves(app)
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 
 	mustNil(t, rebuildJobsFor(app).start(app, job, func(run *jobRun) {
 		run.createLog("install")
@@ -312,7 +312,7 @@ func TestRebuildJobs_PanicIsRecoveredAndFinalized(t *testing.T) {
 	if job.Status != "failed" {
 		t.Fatalf("job status = %q, want failed", job.Status)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still held after the panicked job")
 	}
 }
@@ -338,7 +338,7 @@ func TestRebuildJobs_VetoedRestartRunsNoOtherTerminateHandler(t *testing.T) {
 			},
 		})
 	}
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 
 	restart := new(core.TerminateEvent)
 	restart.App = app
@@ -349,7 +349,7 @@ func TestRebuildJobs_VetoedRestartRunsNoOtherTerminateHandler(t *testing.T) {
 	}
 	// The runner was not stopped by the vetoed restart.
 	installjob.Release(job)
-	next := claimTestJob(t, "install", "gizmos")
+	next := claimTestJob(t, app, "install", "gizmos")
 	mustNil(t, rebuildJobsFor(app).start(app, next, func(*jobRun) {}))
 	awaitDone(t, next, 10*time.Second)
 
@@ -407,7 +407,7 @@ func TestRebuildJobs_StartRefusedAfterTerminate(t *testing.T) {
 	app := bootstrappedApp(t)
 	jobs := rebuildJobsFor(app)
 	runTerminate(app)
-	job := claimTestJob(t, "install", "widgets")
+	job := claimTestJob(t, app, "install", "widgets")
 	if err := jobs.start(app, job, func(*jobRun) { t.Error("job ran after the terminate") }); !errors.Is(err, errRebuildsStopped) {
 		t.Fatalf("start after terminate = %v, want %v", err, errRebuildsStopped)
 	}
