@@ -1,0 +1,552 @@
+package reports
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/changesignal"
+)
+
+// Options shape one run without changing the report.
+type Options struct {
+	// Expand lists the group keys (a group row's groupKey) whose children
+	// the result includes. Groups load lazily: a run returns the first
+	// level and the children of each expanded group.
+	Expand    [][]any `json:"expand,omitempty"`
+	ExpandAll bool    `json:"expandAll,omitempty"`
+	// Cursor is the previous page's page.next; Limit is the page size of a
+	// report without groups.
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	// Today is the reader's day (YYYY-MM-DD) for period presets; the
+	// default is today in UTC.
+	Today string `json:"today,omitempty"`
+	// Display holds the shell's display options (number format, hidden
+	// columns). The server does not read them: formatting stays in the
+	// client.
+	Display json.RawMessage `json:"display,omitempty"`
+}
+
+// Request is one run: a loaded spec, the reader, and the run's inputs.
+type Request struct {
+	Spec    *Spec
+	Loaded  *LoadInfo
+	Params  map[string]json.RawMessage
+	Options Options
+	// Auth is the reader. Every collection the report reads is filtered by
+	// the reader's list rule.
+	Auth *core.Record
+	// Headers are the request's headers as a rule's @request.headers sees
+	// them.
+	Headers map[string]string
+}
+
+// Result is the run's answer, in the shell's ReportModel row shape.
+type Result struct {
+	Columns []ResultColumn `json:"columns"`
+	Rows    []Row          `json:"rows"`
+	Notices []Notice       `json:"notices"`
+	Topics  []string       `json:"topics"`
+	Page    *Page          `json:"page"`
+}
+
+type ResultColumn struct {
+	ID    string    `json:"id"`
+	Label string    `json:"label"`
+	Type  FieldType `json:"type"`
+	// TotalType is the type of the column's group, subtotal and total
+	// cells when it differs from Type (a count of names is a number).
+	TotalType FieldType `json:"totalType,omitempty"`
+	Aggregate Aggregate `json:"aggregate,omitempty"`
+	Format    string    `json:"format,omitempty"`
+	Options   []Option  `json:"options,omitempty"`
+	// Currency is a money column's fixed currency; CurrencyCell names the
+	// cell that holds each row's currency instead.
+	Currency      string       `json:"currency,omitempty"`
+	CurrencyCell  string       `json:"currencyCell,omitempty"`
+	MixedCurrency bool         `json:"mixedCurrency,omitempty"`
+	Pivot         *PivotColumn `json:"pivot,omitempty"`
+}
+
+// PivotColumn marks a pivot cell column: the cell column it splits, and
+// the pivot value it holds.
+type PivotColumn struct {
+	Cell string `json:"cell"`
+	Key  any    `json:"key"`
+}
+
+// Row kinds.
+const (
+	KindDetail   = "detail"
+	KindGroup    = "group"
+	KindSubtotal = "subtotal"
+	KindComputed = "computed"
+	KindTotal    = "total"
+)
+
+type Row struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Depth int    `json:"depth"`
+	Label string `json:"label"`
+	// Section is the group row this row belongs to.
+	Section string `json:"section,omitempty"`
+	// Parent is the row a nested child row hangs under.
+	Parent   string         `json:"parent,omitempty"`
+	GroupKey []any          `json:"groupKey,omitempty"`
+	Expanded bool           `json:"expanded,omitempty"`
+	Cells    map[string]any `json:"cells"`
+}
+
+type Notice struct {
+	Code    string   `json:"code"`
+	Message string   `json:"message"`
+	Columns []string `json:"columns,omitempty"`
+	// Count is the number of rows a rowCap notice kept.
+	Count int `json:"count,omitempty"`
+	// FromVersion is the spec version an upgraded notice came from.
+	FromVersion int     `json:"fromVersion,omitempty"`
+	Aliases     []Alias `json:"aliases,omitempty"`
+}
+
+type Page struct {
+	Next string `json:"next,omitempty"`
+	Size int    `json:"size"`
+}
+
+var (
+	// ErrTimeout is a statement stopped at the time limit.
+	ErrTimeout = errors.New("reports: the report took too long to run")
+	// ErrAmountTooLarge is a total past the largest integer SQLite holds.
+	ErrAmountTooLarge = errors.New("reports: an amount is too large to total")
+	// ErrNoReader is a run without a signed-in user: a report never runs
+	// as a superuser or as nobody.
+	ErrNoReader = errors.New("reports: a report runs as a signed-in user")
+)
+
+type limits struct {
+	timeout  time.Duration
+	rowCap   int
+	pageSize int
+	maxPage  int
+}
+
+// runLimits: each statement stops after timeout; group, pivot and nested
+// results stop at rowCap rows; a detail page holds pageSize rows unless
+// the run asks for up to maxPage.
+var runLimits = limits{timeout: 10 * time.Second, rowCap: 5000, pageSize: 200, maxPage: 1000}
+
+const blankLabel = "(none)"
+
+// runner holds one run's state.
+type runner struct {
+	ctx    context.Context
+	app    core.App
+	c      *compiler
+	opts   Options
+	expand *expansion
+	res    *Result
+	topics map[string]bool
+}
+
+// Run runs a report for its reader. The statements read only rows the
+// reader's list rules allow; they never write.
+func Run(ctx context.Context, app core.App, req Request) (*Result, error) {
+	if req.Auth == nil || req.Auth.IsSuperuser() {
+		return nil, ErrNoReader
+	}
+	p, specErr := bind(req.Spec)
+	if specErr != nil {
+		return nil, specErr
+	}
+	today, err := todayOf(req.Options.Today)
+	if err != nil {
+		return nil, err
+	}
+	params, specErr := resolveParams(p.spec.Params, req.Params, periodContext{today: today, fiscalStart: fiscalStartOf(p.base, app)})
+	if specErr != nil {
+		return nil, specErr
+	}
+	c := newCompiler(p, app, listRequestInfo(req.Auth, req.Headers), params)
+	expand, err := parseExpansion(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	rn := &runner{
+		ctx: ctx, app: app, c: c, opts: req.Options, expand: expand,
+		res:    &Result{Rows: []Row{}, Notices: []Notice{}},
+		topics: map[string]bool{},
+	}
+	if req.Loaded != nil {
+		rn.loadNotices(req.Loaded)
+	}
+	if err := rn.run(); err != nil {
+		return nil, err
+	}
+	return rn.res, nil
+}
+
+func todayOf(s string) (time.Time, error) {
+	if s == "" {
+		return time.Now().UTC().Truncate(24 * time.Hour), nil
+	}
+	if !isDay(s) {
+		return time.Time{}, invalid("options.today", "today is YYYY-MM-DD")
+	}
+	return time.Parse(time.DateOnly, s)
+}
+
+func (rn *runner) loadNotices(info *LoadInfo) {
+	if info.UpgradedFrom != 0 {
+		rn.notice(Notice{Code: "upgraded", Message: fmt.Sprintf("The report was made with spec version %d and upgraded.", info.UpgradedFrom), FromVersion: info.UpgradedFrom})
+	}
+	if len(info.Aliased) > 0 {
+		rn.notice(Notice{Code: "aliased", Message: "Some fields of the report were renamed; it uses their new names.", Aliases: info.Aliased})
+	}
+}
+
+func (rn *runner) notice(n Notice) { rn.res.Notices = append(rn.res.Notices, n) }
+
+func (rn *runner) run() error {
+	groupRows, err := rn.groupPass()
+	if err != nil {
+		return err
+	}
+	var details []map[string]any
+	if len(rn.c.p.groups) == 0 || len(rn.expand.keys) > 0 || rn.expand.all {
+		details, err = rn.detailPass()
+		if err != nil {
+			return err
+		}
+	}
+	// Column types come from the spec: a collapsed run compiles the detail
+	// select too, so its columns read the same as an expanded run's.
+	if err := rn.detailTypes(); err != nil {
+		return err
+	}
+	rn.res.Columns = rn.columns()
+	rn.markCurrencies(groupRows)
+	rn.assemble(groupRows, details)
+	rn.res.Topics = make([]string, 0, len(rn.topics))
+	for t := range rn.topics {
+		rn.res.Topics = append(rn.res.Topics, t)
+	}
+	slices.Sort(rn.res.Topics)
+	return nil
+}
+
+// detailTypes fills the columns' detail-row types when the detail pass did
+// not run. Nothing is sent to the database.
+func (rn *runner) detailTypes() error {
+	if rn.c.detailTypes != nil {
+		return nil
+	}
+	r, err := rn.c.rows(newStmt(rn.app, rn.c.info))
+	if err != nil {
+		return err
+	}
+	_, _, err = rn.c.detailSelect(r)
+	return err
+}
+
+// query runs one statement under the time limit and records the topics of
+// every collection it reads.
+func (rn *runner) query(s *stmt, ctes []string, body string) ([]map[string]any, error) {
+	with, err := s.with(ctes...)
+	if err != nil {
+		return nil, err
+	}
+	sql := with + body
+	topics, err := changesignal.TopicsRead(rn.app, sql, s.params)
+	if err != nil {
+		return nil, mapRunError(err)
+	}
+	for _, t := range topics {
+		rn.topics[t] = true
+	}
+	ctx, cancel := context.WithTimeout(rn.ctx, runLimits.timeout)
+	defer cancel()
+	rows, err := rn.app.DB().NewQuery(sql).Bind(s.params).WithContext(ctx).Rows()
+	if err != nil {
+		return nil, mapRunError(err)
+	}
+	out, err := scanRows(rows)
+	if err != nil {
+		return nil, mapRunError(err)
+	}
+	return out, nil
+}
+
+func mapRunError(err error) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return ErrTimeout
+	case strings.Contains(err.Error(), "integer overflow"):
+		return ErrAmountTooLarge
+	}
+	return err
+}
+
+// groupPass runs the group statement: every group level and the total,
+// capped at rowCap rows.
+func (rn *runner) groupPass() ([]map[string]any, error) {
+	c := rn.c
+	s := newStmt(rn.app, c.info)
+	r, err := c.rows(s)
+	if err != nil {
+		return nil, err
+	}
+	ctes, body, err := c.groupStatement(s, r, rn.expand)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := rn.query(s, append([]string{r.render()}, ctes...), body+" LIMIT "+s.bind(int64(runLimits.rowCap+1)))
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > runLimits.rowCap {
+		rows = rows[:runLimits.rowCap]
+		rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
+	}
+	return rows, nil
+}
+
+// groupStatement is the UNION ALL of every level's rows (the children of
+// expanded groups only).
+func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion) ([]string, string, error) {
+	var ctes, legs []string
+	c.levelTypes = map[string]FieldType{}
+	for n := 0; n <= len(c.p.groups); n++ {
+		lv, err := c.level(r, n)
+		if err != nil {
+			return nil, "", err
+		}
+		cells := make([]string, 0, len(c.p.cols))
+		for idx, cp := range c.p.cols {
+			e, err := lv.cell(cp)
+			if err != nil {
+				return nil, "", err
+			}
+			cells = append(cells, fmt.Sprintf("%s AS v%d", e.sql, idx))
+			c.levelTypes[cp.col.ID] = e.typ
+		}
+		ctes = append(ctes, lv.render(cells)...)
+		leg := fmt.Sprintf("SELECT * FROM o%d", n)
+		if n >= 2 {
+			leg += " WHERE " + expand.where(c, s, n-1, "")
+		}
+		legs = append(legs, leg)
+	}
+	return ctes, strings.Join(legs, "\nUNION ALL\n") + "\nORDER BY __level, __ord", nil
+}
+
+// detailPass runs the detail statement: one row per base row (up to the
+// row cap without groups), or the rows of the expanded innermost groups.
+func (rn *runner) detailPass() ([]map[string]any, error) {
+	c := rn.c
+	s := newStmt(rn.app, c.info)
+	r, err := c.rows(s)
+	if err != nil {
+		return nil, err
+	}
+	sel, order, err := c.detailSelect(r)
+	if err != nil {
+		return nil, err
+	}
+	where := "1"
+	limit := runLimits.rowCap
+	if len(c.p.groups) > 0 {
+		where = rn.expand.where(c, s, len(c.p.groups), "d.")
+	}
+	body := fmt.Sprintf("SELECT * FROM (%s) d WHERE %s ORDER BY %s LIMIT %s",
+		sel, where, orderBy(order), s.bind(int64(limit+1)))
+	rows, err := rn.query(s, []string{r.render()}, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+		rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
+	}
+	return rows, nil
+}
+
+// detailSelect is the select of detail rows over w and their sort keys.
+func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
+	keys := make([]string, 0)
+	for i := range c.p.groups {
+		keys = append(keys, fmt.Sprintf("w.k%d", i))
+	}
+	frame := &windowFrame{
+		parent: append(prefixed("w.", c.currencies), keys...),
+		total:  prefixed("w.", c.currencies),
+	}
+	visiting := map[string]bool{}
+	var order []sortKey
+	sel := []string{"w.__id AS __id"}
+	for _, k := range append(keys, prefixed("w.", c.currencies)...) {
+		sel = append(sel, k+" AS "+strings.TrimPrefix(k, "w."))
+	}
+	for i, s := range c.p.sort {
+		ctx := &rowsCtx{r: r, visiting: visiting, detail: frame}
+		e, err := ctx.col(s.col.col.ID, fmt.Sprintf("sort.%d.col", i))
+		if err != nil {
+			return "", nil, err
+		}
+		if e.win {
+			return "", nil, invalid(fmt.Sprintf("sort.%d.col", i), "a running value or a percent is not a sort key")
+		}
+		name := fmt.Sprintf("s%d", i)
+		sel = append(sel, e.sql+" AS "+name)
+		order = append(order, sortKey{name: name, desc: s.desc})
+		frame.order = append(frame.order, "("+e.sql+" IS NULL)", e.sql+dirOf(s.desc))
+	}
+	frame.order = append(frame.order, "w.__id")
+	order = append(order, sortKey{name: "__id"})
+	c.detailTypes = map[string]FieldType{}
+	for idx, cp := range c.p.cols {
+		if cp.nest > 0 {
+			sel = append(sel, fmt.Sprintf("NULL AS v%d", idx))
+			c.detailTypes[cp.col.ID] = cp.path.field.Type
+			continue
+		}
+		ctx := &rowsCtx{r: r, visiting: visiting, detail: frame}
+		e, err := ctx.col(cp.col.ID, cp.at)
+		if err != nil {
+			return "", nil, err
+		}
+		sel = append(sel, fmt.Sprintf("%s AS v%d", e.sql, idx))
+		c.detailTypes[cp.col.ID] = e.typ
+	}
+	return "SELECT " + strings.Join(sel, ", ") + " FROM w", order, nil
+}
+
+// sortKey is one ORDER BY column of the detail select: s<i> for a sort
+// column, then __id, which is unique and never NULL.
+type sortKey struct {
+	name string
+	desc bool
+}
+
+// orderBy sorts detail rows with NULLs last in either direction.
+func orderBy(keys []sortKey) string {
+	parts := make([]string, 0, 2*len(keys))
+	for _, k := range keys {
+		col := "d." + k.name
+		if k.name != "__id" {
+			parts = append(parts, "("+col+" IS NULL)")
+		}
+		parts = append(parts, col+dirOf(k.desc))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func dirOf(desc bool) string {
+	if desc {
+		return " DESC"
+	}
+	return ""
+}
+
+// expansion is the set of group keys whose children a run includes.
+type expansion struct {
+	all  bool
+	keys [][]any
+}
+
+func parseExpansion(opts Options) (*expansion, error) {
+	e := &expansion{all: opts.ExpandAll}
+	for i, key := range opts.Expand {
+		if len(key) == 0 {
+			return nil, invalid(fmt.Sprintf("options.expand.%d", i), "a group key is a group row's groupKey")
+		}
+		norm := make([]any, len(key))
+		for j, v := range key {
+			switch x := v.(type) {
+			case nil, string, bool:
+				norm[j] = x
+			case float64:
+				if x == float64(int64(x)) {
+					norm[j] = int64(x)
+				} else {
+					norm[j] = x
+				}
+			case json.Number:
+				norm[j] = numberValue(x)
+			default:
+				return nil, invalid(fmt.Sprintf("options.expand.%d", i), "a group key holds text, numbers, true, false or null")
+			}
+		}
+		e.keys = append(e.keys, norm)
+	}
+	return e, nil
+}
+
+// where matches rows whose first depth group keys and currency keys equal
+// an expanded group key.
+func (e *expansion) where(c *compiler, s *stmt, depth int, prefix string) string {
+	if e.all {
+		return "1"
+	}
+	var ors []string
+	for _, key := range e.keys {
+		if len(key) != depth+len(c.currencies) {
+			continue
+		}
+		conds := []string{"1"}
+		for i := range depth {
+			conds = append(conds, fmt.Sprintf("%sk%d IS %s", prefix, i, s.bind(key[i])))
+		}
+		for j, ck := range c.currencies {
+			conds = append(conds, fmt.Sprintf("%s%s IS %s", prefix, ck, s.bind(key[depth+j])))
+		}
+		ors = append(ors, "("+strings.Join(conds, " AND ")+")")
+	}
+	if len(ors) == 0 {
+		return "0"
+	}
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+func (e *expansion) has(key []any) bool {
+	if e.all {
+		return true
+	}
+	return slices.ContainsFunc(e.keys, func(k []any) bool { return sameKey(k, key) })
+}
+
+func sameKey(a, b []any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if fmt.Sprint(a[i]) != fmt.Sprint(b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// compileDry compiles every statement of a plan without a database, so a
+// formula, a filter or a layout that cannot compile fails Validate, not a
+// run. Params are unset.
+func compileDry(p *plan) error {
+	c := newCompiler(p, nil, nil, nil)
+	s := newStmt(nil, nil)
+	r, err := c.rows(s)
+	if err != nil {
+		return err
+	}
+	if _, _, err := c.detailSelect(r); err != nil {
+		return err
+	}
+	_, _, err = c.groupStatement(s, r, &expansion{})
+	return err
+}

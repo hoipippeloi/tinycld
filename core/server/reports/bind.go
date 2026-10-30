@@ -148,11 +148,11 @@ func (b *binder) merge(err *SpecError) {
 // It returns nil, or a *SpecError: 422 when the spec names a source, link,
 // field or column that does not exist, else 400 listing what is invalid.
 func Validate(spec *Spec) error {
-	_, err := bind(spec)
+	p, err := bind(spec)
 	if err != nil {
 		return err
 	}
-	return nil
+	return compileDry(p)
 }
 
 func bind(spec *Spec) (*plan, *SpecError) {
