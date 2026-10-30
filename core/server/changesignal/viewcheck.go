@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -63,7 +64,7 @@ func checkView(app core.App, pages map[int64]string, view string, sources []stri
 			problems = append(problems, fmt.Sprintf("view %q declares %q, which is not the collection name %q", view, source, sourceCol.Name))
 		}
 	}
-	read, err := tablesRead(app, pages, "SELECT * FROM {{"+col.Name+"}}")
+	read, err := tablesRead(app, pages, "SELECT * FROM {{"+col.Name+"}}", nil)
 	if err != nil {
 		return append(problems, fmt.Sprintf("view %q: %v", view, err))
 	}
@@ -95,14 +96,15 @@ func rootPages(app core.App) (map[int64]string, error) {
 }
 
 // tablesRead lists, sorted, the tables of the main database that query
-// opens for reading.
-func tablesRead(app core.App, pages map[int64]string, query string) ([]string, error) {
+// opens for reading. params binds the query's placeholders; EXPLAIN only
+// compiles the statement, so their values do not change the result.
+func tablesRead(app core.App, pages map[int64]string, query string, params dbx.Params) ([]string, error) {
 	var ops []struct {
 		Opcode string `db:"opcode"`
 		P2     int64  `db:"p2"`
 		P3     int64  `db:"p3"`
 	}
-	if err := app.DB().NewQuery("EXPLAIN " + query).All(&ops); err != nil {
+	if err := app.DB().NewQuery("EXPLAIN " + query).Bind(params).All(&ops); err != nil {
 		return nil, fmt.Errorf("explain: %w", err)
 	}
 	seen := map[string]bool{}
