@@ -194,7 +194,12 @@ func (f *davFile) persistWrite() error {
 			}
 		}
 
-		if err := fs.writeBlobFromPath(f.existing, uploadPath); err != nil {
+		write := func() error { return fs.writeBlobFromPath(f.existing, uploadPath) }
+		if hooks.GuardWrite != nil {
+			if err := hooks.GuardWrite(fs.app, f.existing, write); err != nil {
+				return err
+			}
+		} else if err := write(); err != nil {
 			return err
 		}
 		f.info = fs.recordToFileInfo(f.existing)

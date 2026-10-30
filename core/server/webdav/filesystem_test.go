@@ -952,3 +952,73 @@ func TestReadFailsWhenBeforeReadFails(t *testing.T) {
 		t.Fatal("OpenFile succeeded although BeforeRead failed")
 	}
 }
+
+// GuardWrite wraps the blob write of an overwrite, so a feature can refuse
+// it (an editor has the item open) or run it under its own fence.
+func TestOverwriteRunsInsideGuardWrite(t *testing.T) {
+	app, alice, _ := setupTree(t)
+	allowAuthenticated(t, app)
+	src := testSource()
+
+	var guarded string
+	src.Hooks.GuardWrite = func(_ core.App, rec *core.Record, write func() error) error {
+		guarded = rec.Id
+		return write()
+	}
+	fs := newFS(t, app, src)
+	existing := mkFile(t, app, alice, "doc.txt", "", "12345")
+
+	f, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("1234567890")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if guarded != existing.Id {
+		t.Fatalf("GuardWrite saw %q, want %q", guarded, existing.Id)
+	}
+	info, err := fs.Stat(ctxAs(alice), "/files/doc.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 10 {
+		t.Fatalf("size after overwrite = %d, want 10", info.Size())
+	}
+}
+
+// A refusal from GuardWrite fails the PUT and leaves the stored blob as it
+// was.
+func TestOverwriteFailsWhenGuardWriteRefuses(t *testing.T) {
+	app, alice, _ := setupTree(t)
+	allowAuthenticated(t, app)
+	src := testSource()
+
+	refused := errors.New("open in an editor")
+	src.Hooks.GuardWrite = func(core.App, *core.Record, func() error) error { return refused }
+	fs := newFS(t, app, src)
+	mkFile(t, app, alice, "doc.txt", "", "12345")
+
+	f, err := fs.OpenFile(ctxAs(alice), "/files/doc.txt", os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("1234567890")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); !errors.Is(err, refused) {
+		t.Fatalf("Close err = %v, want the refusal", err)
+	}
+
+	info, err := fs.Stat(ctxAs(alice), "/files/doc.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != 5 {
+		t.Fatalf("size after refused overwrite = %d, want the original 5", info.Size())
+	}
+}
