@@ -11,6 +11,8 @@
 // Wiring:
 //   - drive calls versionhooks.For(item.type) in handleSnapshotVersion /
 //     handleRestoreVersion and invokes the matching callback.
+//   - drive calls Render / Diff from GET /api/drive/versions/{id}/render
+//     and /diff, for the version history preview and compare.
 //   - text (or any other package) calls versionhooks.Register("text",
 //     versionhooks.Hook{OnSnapshot: ..., OnRestore: ...}) in its
 //     Register() at process bootstrap.
@@ -21,6 +23,7 @@
 package versionhooks
 
 import (
+	"context"
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -39,7 +42,21 @@ type Hook struct {
 	// package-specific fields (e.g. yjs_state) and apply them to the
 	// live state.
 	OnRestore func(app core.App, item *core.Record, version *core.Record) error
+
+	// Render and Diff are optional. Drive's history screen offers preview
+	// and compare only for a type that sets them.
+	Render RenderFn
+	Diff   DiffFn
 }
+
+// RenderFn returns read-only HTML for one version of item. authUserID is
+// the caller; a renderer that inlines other files must check access as
+// that user.
+type RenderFn func(ctx context.Context, app core.App, item, version *core.Record, authUserID string) (string, error)
+
+// DiffFn returns HTML for `to` with <ins>/<del> marks against `from`.
+// from is nil when `to` is the first version: everything is inserted.
+type DiffFn func(ctx context.Context, app core.App, item, from, to *core.Record, authUserID string) (string, error)
 
 var (
 	mu    sync.RWMutex
