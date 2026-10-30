@@ -137,6 +137,12 @@ func tsFieldType(field core.Field, collectionIDToName map[string]string) string 
 			}
 			return fmt.Sprintf("%s: (%s)[]", name, optionsStr)
 		}
+		// PocketBase stores '' for an unset single select and returns it on
+		// every record, so the type must hold it, or a client cannot read or
+		// clear the field without a cast.
+		if !f.Required {
+			return fmt.Sprintf("%s: %s | ''", name, optionsStr)
+		}
 		return fmt.Sprintf("%s: %s", name, optionsStr)
 	case *core.FileField:
 		if f.MaxSelect > 1 {
@@ -413,6 +419,9 @@ func zodFieldType(field core.Field, collectionIDToIDSchema map[string]string) st
 			values[i] = fmt.Sprintf(`"%s"`, v)
 		}
 		schema := fmt.Sprintf("%s: z.enum([%s])", name, strings.Join(values, ", "))
+		if f.MaxSelect <= 1 && !f.Required {
+			schema += ".or(z.literal(''))"
+		}
 		if f.MaxSelect > 1 {
 			schema += ".array()"
 			if f.Required {
