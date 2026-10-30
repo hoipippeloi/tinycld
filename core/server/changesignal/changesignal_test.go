@@ -1,6 +1,7 @@
 package changesignal
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -46,8 +47,15 @@ func TestPayloadCarriesNoData(t *testing.T) {
 	if got[0].Name != "collection/zoo_animals" {
 		t.Fatalf("name = %q", got[0].Name)
 	}
-	if string(got[0].Data) != "{}" {
-		t.Fatalf("payload = %q, want {}", got[0].Data)
+	// The resumable client adds its "seq" to a JSON object payload; nothing
+	// else may be there.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(got[0].Data, &fields); err != nil {
+		t.Fatalf("payload %q is not a JSON object: %v", got[0].Data, err)
+	}
+	delete(fields, "seq")
+	if len(fields) != 0 {
+		t.Fatalf("payload carries more than seq: %q", got[0].Data)
 	}
 	if strings.Contains(string(got[0].Data), rec.Id) || strings.Contains(string(got[0].Data), "Leo") {
 		t.Fatalf("payload leaks record data: %q", got[0].Data)
@@ -150,10 +158,6 @@ func TestSteadyStreamIsNotStarved(t *testing.T) {
 	}()
 	got := l.collect(3 * testWindow)
 	<-done
-	// Writes outlive the collect above, so the last window's send is still
-	// due. Take it before the cleanup discards the client mid-send, which
-	// the race detector reports.
-	l.collect(3 * testWindow)
 	if len(got) < 2 {
 		t.Fatalf("%d messages in three windows of steady writes, want at least 2", len(got))
 	}
@@ -162,6 +166,7 @@ func TestSteadyStreamIsNotStarved(t *testing.T) {
 func TestSkipsUnauthenticatedAndUnsubscribedClients(t *testing.T) {
 	app := newZooApp(t, testWindow)
 	signedOut := listen(t, app, "collection/zoo_animals", false)
+	signedIn := listen(t, app, "collection/zoo_animals", true)
 	elsewhere := listen(t, app, "collection/zoo_keepers", true)
 
 	saveAnimal(t, app, "Leo")
@@ -170,6 +175,11 @@ func TestSkipsUnauthenticatedAndUnsubscribedClients(t *testing.T) {
 	}
 	if got := elsewhere.collect(testWindow); len(got) != 0 {
 		t.Fatalf("client of another topic got %d messages", len(got))
+	}
+	// The control proves the write did signal, so the silences above mean
+	// something.
+	if got := signedIn.collect(testWindow); len(got) != 1 {
+		t.Fatalf("signed-in client got %d messages, want 1", len(got))
 	}
 }
 
@@ -198,5 +208,35 @@ func TestCollectionSchemaSaveSendsNothing(t *testing.T) {
 	}
 	if got := l.collect(4 * testWindow); len(got) != 0 {
 		t.Fatalf("schema change sent %d messages", len(got))
+	}
+}
+
+func TestSystemCollectionWriteSendsNothing(t *testing.T) {
+	app := newZooApp(t, testWindow)
+	l := listen(t, app, "collection/_otps", true)
+
+	col, err := app.FindCachedCollectionByNameOrId(core.CollectionNameOTPs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := core.NewRecord(users)
+	user.SetEmail("zoo@example.com")
+	user.SetPassword("zoo-password-1")
+	if err := app.Save(user); err != nil {
+		t.Fatal(err)
+	}
+	otp := core.NewRecord(col)
+	otp.Set("collectionRef", users.Id)
+	otp.Set("recordRef", user.Id)
+	otp.Set("password", "hash")
+	if err := app.Save(otp); err != nil {
+		t.Fatalf("save otp: %v", err)
+	}
+	if got := l.collect(4 * testWindow); len(got) != 0 {
+		t.Fatalf("system collection write sent %d messages", len(got))
 	}
 }

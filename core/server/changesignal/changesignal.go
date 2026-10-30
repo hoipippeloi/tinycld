@@ -58,19 +58,29 @@ func register(app core.App, window time.Duration) *signaler {
 }
 
 // collectionOf names the collection a written model belongs to, or "" for a
-// model that is not a record (a collection schema, a log row).
+// model that is not a record (a collection schema, a log row) or belongs to a
+// system collection. Any signed-in client may subscribe to any topic, so a
+// system collection's topic would tell it when others sign in or use a
+// one-time password (_otps, _mfas, _authOrigins, _externalAuths). No report
+// or view reads a system collection, so nothing is lost.
 func collectionOf(app core.App, model core.Model) string {
+	var col *core.Collection
 	switch m := model.(type) {
 	case *core.Record:
-		return m.Collection().Name
+		col = m.Collection()
 	case core.RecordProxy:
-		return m.ProxyRecord().Collection().Name
+		col = m.ProxyRecord().Collection()
+	default:
+		if model.TableName() == core.LogsTableName {
+			return ""
+		}
+		found, err := app.FindCachedCollectionByNameOrId(model.TableName())
+		if err != nil {
+			return ""
+		}
+		col = found
 	}
-	if model.TableName() == core.LogsTableName {
-		return ""
-	}
-	col, err := app.FindCachedCollectionByNameOrId(model.TableName())
-	if err != nil {
+	if col.System {
 		return ""
 	}
 	return col.Name

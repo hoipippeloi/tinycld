@@ -41,14 +41,16 @@ func newZooApp(t *testing.T, window time.Duration) *tests.TestApp {
 }
 
 type listener struct {
-	client *subscriptions.DefaultClient
+	conn *subscriptions.ResumableConn
 }
 
 // listen registers a realtime client subscribed to topic. A signed-in
 // client carries an auth record, as the realtime subscribe request sets it.
 func listen(t *testing.T, app core.App, topic string, signedIn bool) *listener {
 	t.Helper()
-	client := subscriptions.NewDefaultClient()
+	// Production realtime clients are resumable (apis.realtimeNewClient), and
+	// their messages reach the subscriber through an attached connection.
+	client := subscriptions.NewResumableClient(subscriptions.ResumableOptions{})
 	if signedIn {
 		users, err := app.FindCollectionByNameOrId("users")
 		if err != nil {
@@ -58,8 +60,12 @@ func listen(t *testing.T, app core.App, topic string, signedIn bool) *listener {
 	}
 	client.Subscribe(topic)
 	app.SubscriptionsBroker().Register(client)
+	conn, ok := client.Attach(0)
+	if !ok {
+		t.Fatal("a new resumable client refused Attach(0)")
+	}
 	t.Cleanup(func() { app.SubscriptionsBroker().Unregister(client.Id()) })
-	return &listener{client: client}
+	return &listener{conn: conn}
 }
 
 // collect returns every message that arrives within d.
@@ -68,7 +74,7 @@ func (l *listener) collect(d time.Duration) []subscriptions.Message {
 	deadline := time.After(d)
 	for {
 		select {
-		case msg := <-l.client.Channel():
+		case msg := <-l.conn.Channel():
 			got = append(got, msg)
 		case <-deadline:
 			return got
