@@ -33,6 +33,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/mfa"
 	"tinycld.org/core/oauth"
 	"tinycld.org/core/ratelimit"
@@ -112,7 +113,7 @@ func SpendTicket(app core.App, ticket string) (*core.Record, error) {
 		return nil, err
 	}
 	jti, _ := claims["jti"].(string)
-	if jti == "" || !spentTickets.spend(jti) {
+	if jti == "" || !ticketsFor(app).spend(jti) {
 		return nil, errBadTicket
 	}
 	return user, nil
@@ -139,13 +140,20 @@ func verifyTicket(app core.App, ticket string) (*core.Record, jwt.MapClaims, err
 }
 
 // ticketLedger remembers spent ticket ids for as long as a ticket can live.
-// Per process, like the code store: a restart costs a user one retry.
+// It lives on the app, in memory: a restart costs a user one retry, and a
+// ticket id spent on one app says nothing about another app.
 type ticketLedger struct {
 	mu    sync.Mutex
 	spent map[string]time.Time
 }
 
-var spentTickets = &ticketLedger{spent: map[string]time.Time{}}
+var ticketsKey = appstate.NewKey[*ticketLedger]("nativeauth.spentTickets")
+
+func ticketsFor(app core.App) *ticketLedger {
+	return ticketsKey.GetOrInit(app, func() *ticketLedger {
+		return &ticketLedger{spent: map[string]time.Time{}}
+	})
+}
 
 func (l *ticketLedger) spend(jti string) bool {
 	l.mu.Lock()
@@ -185,7 +193,7 @@ func handleCode(re *core.RequestEvent) error {
 	if len(req.CodeChallenge) != 43 {
 		return re.BadRequestError("codeChallenge must be an S256 challenge", nil)
 	}
-	code, err := pending.issue(user.Id, req.CodeChallenge)
+	code, err := codesFor(re.App).issue(user.Id, req.CodeChallenge)
 	if err != nil {
 		return re.InternalServerError("Could not create a code", err)
 	}
@@ -200,7 +208,7 @@ func handleExchange(app core.App, re *core.RequestEvent) error {
 	if err := re.BindBody(&req); err != nil {
 		return re.BadRequestError("Invalid request body", err)
 	}
-	entry, ok := pending.redeem(req.Code)
+	entry, ok := codesFor(app).redeem(req.Code)
 	if !ok || !oauth.VerifyPKCE(entry.challenge, req.CodeVerifier) {
 		return re.BadRequestError("This sign-in link has expired. Try again.", nil)
 	}
@@ -211,8 +219,10 @@ func handleExchange(app core.App, re *core.RequestEvent) error {
 	return apis.RecordAuthResponse(re, user, mfa.MethodHandoff, nil)
 }
 
-// codeStore keeps issued codes in memory for their 60 seconds. A restart in
-// that window costs the user one retry.
+// codeStore keeps issued codes in memory for their 60 seconds. It lives on
+// the app that issued them, so a code is redeemable only there: another app
+// in the same process has no entry for it, even for a user with the same id.
+// A restart in that window costs the user one retry.
 type codeStore struct {
 	mu      sync.Mutex
 	entries map[string]codeEntry
@@ -224,7 +234,13 @@ type codeEntry struct {
 	expires   time.Time
 }
 
-var pending = &codeStore{entries: map[string]codeEntry{}}
+var codesKey = appstate.NewKey[*codeStore]("nativeauth.codes")
+
+func codesFor(app core.App) *codeStore {
+	return codesKey.GetOrInit(app, func() *codeStore {
+		return &codeStore{entries: map[string]codeEntry{}}
+	})
+}
 
 func (s *codeStore) issue(userID, challenge string) (string, error) {
 	raw := make([]byte, 32)

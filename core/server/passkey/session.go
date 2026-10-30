@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"tinycld.org/core/appstate"
 )
 
 var errBadSession = errors.New("passkey: ceremony expired or already used")
@@ -60,7 +61,7 @@ func openSession(app core.App, kind ceremonyKind, token string) (webauthn.Sessio
 	if err != nil || json.Unmarshal(raw, &data) != nil || data.Challenge == "" {
 		return data, errBadSession
 	}
-	if !spentChallenges.spend(data.Challenge, data.Expires) {
+	if !challengesFor(app).spend(data.Challenge, data.Expires) {
 		return data, errBadSession
 	}
 	return data, nil
@@ -75,14 +76,21 @@ func sessionKey(app core.App, kind ceremonyKind) (string, error) {
 }
 
 // challengeLedger remembers spent challenges until they would have expired
-// anyway. It is per process, like the rate limiters: a second instance would
-// keep its own ledger, and the ceremony timeout still bounds a replay there.
+// anyway. It lives on the app, like the rate limiters: a challenge is spent
+// in the app whose session signed it, and a second instance keeps its own
+// ledger, where the ceremony timeout still bounds a replay.
 type challengeLedger struct {
 	mu    sync.Mutex
 	spent map[string]time.Time
 }
 
-var spentChallenges = &challengeLedger{spent: map[string]time.Time{}}
+var challengesKey = appstate.NewKey[*challengeLedger]("passkey.spentChallenges")
+
+func challengesFor(app core.App) *challengeLedger {
+	return challengesKey.GetOrInit(app, func() *challengeLedger {
+		return &challengeLedger{spent: map[string]time.Time{}}
+	})
+}
 
 func (l *challengeLedger) spend(challenge string, expires time.Time) bool {
 	l.mu.Lock()
