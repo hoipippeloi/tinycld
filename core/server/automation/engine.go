@@ -56,7 +56,7 @@ type Engine struct {
 	// actions counts action goroutines still running, including those the
 	// per-action timeout gave up on. The terminate waits for them.
 	actions sync.WaitGroup
-	// waitWritable is readonly.WaitInactive; a test swaps it before starting
+	// waitWritable waits for app's read-only mode to end; a test swaps it before starting
 	// a worker to learn that the worker has reached the wait.
 	waitWritable func(context.Context) error
 }
@@ -67,7 +67,7 @@ func NewEngine(app core.App, defs *Defs) *Engine {
 		app: app, defs: defs,
 		queue: make(chan event, dispatchQueueLen), done: make(chan struct{}),
 		ctx: ctx, cancel: cancel,
-		waitWritable: readonly.WaitInactive,
+		waitWritable: func(ctx context.Context) error { return readonly.WaitInactive(ctx, app) },
 	}
 }
 

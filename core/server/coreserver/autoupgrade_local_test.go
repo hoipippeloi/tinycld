@@ -63,8 +63,8 @@ func TestTickAppliesNewestInWindow(t *testing.T) {
 // tick must write nothing.
 func TestTickDoesNothingInReadOnlyMode(t *testing.T) {
 	s, applied, sent := testScheduler(t, inWindow, infos([3]string{"mail", "0.5.0", "0.6.0"}), okSolve)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(s.app)
+	t.Cleanup(func() { readonly.Leave(s.app) })
 
 	if got := s.tick(context.Background()); got != resultReadOnly {
 		t.Fatalf("result %q, want %q", got, resultReadOnly)
@@ -73,7 +73,7 @@ func TestTickDoesNothingInReadOnlyMode(t *testing.T) {
 		t.Fatalf("read-only tick applied %+v and sent %+v", *applied, *sent)
 	}
 
-	readonly.Leave()
+	readonly.Leave(s.app)
 	if got := s.tick(context.Background()); got != "upgrading" {
 		t.Fatalf("after read-only mode: result %q", got)
 	}

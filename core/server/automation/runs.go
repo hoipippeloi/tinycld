@@ -174,7 +174,7 @@ func recordRunResult(app core.App, rule *core.Record, fullyFailed bool) {
 // waits for the mode to end, bounded by ctx (TailWait, or the app's
 // terminate).
 func notifyRuleDisabledWhenWritable(ctx context.Context, app core.App, ruleID string, params notify.NotifyParams) {
-	err := readonly.WhenWritable(ctx, func() error {
+	err := readonly.WhenWritable(ctx, app, func() error {
 		notifyUser(ctx, app, params)
 		return nil
 	})

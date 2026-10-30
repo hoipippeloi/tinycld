@@ -43,8 +43,8 @@ func TestFlushDirtyFlushesEveryDirtyRoomAndIgnoresReadOnly(t *testing.T) {
 	fc.c.OnDocUpdate("a")
 	fc.c.OnDocUpdate("b")
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(fc.app)
+	t.Cleanup(func() { readonly.Leave(fc.app) })
 	if err := fc.c.FlushDirty(context.Background()); err != nil {
 		t.Fatalf("FlushDirty: %v", err)
 	}
@@ -133,8 +133,8 @@ func TestSaveDeferredWhileReadOnlyIsNotAFailure(t *testing.T) {
 	fc.c.captureGiveUp = func(giveUpDetail) { gaveUp.Add(1) }
 	fc.c.OnRoomCreate("r", &stubHandle{}, nil)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(fc.app)
+	t.Cleanup(func() { readonly.Leave(fc.app) })
 	fc.c.OnDocUpdate("r")
 	time.Sleep(150 * time.Millisecond) // several deferrals' worth
 	if calls.Load() != 0 {
@@ -143,7 +143,7 @@ func TestSaveDeferredWhileReadOnlyIsNotAFailure(t *testing.T) {
 	if gaveUp.Load() != 0 {
 		t.Fatal("deferrals counted toward giving up")
 	}
-	readonly.Leave()
+	readonly.Leave(fc.app)
 	if !waitFor(t, time.Second, func() bool { return calls.Load() == 1 }) {
 		t.Fatal("the deferred save did not run after Leave")
 	}
@@ -160,8 +160,8 @@ func TestTeardownSkipsTheFlushWhileReadOnly(t *testing.T) {
 	fc.c.OnRoomCreate("r", &stubHandle{}, nil)
 	fc.c.OnDocUpdate("r")
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(fc.app)
+	t.Cleanup(func() { readonly.Leave(fc.app) })
 	fc.c.OnRoomEmpty("r")
 	if calls.Load() != 0 {
 		t.Fatalf("teardown flushed %d times while read-only", calls.Load())
@@ -171,8 +171,8 @@ func TestTeardownSkipsTheFlushWhileReadOnly(t *testing.T) {
 func TestFlushNowReturnsErrReadOnly(t *testing.T) {
 	fc := newFastCoord(t)
 	fc.c.OnRoomCreate("r", &stubHandle{}, nil)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(fc.app)
+	t.Cleanup(func() { readonly.Leave(fc.app) })
 	if err := fc.c.FlushNow("r"); !errors.Is(err, ErrReadOnly) {
 		t.Fatalf("FlushNow err = %v; want ErrReadOnly", err)
 	}

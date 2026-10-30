@@ -54,7 +54,11 @@ type rebuildDeps struct {
 	// run ties the job to the app's lifetime: its ctx ends at the terminate,
 	// and it marks where the database tail starts. Optional (nil-safe) for
 	// orchestrator tests: nil is a run nothing stops.
-	run      *jobRun
+	run *jobRun
+	// app is the app whose writes pause from the backup on, under a
+	// supervisor. Optional for unsupervised orchestrator tests, where
+	// pauseWritesForBackup does not read it.
+	app      core.App
 	assemble func(m RebuildManifest, buildDir string) error
 	// verifyCompat re-checks peerVersions from the manifests assemble actually
 	// fetched into the build dir. The pre-flight gates read only the INSTALLED
@@ -196,7 +200,7 @@ func rebuildWith(job *installjob.Job, m RebuildManifest, d rebuildDeps) error {
 	emitProgress(job, "Backing up your data", progBackupDB, "")
 	// Every failure from here until activation leaves this process serving, so
 	// each one resumes writes after it has put the database back.
-	resumeWrites := pauseWritesForBackup()
+	resumeWrites := pauseWritesForBackup(d.app)
 	if err := timeStep(job, "backup database", d.backupDB); err != nil {
 		_ = os.RemoveAll(buildDir)
 		resumeWrites()
@@ -351,6 +355,7 @@ func productionRebuildDeps(run *jobRun, app *pocketbase.PocketBase, job *install
 
 	return rebuildDeps{
 		run:      run,
+		app:      app,
 		assemble: func(mm RebuildManifest, bd string) error { return assembleBuild(ctx, job, mm, bd) },
 		verifyCompat: func(mm RebuildManifest, bd string) error {
 			if err := pkgbuild.VerifyTargetPeerVersionsContext(ctx, mm, bd); err != nil {
@@ -467,7 +472,7 @@ func restartOntoBuild(ctx context.Context, app *pocketbase.PocketBase, buildID s
 		srvLog.Info("not asking for a restart: the server is shutting down; its next start boots the new build", "buildID", buildID)
 		return false
 	}
-	return requestRestart(cold)
+	return requestRestart(app, cold)
 }
 
 // logRecipeHashBreadcrumb best-effort computes and logs the build's recipe

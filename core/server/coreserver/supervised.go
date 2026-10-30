@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/listeners"
 	"tinycld.org/core/readonly"
 	"tinycld.org/core/supervise"
@@ -98,14 +99,14 @@ func askSupervisorToRestart(cold bool) bool {
 // resume also does nothing once this process has asked to be replaced: read-
 // only mode is one switch, and a late failure path must not re-open writes
 // in a process that is only waiting to be drained.
-func pauseWritesForBackup() (resume func()) {
+func pauseWritesForBackup(app core.App) (resume func()) {
 	if !listeners.Supervised() {
 		return func() {}
 	}
-	readonly.Enter()
+	readonly.Enter(app)
 	return func() {
 		if !beingReplaced.Load() {
-			readonly.Leave()
+			readonly.Leave(app)
 		}
 	}
 }

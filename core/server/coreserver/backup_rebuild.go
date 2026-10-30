@@ -112,5 +112,5 @@ func restartForRestore(app *pocketbase.PocketBase) bool {
 		return false
 	}
 	checkpointWAL(app)
-	return requestRestart(true)
+	return requestRestart(app, true)
 }

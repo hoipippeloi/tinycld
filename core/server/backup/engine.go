@@ -387,7 +387,7 @@ func newProgress(app core.App, row *core.Record, total func() int64) *progress {
 				}
 				// Skipped, not waited for: the next tick writes the count
 				// as it is then, so a skipped one loses nothing.
-				if readonly.Active() {
+				if readonly.Active(app) {
 					continue
 				}
 				row.Set("bytes", total())

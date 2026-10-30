@@ -8,8 +8,6 @@ import (
 	"time"
 
 	ycrdt "github.com/skyterra/y-crdt"
-
-	"tinycld.org/core/readonly"
 )
 
 // parkedDoc is a server document whose room has emptied but which the
@@ -85,7 +83,7 @@ func (b *Broker) startJanitor() {
 // their state at Enter. Once the stop has begun it does nothing: the stop's
 // Suspend stores every parked document.
 func (b *Broker) evictIdle(now time.Time) {
-	if readonly.Active() {
+	if b.readOnly() {
 		return
 	}
 	if _, ok := b.gate.enter(false); !ok {

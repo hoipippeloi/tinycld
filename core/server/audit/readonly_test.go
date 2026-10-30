@@ -53,14 +53,14 @@ func auditRows(t *testing.T, app core.App, recordID string) int {
 
 func TestAuditRowWaitsForReadOnlyToEnd(t *testing.T) {
 	app, rec := auditTestApp(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	probe, waiting := readonlytest.WaitProbe(t)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		writeWhenWritable(probe, "widgets", rec.Id, func() {
+		writeWhenWritable(probe, app, "widgets", rec.Id, func() {
 			logCreate(app, rec, requestInfoOf(nil), "widgets", DefaultLabelExtractor)
 		})
 	}()
@@ -75,7 +75,7 @@ func TestAuditRowWaitsForReadOnlyToEnd(t *testing.T) {
 		t.Fatalf("an audit row was written while read-only: %d rows", n)
 	}
 
-	readonly.Leave()
+	readonly.Leave(app)
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -89,12 +89,12 @@ func TestAuditRowWaitsForReadOnlyToEnd(t *testing.T) {
 func TestAuditRowDroppedAndLoggedWhenReadOnlyOutlastsTheWait(t *testing.T) {
 	app, rec := auditTestApp(t)
 	logs := readonlytest.CaptureLogs(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	writeWhenWritable(ctx, "widgets", rec.Id, func() {
+	writeWhenWritable(ctx, app, "widgets", rec.Id, func() {
 		logCreate(app, rec, requestInfoOf(nil), "widgets", DefaultLabelExtractor)
 	})
 
@@ -119,8 +119,8 @@ func TestAuditRowDroppedAndLoggedWhenReadOnlyOutlastsTheWait(t *testing.T) {
 func TestAuditRowParkedInReadOnlyIsDroppedAndLoggedAtTerminate(t *testing.T) {
 	app, rec := auditTestAppNoCleanup(t)
 	logs := readonlytest.CaptureLogs(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	ran := make(chan struct{}, 1)
 	logWhenWritable(app, "widgets", rec.Id, func() { ran <- struct{}{} })

@@ -628,7 +628,7 @@ func newExpiryWatcher(app core.App, row *core.Record, src stallSource) *expiryWa
 			}
 			// While read-only the write is skipped and shown stays behind,
 			// so the first tick after the mode ends writes the state then.
-			if waiting == shown || readonly.Active() {
+			if waiting == shown || readonly.Active(app) {
 				continue
 			}
 			shown = waiting

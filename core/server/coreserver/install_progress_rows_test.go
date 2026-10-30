@@ -393,8 +393,8 @@ func TestRecordStep_SkipsSilentlyDuringReadOnlyMode(t *testing.T) {
 	app := newProgressRowsTestApp(t)
 	saver, timers, id := newProgressSaverWithFakeTimer(t, app)
 
-	readonly.Enter()
-	defer readonly.Leave()
+	readonly.Enter(app)
+	defer readonly.Leave(app)
 
 	done := make(chan struct{})
 	go func() {
@@ -428,10 +428,10 @@ func TestRecordStep_RetrySavesPendingStateOnceReadOnlyModeLifts(t *testing.T) {
 	app := newProgressRowsTestApp(t)
 	saver, timers, id := newProgressSaverWithFakeTimer(t, app)
 
-	readonly.Enter()
+	readonly.Enter(app)
 	saver.recordStep(ProgressStep{Step: "duringPause", Progress: 1, Message: "during pause"})
 	saver.flush() // the throttle's own flush call during read-only: schedules a retry
-	readonly.Leave()
+	readonly.Leave(app)
 
 	timers.fire() // the retry the read-only period itself armed
 
@@ -452,9 +452,9 @@ func TestRecordStep_ResumesAfterReadOnlyModeLifts(t *testing.T) {
 	app := newProgressRowsTestApp(t)
 	saver, _, id := newProgressSaverWithFakeTimer(t, app)
 
-	readonly.Enter()
+	readonly.Enter(app)
 	saver.recordStep(ProgressStep{Step: "skipped", Progress: 1, Message: "during pause"})
-	readonly.Leave()
+	readonly.Leave(app)
 
 	saver.recordStep(ProgressStep{Step: "resumed", Progress: 2, Message: "after pause"})
 
@@ -490,8 +490,8 @@ func TestFinalizeInstallLog_LandsLastStepWithoutWaitingForReadOnlyToLift(t *test
 	registerProgressSaver(app, jobID, record)
 	t.Cleanup(func() { unregisterProgressSaver(jobID) })
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 	progressSaverFor(jobID).recordStep(ProgressStep{Step: "lastStep", Progress: 99, Message: "almost done"})
 
 	done := make(chan struct{})
@@ -528,13 +528,13 @@ func TestFinalizeInstallLog_NoProgressSaveAfterFinalize(t *testing.T) {
 	app := newProgressRowsTestApp(t)
 	saver, timers, id := newProgressSaverWithFakeTimer(t, app)
 
-	readonly.Enter()
+	readonly.Enter(app)
 	saver.recordStep(ProgressStep{Step: "deferred", Progress: 50, Message: "waiting"})
 	if got := timers.scheduledCount(); got == 0 {
 		t.Fatal("no retry was scheduled while read-only mode was active")
 	}
 	steps := saver.finish()
-	readonly.Leave()
+	readonly.Leave(app)
 
 	if len(steps) != 1 || steps[0].Step != "deferred" {
 		t.Fatalf("finish returned %+v, want the deferred step", steps)

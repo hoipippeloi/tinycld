@@ -17,11 +17,11 @@ import (
 // left, the job runs again at its next due time. The fake clock makes "it did
 // not run for three ticks" exact rather than a guess about timing.
 func TestCronJobSkippedWhileActiveRunsAfterLeave(t *testing.T) {
-	t.Cleanup(Leave)
-	Enter() // outside the bubble: the mode's channel is process-wide
+	app := bareApp(t)
+	Enter(app) // outside the bubble: the mode's channel is made outside it
 	synctest.Test(t, func(t *testing.T) {
 		c := cron.New()
-		guardCron(c)
+		guardCron(app, c)
 
 		var ran atomic.Int32
 		c.MustAdd("probe", "* * * * *", func() { ran.Add(1) })
@@ -34,7 +34,7 @@ func TestCronJobSkippedWhileActiveRunsAfterLeave(t *testing.T) {
 			t.Fatalf("the cron job ran %d times while read-only", got)
 		}
 
-		Leave()
+		Leave(app)
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		if got := ran.Load(); got == 0 {
@@ -46,7 +46,6 @@ func TestCronJobSkippedWhileActiveRunsAfterLeave(t *testing.T) {
 // Register puts the guard on the app's own scheduler, which every job added
 // through app.Cron() (core's, a package's, PocketBase's, a JS hook's) runs on.
 func TestRegisterGuardsAppCron(t *testing.T) {
-	t.Cleanup(Leave)
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +60,7 @@ func TestRegisterGuardsAppCron(t *testing.T) {
 		default:
 		}
 	})
-	Enter()
+	Enter(app)
 	app.Cron().SetInterval(10 * time.Millisecond)
 	app.Cron().Start()
 	defer app.Cron().Stop()
@@ -72,7 +71,7 @@ func TestRegisterGuardsAppCron(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	Leave()
+	Leave(app)
 	select {
 	case <-ran:
 	case <-time.After(5 * time.Second):
@@ -81,29 +80,29 @@ func TestRegisterGuardsAppCron(t *testing.T) {
 }
 
 func TestWaitInactiveReturnsAtOnceWhenInactive(t *testing.T) {
-	Leave()
-	if err := WaitInactive(context.Background()); err != nil {
+	app := bareApp(t)
+	if err := WaitInactive(context.Background(), app); err != nil {
 		t.Fatalf("WaitInactive = %v, want nil", err)
 	}
 }
 
 func TestWaitInactiveStopsWithContext(t *testing.T) {
-	t.Cleanup(Leave)
-	Enter()
+	app := bareApp(t)
+	Enter(app)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := WaitInactive(ctx); !errors.Is(err, context.DeadlineExceeded) {
+	if err := WaitInactive(ctx, app); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("WaitInactive = %v, want context.DeadlineExceeded", err)
 	}
 }
 
 func TestWaitInactiveReturnsWhenLeft(t *testing.T) {
-	t.Cleanup(Leave)
-	Enter()
+	app := bareApp(t)
+	Enter(app)
 	done := make(chan error, 1)
-	go func() { done <- WaitInactive(context.Background()) }()
+	go func() { done <- WaitInactive(context.Background(), app) }()
 
-	Leave()
+	Leave(app)
 	select {
 	case err := <-done:
 		if err != nil {

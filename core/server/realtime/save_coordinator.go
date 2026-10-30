@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/readonly"
 )
@@ -93,6 +94,9 @@ type FlushFn func(ctx context.Context, driveItemID string, handle DocHandle) err
 // machine that drives persistence in package consumers. One instance
 // per process, shared across all rooms of a given kind.
 type SaveCoordinator struct {
+	// app is the app the coordinator's rooms belong to: while it is
+	// read-only, saves are deferred.
+	app             core.App
 	flush           FlushFn
 	debounceEvery   time.Duration
 	ceilingEvery    time.Duration
@@ -150,16 +154,17 @@ type roomSaver struct {
 }
 
 // NewSaveCoordinator returns a SaveCoordinator with production
-// defaults. Override intervals (e.g. for tests) by mutating the
-// returned value's fields before any room is created.
+// defaults for the rooms of app. Override intervals (e.g. for tests) by
+// mutating the returned value's fields before any room is created.
 //
 // flush is called whenever a save fires. It receives the room
 // identifier (whatever ID space the room kind uses — for calc and
 // text it's a drive_items.id; other kinds may key differently) and
 // the DocHandle the broker handed us at room creation. A nil flush
 // is a programmer error; the coordinator panics on first save attempt.
-func NewSaveCoordinator(flush FlushFn) *SaveCoordinator {
+func NewSaveCoordinator(app core.App, flush FlushFn) *SaveCoordinator {
 	return &SaveCoordinator{
+		app:             app,
 		flush:           flush,
 		debounceEvery:   DefaultDebounceInterval,
 		ceilingEvery:    DefaultCeilingInterval,
@@ -367,7 +372,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 	handle := rs.handle
 	rs.mu.Unlock()
 
-	if wasDirty && readonly.Active() {
+	if wasDirty && readonly.Active(c.app) {
 		// The flush writes. The broker parks the document with these
 		// edits in it, and Suspend has already stored its state for the
 		// case where this process is replaced.
@@ -453,7 +458,7 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 		rs.mu.Unlock()
 		return
 	}
-	if readonly.Active() {
+	if readonly.Active(c.app) {
 		c.deferForReadOnly(driveItemID, rs)
 		rs.mu.Unlock()
 		return
@@ -606,7 +611,7 @@ func (c *SaveCoordinator) deferForReadOnly(driveItemID string, rs *roomSaver) {
 // server is read-only it returns ErrReadOnly without flushing, and once
 // the stop has begun ErrStopping.
 func (c *SaveCoordinator) FlushNow(driveItemID string) error {
-	if readonly.Active() {
+	if readonly.Active(c.app) {
 		return ErrReadOnly
 	}
 	return c.flushRoom(context.Background(), driveItemID, false, false)

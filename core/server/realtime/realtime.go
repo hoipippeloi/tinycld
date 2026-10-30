@@ -31,6 +31,7 @@
 package realtime
 
 import (
+	"github.com/pocketbase/pocketbase/core"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -129,6 +130,10 @@ type Broker struct {
 	// stop stops their timers.
 	coordsMu sync.Mutex
 	coords   map[*SaveCoordinator]struct{}
+	// app is the app whose read-only mode this broker obeys. Nil for a broker
+	// no Register bound (unit tests): it is never read-only.
+	appMu sync.Mutex
+	app   core.App
 }
 
 type roomKey struct {

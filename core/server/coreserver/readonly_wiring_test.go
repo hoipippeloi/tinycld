@@ -14,13 +14,13 @@ import (
 func TestReadOnlyRefusesBeforeSentry(t *testing.T) {
 	get, cleanup := captureSentry(t)
 	defer cleanup()
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
 
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { readonly.Leave(app) })
+	readonly.Enter(app)
 	defer app.Cleanup()
 	registerSharedMiddleware(app)
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {

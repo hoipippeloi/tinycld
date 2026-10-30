@@ -235,7 +235,7 @@ func (s *localScheduler) tick(ctx context.Context) string {
 	// it, and a version change or a reminder row written now would be written
 	// against a schema this process may not know. A skipped tick is not made
 	// up; the next one runs an hour later.
-	if readonly.Active() {
+	if readonly.Active(s.app) {
 		return resultReadOnly
 	}
 	// A backup a rollback could not restore means the database was migrated

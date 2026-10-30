@@ -247,7 +247,7 @@ func (s *installLogProgressSaver) flush() {
 	if s == nil || s.record == nil {
 		return
 	}
-	if readonly.Active() {
+	if readonly.Active(s.app) {
 		s.mu.Lock()
 		if !s.finalized {
 			s.pending = true
@@ -300,7 +300,7 @@ func (s *installLogProgressSaver) save() {
 		s.saveAgain = false
 		s.saveMu.Unlock()
 
-		if readonly.Active() {
+		if readonly.Active(s.app) {
 			s.mu.Lock()
 			if !s.finalized {
 				s.pending = true

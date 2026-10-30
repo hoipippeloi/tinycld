@@ -20,7 +20,8 @@ import (
 func stubRestoreRebuildDeps(t *testing.T, deps rebuildDeps) {
 	t.Helper()
 	prev := restoreRebuildDeps
-	restoreRebuildDeps = func(*jobRun, *pocketbase.PocketBase, *installjob.Job, RebuildManifest, *core.Record) rebuildDeps {
+	restoreRebuildDeps = func(_ *jobRun, app *pocketbase.PocketBase, _ *installjob.Job, _ RebuildManifest, _ *core.Record) rebuildDeps {
+		deps.app = app
 		return deps
 	}
 	t.Cleanup(func() { restoreRebuildDeps = prev })

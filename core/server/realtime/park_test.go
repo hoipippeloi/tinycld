@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	ycrdt "github.com/skyterra/y-crdt"
 
 	"tinycld.org/core/readonly"
@@ -189,14 +190,16 @@ func TestJanitorSkipsWhileReadOnly(t *testing.T) {
 	f := newOpenFixture(t, "park-readonly", store)
 	room, c := f.open("r1")
 	room.remove(c)
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	f.broker.bindApp(app)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 	f.broker.evictIdle(time.Now().Add(ParkIdle + time.Second))
 	if f.broker.parkedCount() != 1 {
 		t.Fatal("evicted while read-only")
 	}
-	readonly.Leave()
+	readonly.Leave(app)
 	f.broker.evictIdle(time.Now().Add(ParkIdle + time.Second))
 	if f.broker.parkedCount() != 0 {
 		t.Fatal("not evicted after Leave")

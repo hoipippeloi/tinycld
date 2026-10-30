@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"tinycld.org/core/readonly"
 )
 
 // ErrStopping is what FlushNow returns once the process has begun to stop:
@@ -235,7 +233,7 @@ func (b *Broker) Stop(ctx context.Context, reason string) {
 	if !b.fence(budget, ctx, reason) {
 		return
 	}
-	if readonly.Active() {
+	if b.readOnly() {
 		log.Info("documents were stored when read-only began; nothing to write now", "reason", reason)
 	} else {
 		b.Suspend(budget, reason)

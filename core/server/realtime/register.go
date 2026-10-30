@@ -109,6 +109,7 @@ func Register(app core.App, opts Options) {
 	}
 
 	broker := sharedBroker()
+	broker.bindApp(app)
 	registerLifecycle(app)
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {

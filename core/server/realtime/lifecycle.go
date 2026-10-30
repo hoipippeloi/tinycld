@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -53,26 +52,21 @@ const (
 	realtimeSuspendPriority = -10001
 )
 
-var (
-	lifecycleOnce sync.Once
-	// draining flips when a drain begins; an upgrade that still reaches this
-	// process (on a connection accepted before accepting stopped) is turned
-	// away so the client reconnects to the next process.
-	draining atomic.Bool
-)
+// draining flips when a drain begins; an upgrade that still reaches this
+// process (on a connection accepted before accepting stopped) is turned away
+// so the client reconnects to the next process.
+var draining atomic.Bool
 
-// registerLifecycle binds the hooks above. The read-only hook registers
-// once per process (OnEnter registrations are never removed); the drain
-// hook replaces itself by name; the terminate hook is per app.
+// registerLifecycle binds the hooks above. The read-only hook is bound per
+// app (each app's mode has its own OnEnter list); the drain hook replaces
+// itself by name; the terminate hook is per app.
 func registerLifecycle(app core.App) {
-	lifecycleOnce.Do(func() {
-		readonly.OnEnter(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), readOnlySuspendMax)
-			defer cancel()
-			Suspend(ctx, "read-only")
-		})
+	readonly.OnEnter(app, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), readOnlySuspendMax)
+		defer cancel()
+		Suspend(ctx, "read-only")
 	})
-	drainhooks.OnBegin("realtime-rooms", beginDrain)
+	drainhooks.OnBegin("realtime-rooms", func() { beginDrain(app) })
 	shutdown.Register(app)
 	app.OnTerminate().Bind(&hook.Handler[*core.TerminateEvent]{
 		Id:       "tinycldRealtimeSuspend",
@@ -84,9 +78,9 @@ func registerLifecycle(app core.App) {
 	})
 }
 
-func beginDrain() {
+func beginDrain(app core.App) {
 	draining.Store(true)
-	suspendForExit("drain")
+	suspendForExit(app, "drain")
 	sharedBroker().closeAllConns()
 }
 
@@ -103,16 +97,35 @@ func stopForExit(end context.Context, reason string) {
 	processBrokerMu.Unlock()
 }
 
-// suspendForExit stores every document unless the server is read-only, in
-// which case the pause's own Suspend already did and nothing may write.
-func suspendForExit(reason string) {
-	if readonly.Active() {
+// suspendForExit stores every document unless app is read-only, in which
+// case the pause's own Suspend already did and nothing may write.
+func suspendForExit(app core.App, reason string) {
+	if readonly.Active(app) {
 		log.Info("documents were stored when read-only began; nothing to write now", "reason", reason)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), suspendBudget)
 	defer cancel()
 	Suspend(ctx, reason)
+}
+
+// bindApp names the app whose read-only mode the broker obeys. The first app
+// to register keeps it.
+func (b *Broker) bindApp(app core.App) {
+	b.appMu.Lock()
+	defer b.appMu.Unlock()
+	if b.app == nil {
+		b.app = app
+	}
+}
+
+// readOnly reports whether the broker's app is read-only. A broker with no
+// app is never read-only.
+func (b *Broker) readOnly() bool {
+	b.appMu.Lock()
+	app := b.app
+	b.appMu.Unlock()
+	return app != nil && readonly.Active(app)
 }
 
 // closeAllConns sends every connection a going-away close and does not wait:

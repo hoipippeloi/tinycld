@@ -7,6 +7,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/shutdown"
 )
 
@@ -30,24 +31,21 @@ type tailSet struct {
 	wg         sync.WaitGroup
 }
 
-// tailSets is keyed by the app value passed to Register. Every core caller
-// passes the same app value it registers with; a test app that never calls
-// Register has no entry.
-var (
-	tailSetsMu sync.Mutex
-	tailSets   = map[core.App]*tailSet{}
-)
+// tailsKey files an app's tail set on the app itself, so the set goes with the
+// app: nothing in the process keeps it after the app is gone.
+var tailsKey = appstate.NewKey[*tailSet]("readonly.tails")
 
 func bindTails(app core.App) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ts := &tailSet{ctx: ctx, cancel: cancel}
-	tailSetsMu.Lock()
-	tailSets[app] = ts
-	tailSetsMu.Unlock()
+	tailsKey.Set(app, ts)
+	remember(app)
 	// The handler runs before the chain's finalizer, which closes the
 	// database, so every parked tail is ended before the close.
 	shutdown.Register(app)
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		// A terminated app takes no further SIGUSR2.
+		forget(app)
 		ctx, cancel := shutdown.Within(app, tailStopBound)
 		defer cancel()
 		ts.stop(ctx)
@@ -86,10 +84,8 @@ func (ts *tailSet) stop(ctx context.Context) {
 // Call it before starting the tail's goroutine. For an app that was not
 // passed to Register, only TailWait bounds the wait.
 func TailContext(app core.App) (context.Context, func()) {
-	tailSetsMu.Lock()
-	ts := tailSets[app]
-	tailSetsMu.Unlock()
-	if ts == nil {
+	ts, ok := tailsKey.GetOk(app)
+	if !ok {
 		return context.WithTimeout(context.Background(), TailWait)
 	}
 

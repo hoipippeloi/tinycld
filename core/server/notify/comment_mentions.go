@@ -78,7 +78,7 @@ const mentionDroppedMsg = "comment mention notification dropped: the server stay
 // notification then waits for the mode to end, bounded by ctx (from
 // the job runner: TailWait, or the app's terminate).
 func handleCommentMentionWhenWritable(ctx context.Context, app core.App, mention *core.Record) {
-	err := readonly.WhenWritable(ctx, func() error {
+	err := readonly.WhenWritable(ctx, app, func() error {
 		handleCommentMention(app, mention)
 		return nil
 	})

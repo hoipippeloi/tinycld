@@ -17,7 +17,7 @@ import (
 // (through waiting) when the worker has reached the read-only wait. The
 // event targets a disabled rule by RuleID: engineApp's own engine dispatches
 // only enabled rules, so it cannot run this rule behind the test's back.
-// ran receives readonly.Active() as seen by the rule's action.
+// ran receives readonly.Active(app) as seen by the rule's action.
 func readOnlyWorker(t *testing.T) (w *Engine, ev event, waiting <-chan struct{}, ran <-chan bool, cancel context.CancelFunc) {
 	t.Helper()
 	app, eng, u := engineApp(t)
@@ -34,7 +34,7 @@ func readOnlyWorker(t *testing.T) (w *Engine, ev event, waiting <-chan struct{},
 		registryMu.Unlock()
 	})
 	RegisterAction("tickets:boom", func(core.App, ActionRequest) error {
-		ranCh <- readonly.Active()
+		ranCh <- readonly.Active(app)
 		return nil
 	})
 	rule := makeRule(t, app, u.Id, "org", nil, []any{map[string]any{"ref": "tickets:boom"}}, 0, false)
@@ -56,13 +56,13 @@ func readOnlyWorker(t *testing.T) (w *Engine, ev event, waiting <-chan struct{},
 	waitingCh := make(chan struct{}, 1)
 	w = NewEngine(app, eng.defs)
 	w.waitWritable = func(ctx context.Context) error {
-		if readonly.Active() {
+		if readonly.Active(app) {
 			select {
 			case waitingCh <- struct{}{}:
 			default:
 			}
 		}
-		return readonly.WaitInactive(ctx)
+		return readonly.WaitInactive(ctx, app)
 	}
 	ctx, cancelFn := context.WithCancel(context.Background())
 	go w.worker(ctx)
@@ -76,9 +76,9 @@ func readOnlyWorker(t *testing.T) (w *Engine, ev event, waiting <-chan struct{},
 }
 
 func TestWorkerHoldsAnEventUntilReadOnlyEnds(t *testing.T) {
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
 	w, ev, waiting, ran, _ := readOnlyWorker(t)
+	readonly.Enter(w.app)
+	t.Cleanup(func() { readonly.Leave(w.app) })
 
 	w.enqueue(ev)
 	select {
@@ -93,7 +93,7 @@ func TestWorkerHoldsAnEventUntilReadOnlyEnds(t *testing.T) {
 	default:
 	}
 
-	readonly.Leave()
+	readonly.Leave(w.app)
 	select {
 	case active := <-ran:
 		if active {
@@ -105,9 +105,9 @@ func TestWorkerHoldsAnEventUntilReadOnlyEnds(t *testing.T) {
 }
 
 func TestWorkerStopsOnShutdownWhileReadOnly(t *testing.T) {
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
 	w, ev, waiting, ran, cancel := readOnlyWorker(t)
+	readonly.Enter(w.app)
+	t.Cleanup(func() { readonly.Leave(w.app) })
 	logs := readonlytest.CaptureLogs(t)
 
 	w.enqueue(ev)

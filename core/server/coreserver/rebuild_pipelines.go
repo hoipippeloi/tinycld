@@ -224,7 +224,7 @@ func runRevertRebuild(run *jobRun, app *pocketbase.PocketBase, job *installjob.J
 	emitProgress(job, "Backing up your data", 25, "")
 	// Every failure from here until activation leaves this process serving, so
 	// each one resumes writes after it has put the database back.
-	resumeWrites := pauseWritesForBackup()
+	resumeWrites := pauseWritesForBackup(app)
 	restoreDB, err := backupDatabase(run.ctx, filepath.Join(stateBuildsDir(), targetID, "tinycld"))
 	if err != nil {
 		resumeWrites()

@@ -44,6 +44,7 @@ func newLifecycleFixture(t *testing.T, broker *Broker) *lifecycleFixture {
 	registerLifecycle(app)
 	// The process-wide hooks act on the shared broker; point it at this one.
 	swapSharedBrokerForTest(t, broker)
+	broker.bindApp(app)
 
 	f := &lifecycleFixture{app: app, broker: broker, store: NewMemoryCheckpointStore(), rt: newStubRuntime()}
 	f.opts = startTestServerWithOpts(t, broker, RoomKindOptions{
@@ -94,8 +95,8 @@ func TestDrainBeginSkipsSuspendWhileReadOnly(t *testing.T) {
 	a := dialClient(t, f.opts, "room-ro", "alice")
 	waitForRoomMembers(t, broker, "test", "room-ro", 1, time.Second)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 	// Enter stored the state; the drain must not write again under the pause.
 	_ = f.store.Delete("test", "room-ro")
 	drainhooks.RunBegin()
@@ -207,8 +208,8 @@ func TestReadOnlyEnterSuspends(t *testing.T) {
 	_ = dialClient(t, f.opts, "room-e", "alice")
 	room := waitForRoomMembers(t, broker, "test", "room-e", 1, time.Second)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 	// Enter runs the hook synchronously, so the row exists on return.
 	cp, found, _ := f.store.Load("test", "room-e")
 	if !found || cp.Epoch != room.DocEpoch() {
