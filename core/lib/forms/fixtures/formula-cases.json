@@ -161,7 +161,7 @@
             "expect": 0
         },
         {
-            "name": "count of rows",
+            "name": "count of rows with no blanks",
             "types": { "amount": "number" },
             "rows": [{ "amount": 2 }, { "amount": 3 }, { "amount": 0 }],
             "formula": { "op": "count", "args": [{ "col": "amount" }] },
@@ -196,6 +196,7 @@
             "types": { "a": "number", "b": "number" },
             "values": { "a": 9007199254740991, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
             "expect": 4503599627370496
         },
         {
@@ -203,13 +204,37 @@
             "types": { "a": "money", "b": "number" },
             "values": { "a": 1000, "b": 0.075 },
             "formula": { "op": "mul", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "round": [{ "mul": [{ "var": "a" }, { "var": "b" }] }, 0] },
             "expect": 75
+        },
+        {
+            "name": "an amount plus a number rounds to whole cents",
+            "types": { "a": "money", "b": "number" },
+            "values": { "a": 100, "b": 0.5 },
+            "formula": { "op": "add", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "round": [{ "add": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "expect": 101
+        },
+        {
+            "name": "an if of a fraction and an amount rounds to whole cents",
+            "types": { "a": "money" },
+            "values": { "a": 250 },
+            "formula": {
+                "op": "if",
+                "args": [
+                    { "op": "eq", "args": [{ "value": 1 }, { "value": 1 }] },
+                    { "value": 0.5 },
+                    { "col": "a" }
+                ]
+            },
+            "expect": 1
         },
         {
             "name": "an amount divided by a number keeps whole cents",
             "types": { "a": "money", "b": "number" },
             "values": { "a": 1000, "b": 3 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
             "expect": 333
         },
         {
@@ -217,6 +242,7 @@
             "types": { "a": "money", "c": "money" },
             "values": { "a": 1234, "c": 5000 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "c" }], "scale": 4 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "c" }] }, 4] },
             "expect": 0.2468
         },
         {

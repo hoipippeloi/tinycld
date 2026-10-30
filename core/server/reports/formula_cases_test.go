@@ -27,6 +27,7 @@ type formulaCase struct {
 	FiscalStart int                  `json:"fiscalStart"`
 	Formula     *Node                `json:"formula"`
 	Forms       any                  `json:"forms"`
+	FormsSkip   string               `json:"formsSkip"`
 	Expect      any                  `json:"expect"`
 	Error       string               `json:"error"`
 }
@@ -179,6 +180,54 @@ func sameValue(got, want any) bool {
 		return got == w
 	}
 	return false
+}
+
+// onlyFormsOps is true when every operator is one the forms engine has. count is left out: the
+// report's count(col) skips blanks and the forms count(rows) counts every row.
+func onlyFormsOps(n *Node) bool {
+	if n == nil {
+		return true
+	}
+	if n.Op != "" {
+		switch n.Op {
+		case "add", "sub", "mul", "div", "round", "sum":
+		case "min", "max":
+			if len(n.Args) < 2 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	for _, a := range n.Args {
+		if !onlyFormsOps(a) {
+			return false
+		}
+	}
+	return true
+}
+
+// A case the forms engine can express must run there too, or say why not.
+func TestFormulaCasesCarryFormsWhenTheFormsEngineHasTheOperators(t *testing.T) {
+	withForms := 0
+	for _, c := range loadFormulaCases(t) {
+		if c.Forms != nil {
+			withForms++
+			if c.FormsSkip != "" {
+				t.Errorf("%q has both forms and formsSkip", c.Name)
+			}
+		}
+		if c.Error != "" || !onlyFormsOps(c.Formula) {
+			continue
+		}
+		if c.Forms == nil && c.FormsSkip == "" {
+			t.Errorf("%q uses only operators the forms engine has: add forms or a formsSkip reason", c.Name)
+		}
+	}
+	// Keep equal to the count in the forms Go and TS tests.
+	if withForms != 27 {
+		t.Fatalf("%d cases carry forms, want 27", withForms)
+	}
 }
 
 func TestFormulaCasesTheReportCompiler(t *testing.T) {

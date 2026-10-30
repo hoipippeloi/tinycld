@@ -62,7 +62,8 @@ func TestSharedFormulaCases_FormsEngine(t *testing.T) {
 			}
 		})
 	}
-	if shared < 20 {
-		t.Fatalf("only %d cases are shared with the report compiler", shared)
+	// Keep equal to the count in the TS test and to the reports rule test.
+	if shared != 27 {
+		t.Fatalf("%d cases carry forms, want 27", shared)
 	}
 }

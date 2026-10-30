@@ -21,8 +21,9 @@ const shared = z
     .filter(c => c.forms !== undefined)
 
 describe('the shared formula table in the forms engine', () => {
-    it('shares enough cases with the report compiler', () => {
-        expect(shared.length).toBeGreaterThanOrEqual(20)
+    // Keep equal to the count in the Go forms test and the reports rule test.
+    it('shares every case the forms engine can express', () => {
+        expect(shared.length).toBe(27)
     })
 
     for (const c of shared) {

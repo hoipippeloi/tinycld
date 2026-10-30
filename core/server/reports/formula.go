@@ -19,9 +19,6 @@ type expr struct {
 	lo, hi string
 	// list is a list of values for in: sql is "(?, ?, …)".
 	list bool
-	// lit is a literal value: a number literal adopts the other operand's
-	// kind, so amount + 100 stays an amount.
-	lit bool
 	// unset is a param with no value: in a filter, a condition on it
 	// matches every row.
 	unset bool
@@ -186,13 +183,13 @@ func literal(c fctx, raw json.RawMessage, at string) (expr, error) {
 	}
 	switch x := v.(type) {
 	case nil:
-		return expr{sql: "NULL", lit: true}, nil
+		return expr{sql: "NULL"}, nil
 	case bool:
-		return expr{sql: c.bind(x), typ: Bool, lit: true}, nil
+		return expr{sql: c.bind(x), typ: Bool}, nil
 	case string:
-		return expr{sql: c.bind(x), typ: Text, lit: true}, nil
+		return expr{sql: c.bind(x), typ: Text}, nil
 	case json.Number:
-		return expr{sql: c.bind(numberValue(x)), typ: Number, lit: true}, nil
+		return expr{sql: c.bind(numberValue(x)), typ: Number}, nil
 	case []any:
 		parts := make([]string, 0, len(x))
 		var typ FieldType
@@ -208,7 +205,7 @@ func literal(c fctx, raw json.RawMessage, at string) (expr, error) {
 				return expr{}, invalid(at, "a value list holds text or numbers")
 			}
 		}
-		return expr{sql: "(" + strings.Join(parts, ", ") + ")", typ: typ, list: true, lit: true}, nil
+		return expr{sql: "(" + strings.Join(parts, ", ") + ")", typ: typ, list: true}, nil
 	}
 	return expr{}, invalid(at, "a value is text, a number, true, false, null or a list")
 }
@@ -283,7 +280,7 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		if n.Op == "sub" {
 			sep = " - "
 		}
-		return expr{sql: "(" + strings.Join(parts, sep) + ")", typ: sumType(args)}, nil
+		return wholeCents(expr{sql: "(" + strings.Join(parts, sep) + ")", typ: sumType(args)}, args), nil
 	case "mul":
 		if err := argc(2, -1); err != nil {
 			return expr{}, err
@@ -354,7 +351,7 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		for i, a := range args {
 			parts[i] = num(a)
 		}
-		return expr{sql: n.Op + "(" + strings.Join(parts, ", ") + ")", typ: sumType(args)}, nil
+		return wholeCents(expr{sql: n.Op + "(" + strings.Join(parts, ", ") + ")", typ: sumType(args)}, args), nil
 	case "eq", "ne":
 		if err := argc(2, 2); err != nil {
 			return expr{}, err
@@ -470,7 +467,7 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		if !ok {
 			return expr{}, invalid(at, "both results of if are of one kind")
 		}
-		return expr{sql: "(CASE WHEN " + args[0].sql + " THEN " + args[1].sql + " ELSE " + args[2].sql + " END)", typ: typ}, nil
+		return wholeCents(expr{sql: "(CASE WHEN " + args[0].sql + " THEN " + args[1].sql + " ELSE " + args[2].sql + " END)", typ: typ}, args[1:]), nil
 	case "case":
 		if err := argc(2, -1); err != nil {
 			return expr{}, err
@@ -494,7 +491,7 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		if !ok {
 			return expr{}, invalid(at, "every result of case is of one kind")
 		}
-		return expr{sql: b.String(), typ: typ}, nil
+		return wholeCents(expr{sql: b.String(), typ: typ}, results), nil
 	case "coalesce":
 		if err := argc(1, -1); err != nil {
 			return expr{}, err
@@ -510,7 +507,7 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		for i, a := range args {
 			parts[i] = a.sql
 		}
-		return expr{sql: "COALESCE(" + strings.Join(parts, ", ") + ")", typ: typ}, nil
+		return wholeCents(expr{sql: "COALESCE(" + strings.Join(parts, ", ") + ")", typ: typ}, args), nil
 	case "isEmpty":
 		if err := argc(1, 1); err != nil {
 			return expr{}, err
@@ -574,6 +571,22 @@ func sumType(args []expr) FieldType {
 		}
 	}
 	return typ
+}
+
+// wholeCents rounds an amount that mixes in a non-amount operand: such an
+// operand can carry a fraction of a cent. tc_round leaves an integer as it
+// is and keeps NULL, so amounts alone stay exact.
+func wholeCents(e expr, operands []expr) expr {
+	if e.typ != Money {
+		return e
+	}
+	for _, o := range operands {
+		if o.typ != Money && o.typ != "" {
+			e.sql = "tc_round(" + e.sql + ", 0)"
+			return e
+		}
+	}
+	return e
 }
 
 func comparable(a, b FieldType) bool {
