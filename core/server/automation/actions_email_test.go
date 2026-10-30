@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/mailer"
 )
 
@@ -21,7 +22,7 @@ func captureEmails(t *testing.T) *[]*mailer.Message {
 	t.Helper()
 	sent := &[]*mailer.Message{}
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, msg *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, msg *mailer.Message) error {
 		*sent = append(*sent, msg)
 		return nil
 	}
@@ -180,7 +181,7 @@ func TestReserveEmailSend(t *testing.T) {
 func TestReserveEmailSend_FailedSendsStillConsumeBudget(t *testing.T) {
 	app, rule := runsApp(t)
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, _ *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, _ *mailer.Message) error {
 		return fmt.Errorf("provider refused")
 	}
 	t.Cleanup(func() { sendEmailNow = original })
@@ -270,7 +271,7 @@ func TestActionSendEmail_NoRuleIsNotMetered(t *testing.T) {
 func TestActionSendEmail_SurfacesSendFailures(t *testing.T) {
 	app, rule := runsApp(t)
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, _ *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, _ *mailer.Message) error {
 		return fmt.Errorf("provider refused")
 	}
 	t.Cleanup(func() { sendEmailNow = original })

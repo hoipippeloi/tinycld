@@ -186,12 +186,12 @@ func TestFailedDerivationIsNotRetriedAtOnce(t *testing.T) {
 
 // The process-wide source answers ServerToken; the default knows nothing.
 func TestServerTokenSourceSeam(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	if _, err := ServerToken(context.Background()); !errors.Is(err, ErrNotConfigured) {
+	app := newApp(t)
+	if _, err := ServerToken(context.Background(), app); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("default source err = %v, want ErrNotConfigured", err)
 	}
-	SetServerTokenSource(func(context.Context) (string, error) { return "tok", nil })
-	got, err := ServerToken(context.Background())
+	SetServerTokenSource(app, func(context.Context) (string, error) { return "tok", nil })
+	got, err := ServerToken(context.Background(), app)
 	if err != nil || got != "tok" {
 		t.Fatalf("got %q, %v", got, err)
 	}

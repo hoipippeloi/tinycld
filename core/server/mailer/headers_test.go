@@ -30,9 +30,9 @@ func TestPostmarkSenderSend_WritesHeaders(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(postmark.EmailResponse{MessageID: "pm-1"})
 	}))
 	t.Cleanup(srv.Close)
-	withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL})
+	app := withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL})
 
-	err := NewPostmarkSender("tok", "", "noreply@widgets.test").Send(context.Background(), &Message{
+	err := NewPostmarkSender(app, "tok", "", "noreply@widgets.test").Send(context.Background(), &Message{
 		To: []Recipient{{Email: "a@widgets.test"}}, Subject: "hi", Text: "t", Headers: ruleHeaders,
 	})
 	if err != nil {
@@ -52,13 +52,13 @@ func TestPostmarkSenderSend_WritesHeaders(t *testing.T) {
 }
 
 func TestSMTPSenderSend_WritesHeaders(t *testing.T) {
-	withConfig(t, map[string]string{})
+	app := withConfig(t, map[string]string{})
 	receiver := newFakeSMTPReceiver(t, smtpReceiverConfig{})
 	defer receiver.close()
 	swapMXLookup(t, map[string][]*net.MX{"example.org": {{Host: "127.0.0.1", Pref: 10}}})
 	swapSMTPDial(t, receiver.dialOverride)
 
-	err := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"}).Send(context.Background(), &Message{
+	err := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"}).Send(context.Background(), &Message{
 		From: "alice@tinycld.test", To: []Recipient{{Email: "bob@example.org"}},
 		Subject: "Hello", Text: "hi", Headers: ruleHeaders,
 	})
@@ -104,11 +104,11 @@ func TestLogSenderSend_WritesHeaders(t *testing.T) {
 // A custom header must not replace a header the sender writes, or start a
 // new header line. Every sender refuses it before anything is sent.
 func TestSenders_RefuseUnsafeHeaders(t *testing.T) {
-	withConfig(t, map[string]string{keyPostmarkAPIURL: "http://127.0.0.1:1"})
+	app := withConfig(t, map[string]string{keyPostmarkAPIURL: "http://127.0.0.1:1"})
 	swapMXLookup(t, map[string][]*net.MX{})
 	senders := map[string]Sender{
-		"postmark": NewPostmarkSender("tok", "", "noreply@widgets.test"),
-		"smtp":     NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"}),
+		"postmark": NewPostmarkSender(app, "tok", "", "noreply@widgets.test"),
+		"smtp":     NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"}),
 		"log":      &LogSender{},
 		"noop":     &NoopSender{},
 	}

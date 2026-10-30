@@ -21,11 +21,10 @@ func (refusingRegistrar) GetDomain(context.Context, string, int64) (*DomainRecor
 // A refusal must survive wrapping and stay distinguishable from other
 // failures, since callers answer it with the registrar's own message.
 func TestRefusalIsMatchableThroughWrapping(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
-	SetResolver(refusingRegistrar{})
+	app := newApp(t)
+	SetResolver(app, refusingRegistrar{})
 
-	_, err := Current().AddDomain(context.Background(), "example.org")
+	_, err := Current(app).AddDomain(context.Background(), "example.org")
 	if !errors.Is(err, ErrDomainRefused) {
 		t.Fatalf("errors.Is(err, ErrDomainRefused) = false for %v", err)
 	}

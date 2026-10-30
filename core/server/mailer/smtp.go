@@ -16,6 +16,7 @@ import (
 	"time"
 
 	gomail "github.com/emersion/go-message/mail"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // SMTPConfig is the outbound configuration for the self-hosted SMTP sender —
@@ -46,13 +47,14 @@ func (c *SMTPConfig) applyDefaults() {
 // not used for outbound; per-recipient delivery either works or it doesn't.
 // It implements Sender and FullSender.
 type SMTPSender struct {
+	app core.App
 	cfg SMTPConfig
 }
 
-// NewSMTPSender builds an SMTPSender with defaults applied.
-func NewSMTPSender(cfg SMTPConfig) *SMTPSender {
+// NewSMTPSender builds an SMTPSender for app with defaults applied.
+func NewSMTPSender(app core.App, cfg SMTPConfig) *SMTPSender {
 	cfg.applyDefaults()
-	return &SMTPSender{cfg: cfg}
+	return &SMTPSender{app: app, cfg: cfg}
 }
 
 // smtpMXLookup is swappable for tests.
@@ -87,7 +89,7 @@ func (p *SMTPSender) SendFull(ctx context.Context, req *SendRequest) (*SendResul
 	if req == nil {
 		return nil, fmt.Errorf("nil send request")
 	}
-	if !deliveryEnabled() {
+	if !deliveryEnabled(p.app) {
 		return log.SendFull(ctx, req)
 	}
 

@@ -168,7 +168,7 @@ func TestCoreActionsHonourTheActionContext(t *testing.T) {
 		// return would read as ended afterwards whatever its parent was.
 		var endedAtSend bool
 		original := sendEmailNow
-		sendEmailNow = func(sendCtx context.Context, _ *mailer.Message) error {
+		sendEmailNow = func(sendCtx context.Context, _ core.App, _ *mailer.Message) error {
 			endedAtSend = sendCtx.Err() != nil
 			return sendCtx.Err()
 		}

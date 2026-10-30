@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mrz1836/postmark"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 // ErrAmbiguousServer means the account has several servers and none was
@@ -168,30 +169,26 @@ func firstToken(s postmark.Server) (string, error) {
 	return s.APITokens[0], nil
 }
 
-// The process-wide server-token source. Senders ask it for the Postmark
-// server token instead of reading the setting themselves, so a deployment
-// that stores only an account token still sends: the source derives the
-// server token from it. The default knows nothing and reports not configured.
-var (
-	tokenMu     sync.RWMutex
-	tokenSource = func(context.Context) (string, error) { return "", ErrNotConfigured }
-)
-
-// SetServerTokenSource installs the source that ServerToken consults.
-func SetServerTokenSource(f func(ctx context.Context) (string, error)) {
+// SetServerTokenSource installs the source app's senders ask for the Postmark
+// server token, so a deployment that stores only an account token still
+// sends: the source derives the server token from it. Until one is installed
+// the source knows nothing and reports not configured.
+func SetServerTokenSource(app core.App, f func(ctx context.Context) (string, error)) {
 	if f == nil {
 		return
 	}
-	tokenMu.Lock()
-	tokenSource = f
-	tokenMu.Unlock()
+	s := seamFor(app)
+	s.mu.Lock()
+	s.tokenSource = f
+	s.mu.Unlock()
 }
 
-// ServerToken returns the Postmark server token this deployment sends with:
-// the configured one, else one derived from the account token.
-func ServerToken(ctx context.Context) (string, error) {
-	tokenMu.RLock()
-	f := tokenSource
-	tokenMu.RUnlock()
+// ServerToken returns the Postmark server token app sends with: the
+// configured one, else one derived from the account token.
+func ServerToken(ctx context.Context, app core.App) (string, error) {
+	s := seamFor(app)
+	s.mu.RLock()
+	f := s.tokenSource
+	s.mu.RUnlock()
 	return f(ctx)
 }

@@ -11,7 +11,6 @@ import (
 
 	"tinycld.org/core/appstate"
 	"tinycld.org/core/maildomains"
-	"tinycld.org/core/mailer"
 	"tinycld.org/core/syscfg"
 )
 
@@ -156,12 +155,12 @@ func refuseManagedWrite(e *core.RecordEvent) error {
 func RegisterSystemConfig(app core.App) {
 	cfg := SystemSettings(app)
 
-	// Point the syscfg seam at this collection, and the mailer at the seam.
+	// Point app's syscfg seam at this collection; the mailer reads through it.
 	// The resolver reads lazily (per-send), so it's safe to set here before the
 	// OnServe load — Get returns "" until then, and sends only happen well
 	// after boot.
 	//
-	// SetResolver is inert once a supervising composition has claimed the seam,
+	// SetResolver is inert once a supervising composition has claimed app's seam,
 	// so this cannot hand administration back to a deployment whose operator
 	// owns these values. Called unconditionally because the claim, not the
 	// caller, is what decides.
@@ -172,10 +171,6 @@ func RegisterSystemConfig(app core.App) {
 	// collection — the precise fallback the supervisor exists to prevent.
 	syscfg.SetResolver(app, cfg.Get)
 	wireMailDomains(app)
-	// syscfg, not cfg.Get, is what keeps the mailer out of an import
-	// cycle with this package (mailer can't import coreserver).
-	mailer.ConfigResolver = func(key string) string { return syscfg.Get(app, key) }
-	mailer.ServerTokenResolver = maildomains.ServerToken
 
 	// Re-init Sentry whenever a sentry.* value changes. Registered before the
 	// initial load so no early change is missed. Sentry is the only stateful
@@ -254,17 +249,17 @@ func RegisterSystemConfig(app core.App) {
 // SetResolver enforces this itself; the early return is so we do not build a
 // client we will discard.
 func wireMailDomains(app core.App) {
-	// Installed whether or not the seam is claimed: every sender asks this
+	// Installed whether or not app's seam is claimed: every sender asks this
 	// source, and a supervising composition satisfies it by shipping the org
 	// a configured server token, which the source returns without deriving.
 	// Skipping it there would leave senders with no token at all.
-	maildomains.SetServerTokenSource(newServerTokenSource(app))
-	if maildomains.IsClaimed() {
+	maildomains.SetServerTokenSource(app, newServerTokenSource(app))
+	if maildomains.IsClaimed(app) {
 		return
 	}
 	client := postmark.NewClient(syscfg.Get(app, "mail.postmark_server_token"), syscfg.Get(app, "mail.postmark_account_token"))
 	accountToken := func() string { return syscfg.Get(app, "mail.postmark_account_token") }
-	maildomains.SetResolver(maildomains.NewPostmarkRegistrar(accountToken, client))
+	maildomains.SetResolver(app, maildomains.NewPostmarkRegistrar(accountToken, client))
 }
 
 // serverTokenInputs is everything the derived server token depends on. A

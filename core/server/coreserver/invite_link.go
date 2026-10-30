@@ -200,5 +200,5 @@ func sendInviteEmailTo(app core.App, toEmail string, user *core.Record, role, to
 		HTML:    htmlBody,
 		Text:    text,
 	}
-	return mailer.DefaultSender().Send(context.Background(), msg)
+	return mailer.DefaultSender(app).Send(context.Background(), msg)
 }

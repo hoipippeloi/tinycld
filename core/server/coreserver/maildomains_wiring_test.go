@@ -17,8 +17,6 @@ func TestMailDomainsWiredFromSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	maildomains.ResetForTesting()
-	t.Cleanup(maildomains.ResetForTesting)
 
 	syscfg.SetResolver(app, func(key string) string {
 		if key == "mail.postmark_account_token" {
@@ -28,8 +26,8 @@ func TestMailDomainsWiredFromSettings(t *testing.T) {
 	})
 	wireMailDomains(app)
 
-	if _, ok := maildomains.Current().(*maildomains.PostmarkRegistrar); !ok {
-		t.Fatalf("Current() = %T, want *maildomains.PostmarkRegistrar", maildomains.Current())
+	if _, ok := maildomains.Current(app).(*maildomains.PostmarkRegistrar); !ok {
+		t.Fatalf("Current() = %T, want *maildomains.PostmarkRegistrar", maildomains.Current(app))
 	}
 }
 
@@ -56,8 +54,6 @@ func TestMailDomainsResolveTokenAfterLateLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	maildomains.ResetForTesting()
-	t.Cleanup(maildomains.ResetForTesting)
 
 	token := ""
 	syscfg.SetResolver(app, func(key string) string {
@@ -70,9 +66,9 @@ func TestMailDomainsResolveTokenAfterLateLoad(t *testing.T) {
 	// Wire while the token does not exist yet — the real boot order.
 	wireMailDomains(app)
 
-	reg, ok := maildomains.Current().(*maildomains.PostmarkRegistrar)
+	reg, ok := maildomains.Current(app).(*maildomains.PostmarkRegistrar)
 	if !ok {
-		t.Fatalf("Current() = %T, want *maildomains.PostmarkRegistrar", maildomains.Current())
+		t.Fatalf("Current() = %T, want *maildomains.PostmarkRegistrar", maildomains.Current(app))
 	}
 
 	// AddDomain must fail before the settings row has loaded.
@@ -107,17 +103,15 @@ func TestMailDomainsWiringRespectsClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	maildomains.ResetForTesting()
-	t.Cleanup(maildomains.ResetForTesting)
 
 	claimed := stubClaimedRegistrar{}
-	maildomains.SetRegistrar(claimed)
+	maildomains.SetRegistrar(app, claimed)
 
 	syscfg.SetResolver(app, func(string) string { return "acct-token" })
 	wireMailDomains(app)
 
-	if _, ok := maildomains.Current().(stubClaimedRegistrar); !ok {
-		t.Fatalf("Current() = %T, want the supervisor's registrar to survive core wiring", maildomains.Current())
+	if _, ok := maildomains.Current(app).(stubClaimedRegistrar); !ok {
+		t.Fatalf("Current() = %T, want the supervisor's registrar to survive core wiring", maildomains.Current(app))
 	}
 }
 
@@ -139,18 +133,16 @@ func TestServerTokenSourceUsesConfiguredToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	maildomains.ResetForTesting()
-	t.Cleanup(maildomains.ResetForTesting)
 
 	values := map[string]string{}
 	syscfg.SetResolver(app, func(key string) string { return values[key] })
 	wireMailDomains(app)
 
-	if _, err := maildomains.ServerToken(context.Background()); !errors.Is(err, maildomains.ErrNotConfigured) {
+	if _, err := maildomains.ServerToken(context.Background(), app); !errors.Is(err, maildomains.ErrNotConfigured) {
 		t.Fatalf("err = %v, want ErrNotConfigured with no tokens", err)
 	}
 	values["mail.postmark_server_token"] = "srv-token"
-	got, err := maildomains.ServerToken(context.Background())
+	got, err := maildomains.ServerToken(context.Background(), app)
 	if err != nil || got != "srv-token" {
 		t.Fatalf("got %q, %v; want the configured server token", got, err)
 	}
@@ -164,10 +156,8 @@ func TestServerTokenSourceInstalledWhenClaimed(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(app.Cleanup)
-	maildomains.ResetForTesting()
-	t.Cleanup(maildomains.ResetForTesting)
 
-	maildomains.SetRegistrar(&maildomains.PostmarkRegistrar{})
+	maildomains.SetRegistrar(app, &maildomains.PostmarkRegistrar{})
 	syscfg.SetResolver(app, func(key string) string {
 		if key == "mail.postmark_server_token" {
 			return "shipped-token"
@@ -176,8 +166,38 @@ func TestServerTokenSourceInstalledWhenClaimed(t *testing.T) {
 	})
 	wireMailDomains(app)
 
-	got, err := maildomains.ServerToken(context.Background())
+	got, err := maildomains.ServerToken(context.Background(), app)
 	if err != nil || got != "shipped-token" {
 		t.Fatalf("got %q, %v; want the shipped server token", got, err)
+	}
+}
+
+// Core's wiring installs a token source per app: each app's senders get the
+// server token its own settings name.
+func TestMailWiringIsPerApp(t *testing.T) {
+	a, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Cleanup)
+	b, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(b.Cleanup)
+	syscfg.SetResolver(a, func(key string) string {
+		return map[string]string{"mail.postmark_server_token": "srv-a"}[key]
+	})
+	syscfg.SetResolver(b, func(key string) string {
+		return map[string]string{"mail.postmark_server_token": "srv-b"}[key]
+	})
+	wireMailDomains(a)
+	wireMailDomains(b)
+
+	if got, err := maildomains.ServerToken(context.Background(), a); err != nil || got != "srv-a" {
+		t.Fatalf("app A token = %q, %v; want srv-a", got, err)
+	}
+	if got, err := maildomains.ServerToken(context.Background(), b); err != nil || got != "srv-b" {
+		t.Fatalf("app B token = %q, %v; want srv-b", got, err)
 	}
 }

@@ -195,7 +195,7 @@ func MintOTP(app core.App, user *core.Record, email string) (*core.OTP, string, 
 // recipient is joining — a file, a board — and a code with no context in an
 // inbox reads like phishing. The code itself is escaped and formatted here so
 // every caller renders it the same way.
-func SendCode(ctx context.Context, subject, intro, toEmail, code string) error {
+func SendCode(ctx context.Context, app core.App, subject, intro, toEmail, code string) error {
 	html := fmt.Sprintf(`<div style="font-family: sans-serif; max-width: 480px;">
 <p>%s</p>
 <p style="font-size: 28px; font-weight: 700; letter-spacing: 4px;">%s</p>
@@ -203,7 +203,7 @@ func SendCode(ctx context.Context, subject, intro, toEmail, code string) error {
 </div>`, escapeHTML(intro), escapeHTML(code))
 	text := fmt.Sprintf("%s %s\n\nThe code expires in 15 minutes.\n", intro, code)
 
-	return mailer.DefaultSender().Send(ctx, &mailer.Message{
+	return mailer.DefaultSender(app).Send(ctx, &mailer.Message{
 		To:      []mailer.Recipient{{Email: toEmail}},
 		Subject: subject,
 		HTML:    html,
