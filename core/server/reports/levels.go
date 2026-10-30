@@ -25,13 +25,12 @@ type level struct {
 	tmCols   []string // g<L> values taken from d<L>
 	frame    *windowFrame
 	visiting map[string]bool
-	cellType map[string]FieldType
 }
 
 // level prepares level n: its keys, its parent partition, and the order of
 // its sibling rows, which running values read.
 func (c *compiler) level(r *rowsCTE, n int) (*level, error) {
-	lv := &level{c: c, r: r, n: n, aggNames: map[string]bool{}, visiting: map[string]bool{}, cellType: map[string]FieldType{}}
+	lv := &level{c: c, r: r, n: n, aggNames: map[string]bool{}, visiting: map[string]bool{}}
 	for i := range n {
 		lv.keys = append(lv.keys, fmt.Sprintf("k%d", i))
 	}
@@ -146,7 +145,7 @@ func (lv *level) sortValue(cp *colPlan, at string) (string, bool, error) {
 		return "", false, err
 	}
 	if e.win {
-		return "", false, invalid(at, "a running value or a percent is not a sort key")
+		return "", false, notASortKey(at)
 	}
 	return e.sql, true, nil
 }
@@ -274,8 +273,15 @@ func (lc *levelCtx) formulaGroupColumn(cp *colPlan, at string) (expr, error) {
 	return e, nil
 }
 
-func (lc *levelCtx) path(_ Path, at string) (expr, error) {
-	return expr{}, invalid(at, "a total row reads a path only inside an aggregate such as sum")
+// path is blank on a group, subtotal or total row, as a path column with no
+// aggregate is: the rows of a group have no single value. The path is still
+// bound, so an unknown field or link is an error.
+func (lc *levelCtx) path(p Path, at string) (expr, error) {
+	bound, err := bindValuePath(lc.lv.c.p.base, p, at, pathValue)
+	if err != nil {
+		return expr{}, err
+	}
+	return expr{sql: "NULL", typ: bound.field.Type}, nil
 }
 
 func (lc *levelCtx) param(id, at string) (expr, error) {

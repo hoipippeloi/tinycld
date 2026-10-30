@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -319,7 +320,67 @@ func TestValidateCompilesTheSpec(t *testing.T) {
 	// A formula that cannot compile fails here, not at a run.
 	err = validate(`{"version":1,"source":"zoo.feedings","columns":[` + col + `,
 		{"id":"f","formula":{"op":"runningSum","args":[{"col":"f"}]}}]}`)
-	if err == nil {
-		t.Fatal("a formula reading itself validated")
+	if err == nil || !strings.Contains(err.Error(), "reads itself") {
+		t.Fatalf("a formula reading itself: %v", err)
+	}
+	// A path in a formula with no aggregate is blank on total rows, not an
+	// error.
+	err = validate(`{"version":1,"source":"zoo.feedings","columns":[` + col + `,
+		{"id":"f","formula":{"op":"mul","args":[{"path":[{"field":"cost"}]},{"value":2}]}}]}`)
+	if err != nil {
+		t.Fatalf("a path in a formula: %v", err)
+	}
+}
+
+func TestAFormulaPathIsBlankOnGroupAndTotalRows(t *testing.T) {
+	z := newZoo(t)
+	const columns = `"columns":[
+		{"id":"species","path":[{"link":"animal"},{"field":"species"}]},
+		{"id":"note","path":[{"field":"note"}]},
+		{"id":"double","formula":{"op":"mul","args":[{"path":[{"field":"cost"}]},{"value":2}]}},
+		{"id":"same","formula":{"path":[{"field":"cost"}]}}]`
+	grouped := z.run(t, "ann", `{"version":1,"source":"zoo.feedings",`+columns+`,
+		"groups":[{"id":"g","col":"species"}],"sort":[{"col":"note"}]}`, Options{ExpandAll: true}, nil)
+	requireRows(t, grouped, "kind", "group", "detail", "detail", "group", "detail", "detail", "total")
+	// The path itself is blank there; arithmetic counts a blank as zero.
+	requireRows(t, grouped, "same", nil, int64(1000), int64(2500), nil, int64(700), int64(300), nil)
+	requireRows(t, grouped, "double", int64(0), int64(2000), int64(5000), int64(0), int64(1400), int64(600), int64(0))
+	flat := z.run(t, "ann", `{"version":1,"source":"zoo.feedings",`+columns+`,"sort":[{"col":"note"}]}`, Options{}, nil)
+	requireRows(t, flat, "same", int64(1000), int64(2500), int64(700), int64(300), nil)
+
+	_, err := z.try(t, "ann", `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"bad","formula":{"op":"mul","args":[{"path":[{"field":"nope"}]},{"value":2}]}}]}`, Options{}, nil)
+	requireSpecError(t, err, 422, "columns.0.formula.args.0.path.0.field", "nope")
+}
+
+func TestTheRowCapNoticeIsGivenOnce(t *testing.T) {
+	z := newZoo(t)
+	withLimits(t, func(l *limits) { l.rowCap = 1 })
+	// Both the group statement (3 rows) and the detail statement (4) pass the cap.
+	res := z.run(t, "ann", feedingsBySpecies, Options{ExpandAll: true}, nil)
+	n := 0
+	for _, notice := range res.Notices {
+		if notice.Code == "rowCap" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("notices = %+v", res.Notices)
+	}
+}
+
+func TestGroupKeysCompareByType(t *testing.T) {
+	z := newZoo(t)
+	if _, err := z.app.DB().NewQuery("UPDATE zoo_animals SET species = '1' WHERE name = 'Zed'").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	spec := `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"species","path":[{"link":"animal"},{"field":"species"}]},
+		{"id":"note","path":[{"field":"note"}]}],
+		"groups":[{"id":"g","col":"species"}],"sort":[{"col":"note"}]}`
+	res := z.run(t, "ann", spec, Options{Expand: [][]any{{"1"}}}, nil)
+	requireRows(t, res, "kind", "group", "detail", "detail", "group", "total")
+	if !(&expansion{keys: [][]any{{"1"}}}).has([]any{"1"}) || (&expansion{keys: [][]any{{"1"}}}).has([]any{int64(1)}) {
+		t.Fatal("the text \"1\" and the number 1 are different group keys")
 	}
 }

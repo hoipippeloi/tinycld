@@ -313,9 +313,22 @@ func (rn *runner) groupPass() ([]map[string]any, error) {
 	}
 	if len(rows) > runLimits.rowCap {
 		rows = rows[:runLimits.rowCap]
-		rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
+		rn.capNotice()
 	}
 	return rows, nil
+}
+
+// capNotice says the row cap applied, once per run however many passes
+// reached it.
+func (rn *runner) capNotice() {
+	if slices.ContainsFunc(rn.res.Notices, func(n Notice) bool { return n.Code == "rowCap" }) {
+		return
+	}
+	rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
+}
+
+func notASortKey(at string) error {
+	return invalid(at, "a running value or a percent is not a sort key")
 }
 
 // groupStatement is the UNION ALL of every level's rows (the children of
@@ -373,7 +386,7 @@ func (rn *runner) detailPass() ([]map[string]any, error) {
 	}
 	if len(rows) > limit {
 		rows = rows[:limit]
-		rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
+		rn.capNotice()
 	}
 	return rows, nil
 }
@@ -401,7 +414,7 @@ func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
 			return "", nil, err
 		}
 		if e.win {
-			return "", nil, invalid(fmt.Sprintf("sort.%d.col", i), "a running value or a percent is not a sort key")
+			return "", nil, notASortKey(fmt.Sprintf("sort.%d.col", i))
 		}
 		name := fmt.Sprintf("s%d", i)
 		sel = append(sel, e.sql+" AS "+name)
@@ -522,17 +535,9 @@ func (e *expansion) has(key []any) bool {
 	return slices.ContainsFunc(e.keys, func(k []any) bool { return sameKey(k, key) })
 }
 
-func sameKey(a, b []any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if fmt.Sprint(a[i]) != fmt.Sprint(b[i]) {
-			return false
-		}
-	}
-	return true
-}
+// sameKey compares by JSON, which keeps the type: the text "1" is not the
+// number 1.
+func sameKey(a, b []any) bool { return keyString(a) == keyString(b) }
 
 // compileDry compiles every statement of a plan without a database, so a
 // formula, a filter or a layout that cannot compile fails Validate, not a

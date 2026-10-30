@@ -70,7 +70,7 @@
             "values": { "a": 5, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
-            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
+            "formsNote": "round(…, 0) stands for a computed field's default decimals: 0",
             "expect": 3
         },
         {
@@ -79,7 +79,7 @@
             "values": { "a": -5, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
-            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
+            "formsNote": "round(…, 0) stands for a computed field's default decimals: 0",
             "expect": -3
         },
         {
@@ -191,7 +191,7 @@
                     0
                 ]
             },
-            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
+            "formsNote": "round(…, 0) stands for a computed field's default decimals: 0",
             "expect": 21
         },
         {
@@ -200,7 +200,7 @@
             "values": { "a": 9007199254740991, "b": 2 },
             "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
             "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
-            "formsNote": "forms has no money type; round(…, 0) stands for a computed field's default decimals: 0 rounding",
+            "formsNote": "round(…, 0) stands for a computed field's default decimals: 0",
             "expect": 4503599627370496
         },
         {
