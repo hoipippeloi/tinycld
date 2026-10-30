@@ -1,0 +1,538 @@
+{
+    "cases": [
+        {
+            "name": "add two numbers",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 2, "b": 3 },
+            "formula": { "op": "add", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "add": [{ "var": "a" }, { "var": "b" }] },
+            "expect": 5
+        },
+        {
+            "name": "add three numbers",
+            "types": { "a": "number", "b": "number", "c": "number" },
+            "values": { "a": 1, "b": 2, "c": 3.5 },
+            "formula": { "op": "add", "args": [{ "col": "a" }, { "col": "b" }, { "col": "c" }] },
+            "forms": { "add": [{ "var": "a" }, { "var": "b" }, { "var": "c" }] },
+            "expect": 6.5
+        },
+        {
+            "name": "add counts a blank as zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 2, "b": null },
+            "formula": { "op": "add", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "add": [{ "var": "a" }, { "var": "b" }] },
+            "expect": 2
+        },
+        {
+            "name": "sub",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 10, "b": 4 },
+            "formula": { "op": "sub", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "sub": [{ "var": "a" }, { "var": "b" }] },
+            "expect": 6
+        },
+        {
+            "name": "sub below zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 4, "b": 10 },
+            "formula": { "op": "sub", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "sub": [{ "var": "a" }, { "var": "b" }] },
+            "expect": -6
+        },
+        {
+            "name": "mul",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 3, "b": 4.5 },
+            "formula": { "op": "mul", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "mul": [{ "var": "a" }, { "var": "b" }] },
+            "expect": 13.5
+        },
+        {
+            "name": "mul counts a blank as zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 3, "b": null },
+            "formula": { "op": "mul", "args": [{ "col": "a" }, { "col": "b" }] },
+            "forms": { "mul": [{ "var": "a" }, { "var": "b" }] },
+            "expect": 0
+        },
+        {
+            "name": "div rounds at scale 2",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 1, "b": 3 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 2 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 2] },
+            "expect": 0.33
+        },
+        {
+            "name": "div rounds half away from zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 5, "b": 2 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "expect": 3
+        },
+        {
+            "name": "div rounds a negative half away from zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": -5, "b": 2 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 0] },
+            "expect": -3
+        },
+        {
+            "name": "div by zero is zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 7, "b": 0 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 2 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 2] },
+            "expect": 0
+        },
+        {
+            "name": "div by a blank is zero",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 7, "b": null },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 2 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 2] },
+            "expect": 0
+        },
+        {
+            "name": "div of a fraction",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 7.5, "b": 2 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 1 },
+            "forms": { "round": [{ "div": [{ "var": "a" }, { "var": "b" }] }, 1] },
+            "expect": 3.8
+        },
+        {
+            "name": "round",
+            "types": { "a": "number" },
+            "values": { "a": 2.345 },
+            "formula": { "op": "round", "args": [{ "col": "a" }], "scale": 2 },
+            "forms": { "round": [{ "var": "a" }, 2] },
+            "expect": 2.35
+        },
+        {
+            "name": "round a negative half away from zero",
+            "types": { "a": "number" },
+            "values": { "a": -2.5 },
+            "formula": { "op": "round", "args": [{ "col": "a" }], "scale": 0 },
+            "forms": { "round": [{ "var": "a" }, 0] },
+            "expect": -3
+        },
+        {
+            "name": "min of values",
+            "types": { "a": "number", "b": "number", "c": "number" },
+            "values": { "a": 3, "b": 1.5, "c": 2 },
+            "formula": { "op": "min", "args": [{ "col": "a" }, { "col": "b" }, { "col": "c" }] },
+            "forms": { "min": [{ "var": "a" }, { "var": "b" }, { "var": "c" }] },
+            "expect": 1.5
+        },
+        {
+            "name": "max of values",
+            "types": { "a": "number", "b": "number", "c": "number" },
+            "values": { "a": 3, "b": 1.5, "c": 2 },
+            "formula": { "op": "max", "args": [{ "col": "a" }, { "col": "b" }, { "col": "c" }] },
+            "forms": { "max": [{ "var": "a" }, { "var": "b" }, { "var": "c" }] },
+            "expect": 3
+        },
+        {
+            "name": "max with a literal",
+            "types": { "a": "number" },
+            "values": { "a": -4 },
+            "formula": { "op": "max", "args": [{ "col": "a" }, { "value": 0 }] },
+            "forms": { "max": [{ "var": "a" }, 0] },
+            "expect": 0
+        },
+        {
+            "name": "sum of rows",
+            "types": { "amount": "number" },
+            "rows": [{ "amount": 2 }, { "amount": 3 }, { "amount": 4.5 }],
+            "formula": { "op": "sum", "args": [{ "col": "amount" }] },
+            "forms": { "sumOf": [{ "var": "rows" }, "amount"] },
+            "expect": 9.5
+        },
+        {
+            "name": "sum of no rows is zero",
+            "types": { "amount": "number" },
+            "rows": [],
+            "formula": { "op": "sum", "args": [{ "col": "amount" }] },
+            "forms": { "sumOf": [{ "var": "rows" }, "amount"] },
+            "expect": 0
+        },
+        {
+            "name": "count of rows",
+            "types": { "amount": "number" },
+            "rows": [{ "amount": 2 }, { "amount": 3 }, { "amount": 0 }],
+            "formula": { "op": "count", "args": [{ "col": "amount" }] },
+            "forms": { "count": [{ "var": "rows" }] },
+            "expect": 3
+        },
+        {
+            "name": "arithmetic over a sum",
+            "types": { "amount": "number" },
+            "rows": [{ "amount": 100 }, { "amount": 200 }],
+            "formula": {
+                "op": "div",
+                "args": [
+                    {
+                        "op": "mul",
+                        "args": [{ "op": "sum", "args": [{ "col": "amount" }] }, { "value": 7 }]
+                    },
+                    { "value": 100 }
+                ],
+                "scale": 0
+            },
+            "forms": {
+                "round": [
+                    { "div": [{ "mul": [{ "sumOf": [{ "var": "rows" }, "amount"] }, 7] }, 100] },
+                    0
+                ]
+            },
+            "expect": 21
+        },
+        {
+            "name": "div of integers stays exact near 2^53",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 9007199254740991, "b": 2 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "expect": 4503599627370496
+        },
+        {
+            "name": "an amount times a number rounds to whole cents",
+            "types": { "a": "money", "b": "number" },
+            "values": { "a": 1000, "b": 0.075 },
+            "formula": { "op": "mul", "args": [{ "col": "a" }, { "col": "b" }] },
+            "expect": 75
+        },
+        {
+            "name": "an amount divided by a number keeps whole cents",
+            "types": { "a": "money", "b": "number" },
+            "values": { "a": 1000, "b": 3 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "b" }], "scale": 0 },
+            "expect": 333
+        },
+        {
+            "name": "a ratio of amounts",
+            "types": { "a": "money", "c": "money" },
+            "values": { "a": 1234, "c": 5000 },
+            "formula": { "op": "div", "args": [{ "col": "a" }, { "col": "c" }], "scale": 4 },
+            "expect": 0.2468
+        },
+        {
+            "name": "eq of two blanks is true",
+            "types": { "a": "text" },
+            "values": { "a": null },
+            "formula": { "op": "eq", "args": [{ "col": "a" }, { "value": null }] },
+            "expect": true
+        },
+        {
+            "name": "eq of text",
+            "types": { "a": "text" },
+            "values": { "a": "hay" },
+            "formula": { "op": "eq", "args": [{ "col": "a" }, { "value": "hay" }] },
+            "expect": true
+        },
+        {
+            "name": "ne of a value and a blank is true",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 1, "b": null },
+            "formula": { "op": "ne", "args": [{ "col": "a" }, { "col": "b" }] },
+            "expect": true
+        },
+        {
+            "name": "lt",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 1, "b": 2 },
+            "formula": { "op": "lt", "args": [{ "col": "a" }, { "col": "b" }] },
+            "expect": true
+        },
+        {
+            "name": "gte of dates",
+            "types": { "a": "date" },
+            "values": { "a": "2026-01-01" },
+            "formula": { "op": "gte", "args": [{ "col": "a" }, { "value": "2026-01-01" }] },
+            "expect": true
+        },
+        {
+            "name": "between three values",
+            "types": { "a": "number" },
+            "values": { "a": 4 },
+            "formula": {
+                "op": "between",
+                "args": [{ "col": "a" }, { "value": 1 }, { "value": 3 }]
+            },
+            "expect": false
+        },
+        {
+            "name": "in a list",
+            "types": { "a": "text" },
+            "values": { "a": "fish" },
+            "formula": { "op": "in", "args": [{ "col": "a" }, { "value": ["hay", "fish"] }] },
+            "expect": true
+        },
+        {
+            "name": "in an empty list",
+            "types": { "a": "text" },
+            "values": { "a": "fish" },
+            "formula": { "op": "in", "args": [{ "col": "a" }, { "value": [] }] },
+            "expect": false
+        },
+        {
+            "name": "and",
+            "types": { "a": "number" },
+            "values": { "a": 3 },
+            "formula": {
+                "op": "and",
+                "args": [
+                    { "op": "gt", "args": [{ "col": "a" }, { "value": 1 }] },
+                    { "op": "lt", "args": [{ "col": "a" }, { "value": 5 }] }
+                ]
+            },
+            "expect": true
+        },
+        {
+            "name": "or",
+            "types": { "a": "number" },
+            "values": { "a": 3 },
+            "formula": {
+                "op": "or",
+                "args": [
+                    { "op": "gt", "args": [{ "col": "a" }, { "value": 5 }] },
+                    { "op": "lt", "args": [{ "col": "a" }, { "value": 2 }] }
+                ]
+            },
+            "expect": false
+        },
+        {
+            "name": "not of a condition on a blank is true",
+            "types": { "a": "number" },
+            "values": { "a": null },
+            "formula": {
+                "op": "not",
+                "args": [{ "op": "gt", "args": [{ "col": "a" }, { "value": 1 }] }]
+            },
+            "expect": true
+        },
+        {
+            "name": "concat skips blanks",
+            "types": { "a": "text", "b": "text" },
+            "values": { "a": "hay", "b": null },
+            "formula": {
+                "op": "concat",
+                "args": [{ "col": "a" }, { "value": "-" }, { "col": "b" }]
+            },
+            "expect": "hay-"
+        },
+        {
+            "name": "upper",
+            "types": { "a": "text" },
+            "values": { "a": "hay" },
+            "formula": { "op": "upper", "args": [{ "col": "a" }] },
+            "expect": "HAY"
+        },
+        {
+            "name": "lower",
+            "types": { "a": "text" },
+            "values": { "a": "HaY" },
+            "formula": { "op": "lower", "args": [{ "col": "a" }] },
+            "expect": "hay"
+        },
+        {
+            "name": "contains ignores case",
+            "types": { "a": "text" },
+            "values": { "a": "fresh grass" },
+            "formula": { "op": "contains", "args": [{ "col": "a" }, { "value": "RAS" }] },
+            "expect": true
+        },
+        {
+            "name": "startsWith ignores case",
+            "types": { "a": "text" },
+            "values": { "a": "fresh grass" },
+            "formula": { "op": "startsWith", "args": [{ "col": "a" }, { "value": "FRE" }] },
+            "expect": true
+        },
+        {
+            "name": "startsWith of a longer prefix",
+            "types": { "a": "text" },
+            "values": { "a": "fresh grass" },
+            "formula": {
+                "op": "startsWith",
+                "args": [{ "col": "a" }, { "value": "fresh grass!" }]
+            },
+            "expect": false
+        },
+        {
+            "name": "year",
+            "types": { "a": "datetime" },
+            "values": { "a": "2026-08-15 10:00:00.000Z" },
+            "formula": { "op": "year", "args": [{ "col": "a" }] },
+            "expect": 2026
+        },
+        {
+            "name": "quarter",
+            "types": { "a": "date" },
+            "values": { "a": "2026-08-15" },
+            "formula": { "op": "quarter", "args": [{ "col": "a" }] },
+            "expect": 3
+        },
+        {
+            "name": "month",
+            "types": { "a": "date" },
+            "values": { "a": "2026-08-15" },
+            "formula": { "op": "month", "args": [{ "col": "a" }] },
+            "expect": 8
+        },
+        {
+            "name": "fiscal year with a July start",
+            "types": { "a": "date" },
+            "values": { "a": "2026-08-15" },
+            "fiscalStart": 7,
+            "formula": { "op": "fiscalYear", "args": [{ "col": "a" }] },
+            "expect": 2027
+        },
+        {
+            "name": "fiscal period with a July start",
+            "types": { "a": "date" },
+            "values": { "a": "2026-08-15" },
+            "fiscalStart": 7,
+            "formula": { "op": "fiscalPeriod", "args": [{ "col": "a" }] },
+            "expect": 2
+        },
+        {
+            "name": "addDays crosses a month",
+            "types": { "a": "date" },
+            "values": { "a": "2026-02-27" },
+            "formula": { "op": "addDays", "args": [{ "col": "a" }, { "value": 2 }] },
+            "expect": "2026-03-01"
+        },
+        {
+            "name": "addMonths holds the month end",
+            "types": { "a": "date" },
+            "values": { "a": "2026-01-31" },
+            "formula": { "op": "addMonths", "args": [{ "col": "a" }, { "value": 1 }] },
+            "expect": "2026-02-28"
+        },
+        {
+            "name": "diffDays",
+            "types": { "a": "date", "b": "date" },
+            "values": { "a": "2026-01-01", "b": "2026-03-01" },
+            "formula": { "op": "diffDays", "args": [{ "col": "a" }, { "col": "b" }] },
+            "expect": 59
+        },
+        {
+            "name": "if",
+            "types": { "a": "number", "b": "number" },
+            "values": { "a": 1, "b": 2 },
+            "formula": {
+                "op": "if",
+                "args": [
+                    { "op": "gt", "args": [{ "col": "a" }, { "col": "b" }] },
+                    { "value": "more" },
+                    { "value": "less" }
+                ]
+            },
+            "expect": "less"
+        },
+        {
+            "name": "case falls through to else",
+            "types": { "a": "number" },
+            "values": { "a": 3 },
+            "formula": {
+                "op": "case",
+                "args": [
+                    { "op": "gt", "args": [{ "col": "a" }, { "value": 10 }] },
+                    { "value": "big" },
+                    { "op": "gt", "args": [{ "col": "a" }, { "value": 5 }] },
+                    { "value": "mid" },
+                    { "value": "small" }
+                ]
+            },
+            "expect": "small"
+        },
+        {
+            "name": "coalesce",
+            "types": { "a": "number" },
+            "values": { "a": null },
+            "formula": { "op": "coalesce", "args": [{ "col": "a" }, { "value": 5 }] },
+            "expect": 5
+        },
+        {
+            "name": "isEmpty of empty text",
+            "types": { "a": "text" },
+            "values": { "a": "" },
+            "formula": { "op": "isEmpty", "args": [{ "col": "a" }] },
+            "expect": true
+        },
+        {
+            "name": "isEmpty of a blank",
+            "types": { "a": "text" },
+            "values": { "a": null },
+            "formula": { "op": "isEmpty", "args": [{ "col": "a" }] },
+            "expect": true
+        },
+        {
+            "name": "isEmpty of text",
+            "types": { "a": "text" },
+            "values": { "a": "x" },
+            "formula": { "op": "isEmpty", "args": [{ "col": "a" }] },
+            "expect": false
+        },
+        {
+            "name": "countDistinct",
+            "types": { "a": "text" },
+            "rows": [{ "a": "x" }, { "a": "x" }, { "a": "y" }],
+            "formula": { "op": "countDistinct", "args": [{ "col": "a" }] },
+            "expect": 2
+        },
+        {
+            "name": "count skips blanks",
+            "types": { "a": "text" },
+            "rows": [{ "a": "x" }, { "a": null }],
+            "formula": { "op": "count", "args": [{ "col": "a" }] },
+            "expect": 1
+        },
+        {
+            "name": "min of text",
+            "types": { "a": "text" },
+            "rows": [{ "a": "cat" }, { "a": "ape" }],
+            "formula": { "op": "min", "args": [{ "col": "a" }] },
+            "expect": "ape"
+        },
+        {
+            "name": "max of dates",
+            "types": { "a": "date" },
+            "rows": [{ "a": "2026-03-01" }, { "a": "2026-01-01" }],
+            "formula": { "op": "max", "args": [{ "col": "a" }] },
+            "expect": "2026-03-01"
+        },
+        {
+            "name": "avg of amounts rounds to whole cents",
+            "types": { "a": "money" },
+            "rows": [{ "a": 100 }, { "a": 101 }],
+            "formula": { "op": "avg", "args": [{ "col": "a" }], "scale": 0 },
+            "expect": 101
+        },
+        {
+            "name": "avg of numbers",
+            "types": { "a": "number" },
+            "rows": [{ "a": 1 }, { "a": 2 }, { "a": 2 }],
+            "formula": { "op": "avg", "args": [{ "col": "a" }], "scale": 2 },
+            "expect": 1.67
+        },
+        {
+            "name": "avg of no rows is blank",
+            "types": { "a": "number" },
+            "rows": [],
+            "formula": { "op": "avg", "args": [{ "col": "a" }], "scale": 2 },
+            "expect": null
+        },
+        {
+            "name": "sum of amounts too large",
+            "types": { "a": "money" },
+            "rows": [{ "a": 9223372036854775807 }, { "a": 1 }],
+            "formula": { "op": "sum", "args": [{ "col": "a" }] },
+            "error": "integer overflow"
+        }
+    ]
+}
