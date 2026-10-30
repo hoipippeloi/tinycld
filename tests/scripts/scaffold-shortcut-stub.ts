@@ -37,6 +37,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { patchTsconfig, patchVitestConfig } from './stub-template-patches'
 
 // Slug, nav shortcut, and screen path are stable identifiers the
 // keyboard-shortcuts spec asserts on. Changing any of these requires
@@ -171,40 +172,6 @@ function patchPackageJson(stubDir: string): void {
         './notify-events': `./tinycld/${STUB_SLUG}/notify-events.ts`,
     }
     writeFileSync(path, `${JSON.stringify(pkg, null, 4)}\n`)
-}
-
-/**
- * Repoint the template's vitest config at the app shell's real location.
- *
- * The pinned bootstrap still emits `import appConfig from '../app/vitest.config'`
- * from when the shell lived in app/; it is now tinycld/. Left alone, the stub
- * cannot resolve its config and `tinycld-pkg check --all` fails on it — on a
- * stale template, with nothing to do with whatever is being tested. Drop this
- * once BOOTSTRAP_VERSION moves past the rename.
- */
-function patchVitestConfig(stubDir: string): void {
-    const path = join(stubDir, 'vitest.config.ts')
-    if (!existsSync(path)) return
-    const contents = readFileSync(path, 'utf8')
-    const patched = contents.replace("'../app/vitest.config'", "'../tinycld/vitest.config'")
-    if (patched !== contents) writeFileSync(path, patched)
-}
-
-/**
- * Drop the template's `compilerOptions.baseUrl`.
- *
- * The pinned bootstrap emits it, and TypeScript 6 rejects it (TS5101), so the
- * stub's own typecheck fails before it reads a source file. `paths` resolves
- * against the tsconfig's directory without it, as in every real package. Drop
- * this once BOOTSTRAP_VERSION stops emitting it.
- */
-function patchTsconfig(stubDir: string): void {
-    const path = join(stubDir, 'tsconfig.json')
-    const contents = readFileSync(path, 'utf8')
-    // A line edit, not a JSON round-trip: re-serialising would undo the
-    // template's formatting and fail biome on the stub.
-    const patched = contents.replace(/^[ \t]*"baseUrl":\s*"[^"]*",?\n/m, '')
-    if (patched !== contents) writeFileSync(path, patched)
 }
 
 // The three panels the manifest declares under one shared slug. Each renders a

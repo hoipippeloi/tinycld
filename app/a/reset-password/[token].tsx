@@ -67,19 +67,20 @@ function ResetForm({ token }: { token: string }) {
         mode: 'onChange',
     })
 
-    const onSubmit = handleSubmit(async data => {
-        try {
-            await confirmPasswordReset(token, data.password, data.confirmPassword)
-            router.replace('/')
-        } catch (err) {
-            captureException('account.confirmPasswordReset', err)
-            setError('root', {
-                type: 'server',
-                message:
-                    'This reset link is invalid or has expired. Request a new one from the sign-in screen.',
-            })
-        }
-    })
+    const onSubmit = () =>
+        void handleSubmit(async data => {
+            try {
+                await confirmPasswordReset(token, data.password, data.confirmPassword)
+                router.replace('/')
+            } catch (err) {
+                captureException('account.confirmPasswordReset', err)
+                setError('root', {
+                    type: 'server',
+                    message:
+                        'This reset link is invalid or has expired. Request a new one from the sign-in screen.',
+                })
+            }
+        })()
 
     // A successful reset stays busy until the route change unmounts the form.
     const isSuccess = isSubmitSuccessful

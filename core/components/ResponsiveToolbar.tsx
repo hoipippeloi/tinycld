@@ -4,7 +4,7 @@ import type { Placement } from '@tinycld/core/ui/popover'
 import { EllipsisVertical } from 'lucide-react-native'
 import type { ReactElement, ReactNode } from 'react'
 import { forwardRef, useState } from 'react'
-import type { LayoutChangeEvent } from 'react-native'
+import type { LayoutChangeEvent, PressableInstance } from 'react-native'
 import { Platform, Pressable, View } from 'react-native'
 import { ToolbarIconButton } from './ToolbarIconButton'
 import { ToolbarSeparator } from './ToolbarSeparator'
@@ -303,33 +303,32 @@ function MoreSlot({
     )
 }
 
-const MoreButton = forwardRef<View, { label: string; onPress?: () => void }>(function MoreButton(
-    { label, onPress },
-    ref
-) {
-    const mutedColor = useThemeColor('muted-foreground')
-    return (
-        <Pressable
-            ref={ref}
-            onPress={onPress}
-            className="p-2 rounded-full"
-            accessibilityRole="button"
-            accessibilityLabel={label}
-            testID="toolbar-more-button"
-            // The same guard every toolbar button carries, and for
-            // the same reason: on web a press moves DOM focus off
-            // whatever held it, and when that is a rich-text editor
-            // the browser collapses its selection first. It matters
-            // MORE here than on the buttons it replaces: at narrow
-            // widths every format button folds into this menu, so
-            // without it the whole toolbar stops working exactly
-            // where there is least room to notice.
-            {...FOCUS_GUARD}
-        >
-            <EllipsisVertical size={18} color={mutedColor} />
-        </Pressable>
-    )
-})
+const MoreButton = forwardRef<PressableInstance, { label: string; onPress?: () => void }>(
+    function MoreButton({ label, onPress }, ref) {
+        const mutedColor = useThemeColor('muted-foreground')
+        return (
+            <Pressable
+                ref={ref}
+                onPress={onPress}
+                className="p-2 rounded-full"
+                accessibilityRole="button"
+                accessibilityLabel={label}
+                testID="toolbar-more-button"
+                // The same guard every toolbar button carries, and for
+                // the same reason: on web a press moves DOM focus off
+                // whatever held it, and when that is a rich-text editor
+                // the browser collapses its selection first. It matters
+                // MORE here than on the buttons it replaces: at narrow
+                // widths every format button folds into this menu, so
+                // without it the whole toolbar stops working exactly
+                // where there is least room to notice.
+                {...FOCUS_GUARD}
+            >
+                <EllipsisVertical size={18} color={mutedColor} />
+            </Pressable>
+        )
+    }
+)
 
 function OverflowItem({ item }: { item: ToolbarItem }) {
     switch (item.type) {

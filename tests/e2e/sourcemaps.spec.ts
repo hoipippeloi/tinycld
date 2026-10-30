@@ -1,4 +1,4 @@
-import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping'
+import { FlattenMap, originalPositionFor } from '@jridgewell/trace-mapping'
 import { expect, test } from '@playwright/test'
 
 // Proves the web build ships working sourcemaps end-to-end:
@@ -69,7 +69,8 @@ test('web build serves sourcemaps that resolve a crash back to its source', asyn
         const res = await page.request.get(mapUrl)
         expect(res.ok(), `sourcemap not served at ${mapUrl} (status ${res.status()})`).toBe(true)
 
-        const map = new TraceMap(await res.json())
+        // The served map is an indexed (sectioned) map since Metro 0.87.
+        const map = new FlattenMap(await res.json())
         const pos = originalPositionFor(map, {
             line: Number(lineStr),
             // stack columns are 1-based; trace-mapping is 0-based.

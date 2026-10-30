@@ -110,20 +110,27 @@ class FileHandle {
     get size(): number | null {
         return disk.get(this.uri)?.byteLength ?? 0
     }
-    readBytes(length: number): Uint8Array<ArrayBuffer> {
+    // SDK 58: readBytes/writeBytes return promises; the *Sync variants block.
+    readBytesSync(length: number): Uint8Array<ArrayBuffer> {
         const bytes = disk.get(this.uri) ?? new Uint8Array(0)
         const start = this.offset ?? 0
         const chunk = bytes.slice(start, start + length)
         this.offset = start + chunk.byteLength
         return chunk
     }
-    writeBytes(bytes: Uint8Array) {
+    async readBytes(length: number): Promise<Uint8Array<ArrayBuffer>> {
+        return this.readBytesSync(length)
+    }
+    writeBytesSync(bytes: Uint8Array) {
         const existing = disk.get(this.uri) ?? new Uint8Array(0)
         const next = new Uint8Array(existing.byteLength + bytes.byteLength)
         next.set(existing)
         next.set(bytes, existing.byteLength)
         disk.set(this.uri, next)
         this.offset = next.byteLength
+    }
+    async writeBytes(bytes: Uint8Array): Promise<void> {
+        this.writeBytesSync(bytes)
     }
     close() {
         this.offset = null

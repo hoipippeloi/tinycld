@@ -3,7 +3,7 @@ import { Dialog } from '@tinycld/core/ui/dialog'
 import { Controller, useForm, z, zodResolver } from '@tinycld/core/ui/form'
 import { PlainInput } from '@tinycld/core/ui/PlainInput'
 import { useEffect, useRef } from 'react'
-import { Text, type TextInput, View } from 'react-native'
+import { Text, type TextInputInstance, View } from 'react-native'
 
 export type PromptDialogProps = {
     isOpen: boolean
@@ -72,7 +72,7 @@ function PromptFormFields({
     errorMessage,
     requiresServer = true,
 }: Omit<PromptFormProps, 'isVisible'>) {
-    const inputRef = useRef<TextInput>(null)
+    const inputRef = useRef<TextInputInstance>(null)
     const {
         control,
         handleSubmit,
@@ -96,9 +96,10 @@ function PromptFormFields({
     const writes = useWritesAvailable()
     const canSubmit = !isSubmitting && isValid && (!requiresServer || writes.available)
 
-    const submit = handleSubmit(data => {
-        if (canSubmit) onSubmit(data.value)
-    })
+    const submit = () =>
+        void handleSubmit(data => {
+            if (canSubmit) onSubmit(data.value)
+        })()
 
     return (
         <>

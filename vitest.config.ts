@@ -12,9 +12,15 @@ const CORE_DIR = path.join(APP_DIR, 'core')
 // @gluestack-ui publishes .jsx.map files whose `sources` point at a src/ tree
 // it does not ship. Vitest transforms those .jsx files itself, so Vite follows
 // each map, finds nothing and prints "points to missing source files" for
-// every test that imports core/ui/button or core/ui/icon. Loading the file
-// without its sourceMappingURL leaves Vite to map to the .jsx it compiles.
-const DANGLING_SOURCEMAP_PACKAGES = /\/node_modules\/@gluestack-ui\/[^/]+\/lib\/.+\.jsx?$/
+// every test that imports core/ui/button or core/ui/icon. Since SDK 58 the
+// expo packages do the same: each build/*.js.map names its source as a bare
+// "Haptics.ts", which resolves next to the map in build/, not to src/ (seen for
+// expo-haptics, expo-document-picker and expo-modules-core). Loading the file
+// without its sourceMappingURL leaves Vite to map to the file it compiles.
+// Only the packages seen doing it are listed: expo-router and others ship
+// maps whose sources resolve, and keep them.
+const DANGLING_SOURCEMAP_PACKAGES =
+    /\/node_modules\/(@gluestack-ui\/[^/]+\/lib|expo-haptics\/build|expo-document-picker\/build|expo-modules-core\/build)\/.+\.jsx?$/
 const SOURCEMAP_COMMENT = /^\/\/# sourceMappingURL=.*$/m
 
 function dropDanglingSourcemaps(): Plugin {
@@ -175,6 +181,14 @@ export default defineConfig({
             {
                 find: /^expo-image-picker$/,
                 replacement: path.join(APP_DIR, 'tests', 'expo-image-picker-stub.cjs'),
+            },
+            // Since SDK 58 most expo-* modules import `expo` the same way
+            // (expo-haptics through core/lib/haptics, expo-document-picker,
+            // expo-crypto, …). Stub `expo` itself: the stub re-exports its
+            // expo-modules-core names without installing the winter runtime.
+            {
+                find: /^expo$/,
+                replacement: path.join(APP_DIR, 'tests', 'expo-stub.ts'),
             },
             // expo-file-system is a native module that cannot load in Node. The
             // stub keeps files in memory and records uploads, so the native

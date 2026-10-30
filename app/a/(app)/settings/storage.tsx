@@ -149,7 +149,7 @@ function StorageSection() {
     }
 
     const limitBytes = usage?.limitPerUser ?? 0
-    const onSaveLimit = form.handleSubmit(data => saveLimit.mutate(data))
+    const onSaveLimit = () => void form.handleSubmit(data => saveLimit.mutate(data))()
     const canSave = !saveLimit.isPending && form.formState.isDirty
 
     return (

@@ -1,5 +1,5 @@
 import { useAuth } from '@tinycld/core/lib/auth'
-import { useOrgHref } from '@tinycld/core/lib/org-routes'
+import { packageReturnHref, useOrgHref } from '@tinycld/core/lib/org-routes'
 import { useWorkspaceStore } from '@tinycld/core/lib/stores/workspace-store'
 import { useThemeColor } from '@tinycld/core/lib/use-app-theme'
 import { useSortedPackages } from '@tinycld/core/lib/use-sorted-packages'
@@ -16,6 +16,8 @@ export function MoreDrawer() {
     const isMoreOpen = useWorkspaceStore(s => s.isMoreOpen)
     const setMoreOpen = useWorkspaceStore(s => s.setMoreOpen)
     const activePkgSlug = useWorkspaceStore(s => s.activePkgSlug)
+    const setActivePkgSlug = useWorkspaceStore(s => s.setActivePkgSlug)
+    const lastPackageHref = useWorkspaceStore(s => s.lastPackageHref)
     const setNotificationsOpen = useWorkspaceStore(s => s.setNotificationsOpen)
     const railText = useThemeColor('rail-text')
     const railActive = useThemeColor('rail-active-text')
@@ -30,6 +32,14 @@ export function MoreDrawer() {
     const overflowPkgs = sorted.length > MAX_VISIBLE_TABS ? sorted.slice(MAX_VISIBLE_TABS) : []
 
     const close = useCallback(() => setMoreOpen(false), [setMoreOpen])
+
+    // Like a tab of MobileTabBar: reopen the view the user left in the package's
+    // existing screen. A push of the package root would stack its index route
+    // over that screen and hide it.
+    const openPackage = (slug: string) => {
+        setActivePkgSlug(slug)
+        router.navigate(packageReturnHref(slug, lastPackageHref[slug]) as never)
+    }
 
     const handleNav = (action: () => void) => {
         action()
@@ -134,9 +144,7 @@ export function MoreDrawer() {
                                     key={pkg.slug}
                                     testID={`nav-${pkg.slug}`}
                                     className="flex-row items-center gap-3.5 px-4 py-3.5 rounded-lg"
-                                    onPress={() =>
-                                        handleNav(() => router.push(orgHref(pkg.slug as never)))
-                                    }
+                                    onPress={() => handleNav(() => openPackage(pkg.slug))}
                                 >
                                     <Icon size={20} color={color} />
                                     <Text className="text-base font-medium" style={{ color }}>

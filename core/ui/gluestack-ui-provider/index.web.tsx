@@ -14,10 +14,8 @@ const useSafeLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : us
 const MODES: ReadonlySet<ModeType> = new Set<ModeType>(['light', 'dark', 'system'])
 const COLOR_THEME_SLUGS: ReadonlySet<string> = new Set(COLOR_THEMES.map(t => t.slug))
 
-// The theme-init script is injected raw into an inline <script> before first
-// paint, and mode/colorTheme originate from user_preferences via unvalidated
-// `as` casts. Validate both against their allowlists so a crafted value can't
-// break out of the injected string literal (stored self-XSS).
+// mode/colorTheme originate from user_preferences via unvalidated `as` casts and
+// reach the document through `script()`. Validate both against their allowlists.
 const safeMode = (mode: string): ModeType =>
     MODES.has(mode as ModeType) ? (mode as ModeType) : 'dark'
 const safeColorTheme = (colorTheme?: string): string =>
@@ -57,15 +55,11 @@ export function GluestackUIProvider({
         return () => media.removeListener(handleMediaQuery)
     }, [handleMediaQuery, validMode])
 
+    // No inline theme-init <script>: the web output is a client-rendered SPA
+    // (app.json `web.output: "single"`), and a script React renders on the client
+    // never runs. The layout effects above apply the theme before paint.
     return (
         <>
-            <script
-                suppressHydrationWarning
-                // biome-ignore lint/security/noDangerouslySetInnerHtml: static, self-authored theme-init script (serialized local function) that must run before first paint to prevent a theme flash; mode/colorTheme are allowlist-validated and JSON.stringify-escaped, so no user input reaches the markup
-                dangerouslySetInnerHTML={{
-                    __html: `(${script.toString()})(${JSON.stringify(validMode)},${JSON.stringify(validColorTheme)})`,
-                }}
-            />
             {/* Our own overlay host (dialogs, sheets, popovers, menus) wraps
                 gluestack's, which now serves only its toasts and drawers.
                 OUTSIDE it, not inside: gluestack renders a drawer's content as

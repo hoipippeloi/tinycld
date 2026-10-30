@@ -36,18 +36,36 @@ const routerSaw = vi.fn()
 /** The hook's IN_APP_PASS_MS: how long a confirmed in-app move waits for its `popstate`. */
 const IN_APP_PASS_MS = 500
 
-/** The in-app removal the screen's `usePreventRemove` holds back, while it prevents one. */
+type HeldAction = { data: { action: { type: string } } }
+
+/**
+ * The in-app removal the screen's `usePreventRemove` holds back, while it
+ * prevents one. As in expo-router 58, the callback gets `repeat`, which
+ * dispatches the held action again, and the hook returns `disablePrevention`.
+ */
 const preventRemove = vi.hoisted(() => ({
-    onPrevent: null as null | ((event: { data: { action: { type: string } } }) => void),
+    onPrevent: null as null | ((event: HeldAction) => void),
+    disablePrevention: (() => {}) as () => void,
 }))
-vi.mock('expo-router/react-navigation', () => ({
-    usePreventRemove: (
-        isPreventing: boolean,
-        onPrevent: (event: { data: { action: { type: string } } }) => void
-    ) => {
-        preventRemove.onPrevent = isPreventing ? onPrevent : null
-    },
-}))
+vi.mock('expo-router/react-navigation', async () => {
+    const { useNavigation } = await import('expo-router')
+    return {
+        usePreventRemove: (
+            isPreventing: boolean,
+            onPrevent: (event: HeldAction & { repeat: () => void }) => void
+        ) => {
+            const navigation = useNavigation() as { dispatch: (action: unknown) => void }
+            preventRemove.onPrevent = isPreventing
+                ? event =>
+                      onPrevent({
+                          data: event.data,
+                          repeat: () => navigation.dispatch(event.data.action),
+                      })
+                : null
+            return preventRemove.disablePrevention
+        },
+    }
+})
 
 /** A screen the guard runs in, at `pathname`; `focused` is read at the event. */
 function screenAt(pathname: string) {
@@ -308,6 +326,7 @@ beforeEach(() => {
     browser.delay = 10
     browser.guardMoves = []
     preventRemove.onPrevent = null
+    preventRemove.disablePrevention = vi.fn()
     resetWarnFlags()
     vi.useFakeTimers()
     installSlowHistory()
@@ -403,7 +422,12 @@ describe('with the shared listener installed', () => {
             expect(result.current.isConfirming).toBe(true)
             expect(routerSaw).not.toHaveBeenCalled()
 
+            // expo-router reduces the replayed move through removal
+            // prevention, so Discard turns it off before the move replays.
             await act(async () => result.current.discard())
+            expect(preventRemove.disablePrevention).toHaveBeenCalledTimes(1)
+            expect(preventRemove.onPrevent).toBeNull()
+            expect(routerSaw).not.toHaveBeenCalled()
             await settle()
             expect(here()).toBe('/a')
             expect(result.current.isConfirming).toBe(false)
@@ -602,15 +626,21 @@ describe('with the shared listener installed', () => {
             visit('list', '/list')
             visit('editor', '/editor')
             const editor = screenAt('/editor')
-            const { result } = renderGuard(editor, true)
+            const first = renderGuard(editor, true)
             // An in-app removal, held and then confirmed. Its own history move
             // moved nothing, so no popstate comes for the pass.
             await act(async () =>
                 preventRemove.onPrevent?.({ data: { action: { type: 'GO_BACK' } } })
             )
-            expect(result.current.isConfirming).toBe(true)
-            await act(async () => result.current.discard())
+            expect(first.result.current.isConfirming).toBe(true)
+            await act(async () => first.result.current.discard())
             expect(editor.navigation.dispatch).toHaveBeenCalledTimes(1)
+            expect(preventRemove.onPrevent).toBeNull()
+            expect(first.result.current.isConfirming).toBe(false)
+            // The confirmed removal takes the screen away; the editor opened
+            // again on the same entry is dirty with a new guard.
+            first.unmount()
+            const { result } = renderGuard(screenAt('/editor'), true)
             await settle(IN_APP_PASS_MS + 100)
 
             await userGo(-1)

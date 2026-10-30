@@ -66,29 +66,43 @@ vi.mock('../../../lib/forms/use-forms-of-host', () => ({
     useFormsOfHost: () => ({ forms: [plain], defaultForm: plain, isReady: true }),
 }))
 vi.mock('../../../lib/forms/use-form-hosts', () => ({ useFormHost: () => host }))
-// React Navigation's guard: `back` stands in for a removal it holds back.
+// expo-router's guard: `back` stands in for a removal it holds back.
+type Prevented = { data: { action: { type: string } }; repeat: () => void }
 const guard = vi.hoisted(() => ({
     isPreventing: false,
-    onPrevent: null as null | ((e: { data: { action: { type: string } } }) => void),
+    onPrevent: null as null | ((e: Prevented) => void),
     dispatch: vi.fn(),
 }))
-vi.mock('expo-router/react-navigation', () => ({
-    usePreventRemove: (
-        isPreventing: boolean,
-        onPrevent: (e: { data: { action: { type: string } } }) => void
-    ) => {
-        guard.isPreventing = isPreventing
-        guard.onPrevent = onPrevent
-    },
-}))
+// expo-router 58's usePreventRemove: `repeat` dispatches the held action
+// again, and on web it asks before a reload or tab close while it prevents.
+vi.mock('expo-router/react-navigation', async () => {
+    const { useEffect } = await import('react')
+    return {
+        usePreventRemove: (isPreventing: boolean, onPrevent: (e: Prevented) => void) => {
+            guard.isPreventing = isPreventing
+            guard.onPrevent = onPrevent
+            useEffect(() => {
+                if (!isPreventing) return
+                const ask = (event: Event) => event.preventDefault()
+                window.addEventListener('beforeunload', ask)
+                return () => window.removeEventListener('beforeunload', ask)
+            }, [isPreventing])
+            return () => {
+                guard.isPreventing = false
+            }
+        },
+    }
+})
 vi.mock('expo-router', async importOriginal => ({
     ...(await importOriginal<object>()),
     useNavigation: () => ({ dispatch: guard.dispatch }),
 }))
 const GO_BACK = { type: 'GO_BACK' }
-/** What React Navigation does with a removal while the guard is on. */
+/** What expo-router does with a removal while the guard is on. */
 function leave() {
-    if (guard.isPreventing) guard.onPrevent?.({ data: { action: GO_BACK } })
+    if (guard.isPreventing) {
+        guard.onPrevent?.({ data: { action: GO_BACK }, repeat: () => guard.dispatch(GO_BACK) })
+    }
 }
 vi.mock('@tinycld/core/lib/auth', () => ({
     useAuth: () => ({ user: { id: 'u1', name: 'U' }, isLoggedIn: true }),

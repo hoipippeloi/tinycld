@@ -19,14 +19,15 @@ type MfaSignInStep = Extract<SignInStep, { kind: 'mfa' }>
 function useTotpForm(mfaToken: string) {
     const finishSignIn = useFinishSignIn()
     const form = useForm({ resolver: zodResolver(totpCodeSchema), defaultValues: { code: '' } })
-    const submit = form.handleSubmit(async ({ code }) => {
-        try {
-            await finishSignIn(await verifyMfa(mfaToken, { code }))
-        } catch (error) {
-            if (advanceSignInStep(error)) return
-            form.setError('root', { type: 'server', message: errorToString(error) })
-        }
-    })
+    const submit = () =>
+        void form.handleSubmit(async ({ code }) => {
+            try {
+                await finishSignIn(await verifyMfa(mfaToken, { code }))
+            } catch (error) {
+                if (advanceSignInStep(error)) return
+                form.setError('root', { type: 'server', message: errorToString(error) })
+            }
+        })()
     return { form, submit }
 }
 
@@ -36,14 +37,15 @@ function useRecoveryForm(mfaToken: string) {
         resolver: zodResolver(recoveryCodeSchema),
         defaultValues: { recoveryCode: '' },
     })
-    const submit = form.handleSubmit(async ({ recoveryCode }) => {
-        try {
-            await finishSignIn(await verifyMfa(mfaToken, { recoveryCode }))
-        } catch (error) {
-            if (advanceSignInStep(error)) return
-            form.setError('root', { type: 'server', message: errorToString(error) })
-        }
-    })
+    const submit = () =>
+        void form.handleSubmit(async ({ recoveryCode }) => {
+            try {
+                await finishSignIn(await verifyMfa(mfaToken, { recoveryCode }))
+            } catch (error) {
+                if (advanceSignInStep(error)) return
+                form.setError('root', { type: 'server', message: errorToString(error) })
+            }
+        })()
     return { form, submit }
 }
 
