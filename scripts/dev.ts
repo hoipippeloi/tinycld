@@ -44,6 +44,7 @@ import * as net from 'node:net'
 import * as path from 'node:path'
 // fb-watchman has no published @types package; declare the surface we use.
 import watchman from 'fb-watchman'
+import { isPortFree } from './port-probe'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const CERT_PATH = path.join(ROOT, 'assets', 'localhost.pem')
@@ -135,17 +136,6 @@ interface PortBlock {
     expo: number
 }
 
-async function probePort(port: number): Promise<boolean> {
-    return new Promise(resolve => {
-        const server = net.createServer()
-        server.once('error', () => resolve(false))
-        server.once('listening', () => {
-            server.close(() => resolve(true))
-        })
-        server.listen(port, '127.0.0.1')
-    })
-}
-
 async function tryConnect(port: number, host = '127.0.0.1'): Promise<boolean> {
     return new Promise(resolve => {
         const sock = net.connect({ port, host })
@@ -170,9 +160,9 @@ async function waitForUpstream(port: number, label: string, timeoutMs: number): 
 
 async function isBlockFree(block: PortBlock): Promise<boolean> {
     const results = await Promise.all([
-        probePort(block.proxy),
-        probePort(block.pb),
-        probePort(block.expo),
+        isPortFree(block.proxy),
+        isPortFree(block.pb),
+        isPortFree(block.expo),
     ])
     return results.every(Boolean)
 }
@@ -216,7 +206,7 @@ function prompt(question: string): Promise<string> {
 async function waitForPortFree(port: number, timeoutMs = 5_000): Promise<boolean> {
     const start = Date.now()
     while (Date.now() - start < timeoutMs) {
-        if (await probePort(port)) return true
+        if (await isPortFree(port)) return true
         await new Promise(r => setTimeout(r, 100))
     }
     return false
