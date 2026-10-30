@@ -206,6 +206,11 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
             }
           : null
 
+    // The server runs one package job at a time. While one runs, the screen is
+    // read-only: a change staged or started now would act on a deployment that
+    // is mid-rebuild.
+    const isBusy = runningJob !== undefined || activeProgress !== null
+
     return (
         <View className="gap-6">
             <PageHeader
@@ -213,19 +218,26 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                 subtitle="Features installed on this deployment. Toggle availability, reorder the sidebar, change versions, install from npm, or register a new source."
                 actions={
                     <>
-                        <Button onPress={() => setShowRegister(true)} size="sm" variant="outline">
+                        <Button
+                            onPress={() => setShowRegister(true)}
+                            size="sm"
+                            variant="outline"
+                            isDisabled={isBusy}
+                        >
                             <ButtonIcon as={Plus} />
                             <ButtonText>Register</ButtonText>
                         </Button>
-                        <Button onPress={() => setShowInstall(true)} size="sm">
+                        <Button onPress={() => setShowInstall(true)} size="sm" isDisabled={isBusy}>
                             <ButtonIcon as={Download} />
-                            <ButtonText>Install package</ButtonText>
+                            <ButtonText>Install New Package</ButtonText>
                         </Button>
                     </>
                 }
             />
 
-            <AutoUpgradeSection au={au} isVisible={isVisible} />
+            <BusyNotice isVisible={isBusy} />
+
+            <AutoUpgradeSection au={au} isVisible={isVisible} isLocked={isBusy} />
 
             <InstallPackageModal
                 isOpen={showInstall}
@@ -255,7 +267,7 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                         isLoading={vm.isLoading}
                         hasUpdates={vm.hasUpdates}
                         pendingCount={vm.pendingChanges.length}
-                        isLocked={au.locksVersions}
+                        isLocked={au.locksVersions || isBusy}
                         onSelectAll={vm.selectAllUpdates}
                         onClear={vm.clearSelection}
                     />
@@ -271,7 +283,8 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                         onUninstallStarted={handleUninstallStarted}
                         versionBySlug={versionBySlug}
                         targets={vm.targets}
-                        isVersionLocked={au.locksVersions}
+                        isVersionLocked={au.locksVersions || isBusy}
+                        isBusy={isBusy}
                         onSetTarget={vm.setTarget}
                     />
                     <ViolationList violations={vm.violations} isChecking={vm.isChecking} />
@@ -279,7 +292,7 @@ export function PackageManager({ pb, isVisible = true }: PackageManagerProps) {
                         pendingCount={vm.pendingChanges.length}
                         violationCount={vm.violations.length}
                         isChecking={vm.isChecking}
-                        canApply={vm.canApply}
+                        canApply={vm.canApply && !isBusy}
                         onApply={() => setConfirmOpen(true)}
                     />
                 </View>
@@ -310,6 +323,7 @@ function PackageList({
     versionBySlug,
     targets,
     isVersionLocked,
+    isBusy,
     onSetTarget,
 }: {
     packages: PkgRecord[]
@@ -321,6 +335,7 @@ function PackageList({
     versionBySlug: Map<string, PackageVersionInfo>
     targets: Record<string, string>
     isVersionLocked: boolean
+    isBusy: boolean
     onSetTarget: (slug: string, version: string) => void
 }) {
     const surfaceBg = useThemeColor('surface-secondary')
@@ -359,6 +374,7 @@ function PackageList({
         // (toggle/drag/uninstall) until the change is applied or cleared, so an
         // immediate mutation can't collide with the pending transaction.
         const isStaged = info ? stagedDirection(info, target) !== 'none' : false
+        const isLocked = isStaged || isBusy
 
         return (
             <View
@@ -370,7 +386,11 @@ function PackageList({
                 }}
             >
                 <View className="flex-row items-center gap-3 px-4 py-3.5">
-                    <SortableDragHandle color={mutedColor} testID={`pkg-drag-${pkg.slug}`} />
+                    <SortableDragHandle
+                        disabled={isBusy}
+                        color={mutedColor}
+                        testID={`pkg-drag-${pkg.slug}`}
+                    />
                     <View className="w-10 h-10 rounded-xl items-center justify-center bg-surface border border-border">
                         <Package size={18} color={mutedColor} />
                     </View>
@@ -414,13 +434,13 @@ function PackageList({
                         pb={pb}
                         isBase={isBase}
                         isEditing={editingId === pkg.id}
-                        isLocked={isStaged}
+                        isLocked={isLocked}
                         onEdit={() => onEdit(editingId === pkg.id ? null : pkg.id)}
                         onUninstallStarted={onUninstallStarted}
                     />
                 </View>
                 <EditPackageForm
-                    isVisible={editingId === pkg.id && !isStaged}
+                    isVisible={editingId === pkg.id && !isLocked}
                     pkg={pkg}
                     onClose={() => onEdit(null)}
                 />
@@ -528,9 +548,9 @@ function PackageActions({
     // next build). Upgraded via its version picker like any package.
     isBase: boolean
     isEditing: boolean
-    // True when this package has a staged version change — its toggle and
-    // uninstall are disabled until the change is applied or cleared, so an
-    // immediate mutation can't race the pending transaction.
+    // True when this package has a staged version change, or a package job is
+    // running — its toggle and uninstall are disabled until then, so an
+    // immediate mutation can't race the pending transaction or the rebuild.
     isLocked: boolean
     onEdit: () => void
     onUninstallStarted: (jobId: string) => void
@@ -636,7 +656,7 @@ function StageActions({
     return (
         <View className="flex-row gap-2 items-center">
             {pendingCount > 0 && (
-                <Button onPress={onClear} size="sm" variant="ghost">
+                <Button onPress={onClear} size="sm" variant="ghost" isDisabled={isLocked}>
                     <ButtonText>Clear ({pendingCount})</ButtonText>
                 </Button>
             )}
@@ -669,6 +689,15 @@ function StageAllButton({
         >
             <ButtonText>Stage all updates</ButtonText>
         </Button>
+    )
+}
+
+function BusyNotice({ isVisible }: { isVisible: boolean }) {
+    if (!isVisible) return null
+    return (
+        <Text testID="package-job-busy-notice" className="text-sm text-muted-foreground">
+            A package change is in progress. You can make more changes when it is complete.
+        </Text>
     )
 }
 
