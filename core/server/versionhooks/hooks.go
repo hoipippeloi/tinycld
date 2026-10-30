@@ -1,4 +1,4 @@
-// Package versionhooks owns the per-itemType extension point drive uses
+// Package versionhooks owns the per-MIME-type extension point drive uses
 // to surface package-specific behavior around version snapshot/restore.
 //
 // Why this lives in core (and not drive): drive can't host this registry
@@ -9,11 +9,14 @@
 // of every package's dependency graph, so the hook registry lives here.
 //
 // Wiring:
-//   - drive calls versionhooks.For(item.type) in handleSnapshotVersion /
+//   - drive calls versionhooks.For(item.mime_type) in handleSnapshotVersion /
 //     handleRestoreVersion and invokes the matching callback.
-//   - text (or any other package) calls versionhooks.Register("text",
-//     versionhooks.Hook{OnSnapshot: ..., OnRestore: ...}) in its
-//     Register() at process bootstrap.
+//   - drive calls Render / Diff from GET /api/drive/versions/{id}/render
+//     and /diff, for the version history preview and compare.
+//   - a package calls versionhooks.Register(<mime type>, versionhooks.Hook{...})
+//     once per MIME type it edits, in its Register() at process bootstrap.
+//     The key is drive_items.mime_type: drive_items has no other field
+//     that names the editing package.
 //
 // Hooks are best-effort. Drive logs failures but does not roll back the
 // version row — the docx blob round-trip still works either way; the
@@ -21,6 +24,7 @@
 package versionhooks
 
 import (
+	"context"
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -39,29 +43,43 @@ type Hook struct {
 	// package-specific fields (e.g. yjs_state) and apply them to the
 	// live state.
 	OnRestore func(app core.App, item *core.Record, version *core.Record) error
+
+	// Render and Diff are optional. Drive's history screen offers preview
+	// and compare only for a type that sets them.
+	Render RenderFn
+	Diff   DiffFn
 }
+
+// RenderFn returns read-only HTML for one version of item. authUserID is
+// the caller; a renderer that inlines other files must check access as
+// that user.
+type RenderFn func(ctx context.Context, app core.App, item, version *core.Record, authUserID string) (string, error)
+
+// DiffFn returns HTML for `to` with <ins>/<del> marks against `from`.
+// from is nil when `to` is the first version: everything is inserted.
+type DiffFn func(ctx context.Context, app core.App, item, from, to *core.Record, authUserID string) (string, error)
 
 var (
 	mu    sync.RWMutex
 	hooks = map[string]Hook{}
 )
 
-// Register records a hook for the given drive_items.type. Idempotent —
+// Register records a hook for the given drive_items.mime_type. Idempotent —
 // re-registering replaces. Called from a package's Register() during
 // process bootstrap.
-func Register(itemType string, hook Hook) {
+func Register(mimeType string, hook Hook) {
 	mu.Lock()
 	defer mu.Unlock()
-	hooks[itemType] = hook
+	hooks[mimeType] = hook
 }
 
-// For returns the registered hook for itemType, or a zero-value Hook
-// (both fields nil) if none. Drive checks the returned fields for nil
+// For returns the registered hook for mimeType, or a zero-value Hook
+// (all fields nil) if none. Drive checks the returned fields for nil
 // before invoking.
-func For(itemType string) Hook {
+func For(mimeType string) Hook {
 	mu.RLock()
 	defer mu.RUnlock()
-	return hooks[itemType]
+	return hooks[mimeType]
 }
 
 // ResetForTest clears the registry. Exposed only for tests — production
