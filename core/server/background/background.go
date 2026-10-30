@@ -29,6 +29,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/logging"
 	"tinycld.org/core/shutdown"
 )
@@ -47,6 +48,9 @@ var stallWarnInterval = 10 * time.Second
 // Jobs runs one package's background work for one app.
 type Jobs struct {
 	log *slog.Logger
+
+	// app is the app the jobs work for; a job's panic is logged against it.
+	app core.App
 
 	// ctx ends when the app terminates, so a running job stops before its
 	// next write and a render in progress is cancelled.
@@ -91,6 +95,7 @@ func bind(app core.App, pkg string) *Jobs {
 	ctx, cancel := context.WithCancel(logging.WithApp(context.Background(), app))
 	jobs := &Jobs{
 		log:     logging.ForPackage(pkg),
+		app:     app,
 		ctx:     ctx,
 		cancel:  cancel,
 		running: map[uint64]string{},
@@ -129,8 +134,8 @@ func (j *Jobs) exec(id uint64, name string, fn func(ctx context.Context)) {
 	defer j.finished(id)
 	defer func() {
 		if r := recover(); r != nil {
-			j.log.ErrorContext(j.ctx, "background job panicked",
-				"job", name, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			j.log.ErrorContext(logging.WithApp(context.Background(), j.app), "background job panicked",
+				"app", appstate.ID(j.app), "job", name, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 		}
 	}()
 	fn(j.ctx)
