@@ -244,7 +244,16 @@ func (lc *levelCtx) col(id, at string) (expr, error) {
 	}
 	defer done()
 	if cp.col.Aggregate == "" {
-		return compileFormula(lc, cp.col.Formula, cp.at+".formula")
+		e, err := compileFormula(lc, cp.col.Formula, cp.at+".formula")
+		if err != nil {
+			return expr{}, err
+		}
+		// A formula that reads a row's value has none for a group of rows;
+		// computing it from blanks would show a wrong figure (0).
+		if lv.c.p.readsRowValue(cp.col.Formula, false, map[string]bool{}) {
+			e.sql = "NULL"
+		}
+		return e, nil
 	}
 	inner := &rowsCtx{r: lv.r, inAggregate: true, visiting: lc.visiting}
 	e, err := compileFormula(inner, cp.col.Formula, cp.at+".formula")
@@ -271,6 +280,50 @@ func (lc *levelCtx) formulaGroupColumn(cp *colPlan, at string) (expr, error) {
 		e.sql = key
 	}
 	return e, nil
+}
+
+// aggregateOp is true for an operator that totals rows (min and max with one
+// argument; with more they compare values).
+func aggregateOp(n *Node) bool {
+	switch n.Op {
+	case "sum", "count", "countDistinct", "avg":
+		return true
+	case "min", "max":
+		return len(n.Args) == 1
+	}
+	return false
+}
+
+// readsRowValue is true when a formula reads, outside an aggregate, a value
+// that exists only per row: a {path}, a path column with no aggregate that is
+// not a group column, or a formula column that does. Such a formula is blank
+// as a whole on a group, subtotal or total row.
+func (p *plan) readsRowValue(n *Node, inAggregate bool, seen map[string]bool) bool {
+	if n == nil {
+		return false
+	}
+	if n.Path != nil {
+		return !inAggregate
+	}
+	if n.Col != "" && !inAggregate && !seen[n.Col] {
+		cp := p.byID[n.Col]
+		if cp == nil || cp.col.Aggregate != "" {
+			return false
+		}
+		if cp.path != nil {
+			return cp.tm < 0 && !slices.ContainsFunc(p.groups, func(g *groupPlan) bool { return g.col == cp })
+		}
+		seen[n.Col] = true
+		defer delete(seen, n.Col)
+		return p.readsRowValue(cp.col.Formula, false, seen)
+	}
+	inAggregate = inAggregate || aggregateOp(n)
+	for _, a := range n.Args {
+		if p.readsRowValue(a, inAggregate, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // path is blank on a group, subtotal or total row, as a path column with no

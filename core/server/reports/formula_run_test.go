@@ -13,18 +13,6 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-// aggregateOp is true for an operator that totals rows (min and max with one
-// argument; with more they compare values).
-func aggregateOp(n *Node) bool {
-	switch n.Op {
-	case "sum", "count", "countDistinct", "avg":
-		return true
-	case "min", "max":
-		return len(n.Args) == 1
-	}
-	return false
-}
-
 func hasAggregate(n *Node) bool {
 	if n == nil {
 		return false

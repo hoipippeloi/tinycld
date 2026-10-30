@@ -338,13 +338,19 @@ func TestAFormulaPathIsBlankOnGroupAndTotalRows(t *testing.T) {
 		{"id":"species","path":[{"link":"animal"},{"field":"species"}]},
 		{"id":"note","path":[{"field":"note"}]},
 		{"id":"double","formula":{"op":"mul","args":[{"path":[{"field":"cost"}]},{"value":2}]}},
-		{"id":"same","formula":{"path":[{"field":"cost"}]}}]`
+		{"id":"same","formula":{"path":[{"field":"cost"}]}},
+		{"id":"cost","path":[{"field":"cost"}],"aggregate":"sum"},
+		{"id":"grams","path":[{"field":"grams"}],"aggregate":"sum"},
+		{"id":"perGram","formula":{"op":"div","args":[{"col":"cost"},{"col":"grams"}],"scale":0}}]`
 	grouped := z.run(t, "ann", `{"version":1,"source":"zoo.feedings",`+columns+`,
 		"groups":[{"id":"g","col":"species"}],"sort":[{"col":"note"}]}`, Options{ExpandAll: true}, nil)
 	requireRows(t, grouped, "kind", "group", "detail", "detail", "group", "detail", "detail", "total")
-	// The path itself is blank there; arithmetic counts a blank as zero.
+	// A formula that reads a row's value is blank as a whole on group and
+	// total rows, not computed from a blank (which would show 0).
 	requireRows(t, grouped, "same", nil, int64(1000), int64(2500), nil, int64(700), int64(300), nil)
-	requireRows(t, grouped, "double", int64(0), int64(2000), int64(5000), int64(0), int64(1400), int64(600), int64(0))
+	requireRows(t, grouped, "double", nil, int64(2000), int64(5000), nil, int64(1400), int64(600), nil)
+	// A formula over totals is still computed for each group.
+	requireRows(t, grouped, "perGram", int64(3), int64(2), int64(3), int64(3), int64(2), int64(3), int64(3))
 	flat := z.run(t, "ann", `{"version":1,"source":"zoo.feedings",`+columns+`,"sort":[{"col":"note"}]}`, Options{}, nil)
 	requireRows(t, flat, "same", int64(1000), int64(2500), int64(700), int64(300), nil)
 
