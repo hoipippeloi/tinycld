@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react'
 import type { Awareness } from 'y-protocols/awareness'
 import type * as Y from 'yjs'
-import type { TableRow } from './values'
+import type { HostSchemas, TableRow } from './values'
 
 /** Set when a host component draws one cell of a table built-in. */
 export interface TableCellContext {
@@ -52,4 +52,10 @@ export interface FormHostUi {
      */
     pinned?: Record<string, ComponentType<BuiltinFieldProps>>
     useDoc?: (recordId: string) => CollabDoc | null
+    /**
+     * The value schema of a custom built-in whose component has one, keyed by
+     * component name like `components`. Its issue messages are the field's
+     * inline text, and a refusal blocks the save.
+     */
+    schemas?: HostSchemas
 }

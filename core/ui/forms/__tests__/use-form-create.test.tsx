@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema } from '../../../lib/forms/definition'
-import { defaultDefinitionFor } from '../../../lib/forms/host'
+import { defaultDefinitionFor, hostDefSchema } from '../../../lib/forms/host'
+import type { HostSchemas } from '../../../lib/forms/values'
 import { useFormCreate } from '../use-form-create'
 
 const host = {
@@ -97,5 +99,67 @@ describe('useFormCreate', () => {
         expect(result.current.form.getValues('name')).toBe('Typed first')
         act(() => result.current.switchForm(bug.id))
         expect(result.current.form.getValues('name')).toBe('Typed first')
+    })
+})
+
+const gadgetHostDef = hostDefSchema.parse({
+    key: 'gizmos:gadget',
+    label: 'Gadget',
+    collection: 'gizmos_gadgets',
+    formColumn: 'form',
+    fieldsColumn: 'fields',
+    columns: ['title', 'amount', 'label'],
+    builtin: [
+        { key: 'title', label: 'Title', kind: 'text', storage: 'column', required: true },
+        {
+            key: 'amount',
+            label: 'Amount',
+            kind: 'custom',
+            storage: 'column',
+            component: 'AmountField',
+        },
+        { key: 'label', label: 'Label', kind: 'text', storage: 'column', component: 'AmountField' },
+    ],
+})
+const gadget = {
+    ...gadgetHostDef,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {} }),
+}
+const gadgetForm = {
+    id: 'g-form',
+    host: gadget.key,
+    name: 'Gadget',
+    slug: 'gadget',
+    is_default: true,
+    archived: false,
+    order: 0,
+    definition: defaultDefinitionFor(gadgetHostDef),
+}
+const schemas: HostSchemas = { AmountField: z.number().min(0, 'Use 0 or more') }
+
+describe('useFormCreate, host component schemas', () => {
+    beforeEach(() =>
+        formsOfHost.mockReturnValue({ forms: [gadgetForm], defaultForm: gadgetForm, isReady: true })
+    )
+    async function submitWith(amount: number) {
+        const { result } = renderHook(() =>
+            useFormCreate(gadget, undefined, ctx, { amount }, schemas)
+        )
+        await waitFor(() => expect(result.current.isReady).toBe(true))
+        act(() => result.current.form.setValue('title', 'T'))
+        let split: Awaited<ReturnType<typeof result.current.submit>> | undefined
+        await act(async () => {
+            split = await result.current.submit()
+        })
+        return { split, form: result.current.form }
+    }
+    it('refuses the submit with the message of the component schema', async () => {
+        const refused = await submitWith(-1)
+        expect(refused.split).toBeNull()
+        expect(refused.form.getFieldState('amount').error?.message).toBe('Use 0 or more')
+        const accepted = await submitWith(2)
+        expect(accepted.split?.columns.amount).toBe(2)
     })
 })
