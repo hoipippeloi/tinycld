@@ -67,12 +67,11 @@ Every API-driven create, update, or delete on the collections below produces an 
 
 ## Redacted fields
 
-Sensitive fields are never included in diffs or snapshots. If a redacted field changes, the diff entry shows `{"redacted": true}` instead of before/after values.
+Sensitive values are never included in diffs or snapshots. If a redacted field changes, the change is still logged, and the diff entry is `{"before": "[redacted]", "after": "[redacted]", "redacted": true}`; a delete snapshot shows `"[redacted]"` for the field. The Audit Log screen shows `[redacted]` in place of the values. A field is redacted when it is:
 
-- `password`
-- `passwordConfirm`
-- `tokenKey`
-- `keys`
+- hidden (the API never returns it, so the audit log must not either)
+- one of `password`, `passwordConfirm`, `tokenKey`, `keys`
+- listed in the collection's `CollectionConfig.Redact`
 
 ## API rules
 
@@ -83,7 +82,7 @@ Sensitive fields are never included in diffs or snapshots. If a redacted field c
 
 ## Architecture
 
-The audit system is a shared Go package at `server/audit/` (`tinycld.org/core/audit`). Each package owns its own audit registration — core collections are registered in `server/audit.go`, and each package registers its collections in its own `Register()` function (e.g. `packages/contacts/server/register.go`).
+The audit system is a shared Go package at `server/audit/` (`tinycld.org/core/audit`). Each package owns its own audit registration — core collections are registered in `server/audit.go`, and each package registers its collections in its own server module's `Register()` function.
 
 This means packages don't need to modify any central file to add audit logging.
 
@@ -109,7 +108,8 @@ func Register(app *pocketbase.PocketBase) {
 - **`audit.RegisterCollection(app, name, config)`** — registers create/update/delete hooks for one collection
 - **`audit.RegisterCollections(app, names, config)`** — registers the same config for multiple collections
 - **`audit.CollectionConfig`** — optional config with:
-  - `ExtractLabel` — `func(record *core.Record) string` to extract a display label. If nil, tries `name`, `title`, `label`, `address`.
+  - `ExtractLabel` — `func(record *core.Record) string` to extract a display label. If nil, tries `name`, `title`, `label`, `address`. The label is not redacted, so it must not read a `Redact` field.
+  - `Redact` — `[]string` of field names whose values stay out of the log (see Redacted fields).
 - **`audit.LabelFromField("name")`** — returns a LabelExtractor for a single field
 - **`audit.LabelFromFields("app", "key")`** — returns a LabelExtractor that joins fields with `:`
 
