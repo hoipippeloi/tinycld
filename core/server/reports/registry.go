@@ -239,6 +239,10 @@ func validateField(src *Source, f *Field) error {
 			return fmt.Errorf("currency field %q is not a text field of this source", f.Currency)
 		}
 	}
+	// The engine never adds amounts it cannot tell apart by currency.
+	if f.Type == Money && f.Currency == "" && src.Currency == nil {
+		return fmt.Errorf("a money field names its currency field, or the source sets Currency")
+	}
 	return nil
 }
 

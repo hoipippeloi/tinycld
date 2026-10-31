@@ -72,6 +72,7 @@ func TestRegisterSourceRefusesMalformedSources(t *testing.T) {
 		"sum of a date":          {func(s *Source) { s.Fields[2].Aggregates = SumAll }, "needs a number or money"},
 		"select without options": {func(s *Source) { s.Fields[3].Options = nil }, "lists options"},
 		"currency not text":      {func(s *Source) { s.Fields[0].Currency = "fed" }, "not a text field"},
+		"money with no currency": {func(s *Source) { s.Fields[0].Currency = "" }, "names its currency"},
 		"no cardinality":         {func(s *Source) { s.Links[0].Cardinality = "" }, "cardinality"},
 		"no target":              {func(s *Source) { s.Links[0].Target = "" }, "target source"},
 		"to-many without back field": {func(s *Source) {

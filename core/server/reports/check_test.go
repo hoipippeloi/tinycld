@@ -3,6 +3,8 @@ package reports
 import (
 	"strings"
 	"testing"
+
+	"github.com/pocketbase/pocketbase/core"
 )
 
 func TestCheckSourcesPassesTheZoo(t *testing.T) {
@@ -33,7 +35,8 @@ func TestCheckSourcesRefusesASourceThatDoesNotMatchTheSchema(t *testing.T) {
 			`column "secret" is hidden from the API`,
 		},
 		"wrong type": {
-			Source{Key: "zoo.x", Collection: "zoo_animals", Label: "X", Fields: []Field{{Key: "name", Label: "Name", Type: Money}}},
+			Source{Key: "zoo.x", Collection: "zoo_animals", Label: "X", Fields: []Field{{Key: "name", Label: "Name", Type: Money}},
+				Currency: func(core.App) string { return "USD" }},
 			`column "name" is a text field, which a money field cannot read`,
 		},
 		"select option not in the schema": {
