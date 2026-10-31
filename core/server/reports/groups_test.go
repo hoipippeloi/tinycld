@@ -43,6 +43,50 @@ func TestExpandTakesAtMostTheRowCapOfKeys(t *testing.T) {
 	requireSpecError(t, err, 400, "options.expand", "at most 2 groups")
 }
 
+// sixLevels groups feedings six deep; a key of its last level holds six
+// group values and the cost's currency.
+const sixLevels = `{"version":1,"source":"zoo.feedings","columns":[
+	{"id":"species","path":[{"link":"animal"},{"field":"species"}]},
+	{"id":"name","path":[{"link":"animal"},{"field":"name"}]},
+	{"id":"note","path":[{"field":"note"}]},
+	{"id":"fed","path":[{"field":"fed"}]},
+	{"id":"grams","path":[{"field":"grams"}]},
+	{"id":"cur","path":[{"field":"currency"}]},
+	{"id":"cost","path":[{"field":"cost"}],"aggregate":"sum"}],
+	"groups":[{"id":"g0","col":"species"},{"id":"g1","col":"name"},{"id":"g2","col":"note"},
+		{"id":"g3","col":"fed"},{"id":"g4","col":"grams"},{"id":"g5","col":"cur"}]}`
+
+func deepKeys(n int) [][]any {
+	keys := make([][]any, n)
+	for i := range keys {
+		keys[i] = []any{"lion", "Leo", fmt.Sprintf("f%d", i), "2026-01-05", float64(500), "USD", "USD"}
+	}
+	return keys
+}
+
+// The keys an expand binds stay under SQLite's limit of 32,766 variables:
+// 5,000 keys of 7 values each would bind 35,000, a 400 here and not a 500
+// from the database. 1,200 keys run: more keys than SQLite's expression
+// depth of 1,000 still compile.
+func TestExpandBindsAtMost30000Values(t *testing.T) {
+	z := newZoo(t)
+	_, err := z.try(t, "ann", sixLevels, Options{Expand: deepKeys(5000)}, nil)
+	requireSpecError(t, err, 400, "options.expand", "30000 values")
+	z.run(t, "ann", sixLevels, Options{Expand: deepKeys(1200)}, nil)
+}
+
+// An expanded key matches by IS, so a blank group key opens too.
+func TestExpandOpensABlankGroup(t *testing.T) {
+	z := newZoo(t)
+	spec := `{"version":1,"source":"zoo.animals","columns":[
+		{"id":"region","path":[{"link":"site"},{"field":"region"}]},
+		{"id":"name","path":[{"field":"name"}]}],
+		"groups":[{"id":"g","col":"region"}],"sort":[{"col":"name"}]}`
+	res := z.run(t, "ann", spec, Options{Expand: [][]any{{nil}}}, nil)
+	requireRows(t, res, "kind", "group", "group", "group", "detail", "total")
+	requireRows(t, res, "name", nil, nil, nil, "Kit", nil)
+}
+
 func TestTwoGroupLevels(t *testing.T) {
 	z := newZoo(t)
 	spec := `{"version":1,"source":"zoo.feedings","columns":[

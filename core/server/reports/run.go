@@ -561,12 +561,24 @@ type expansion struct {
 	set map[string]bool
 }
 
+// maxExpandValues bounds the values options.expand binds into one statement
+// (each key's group values and currency keys), under SQLite's limit of
+// 32,766 variables with room for the statement's other params.
+const maxExpandValues = 30000
+
 // parseExpansion reads options.expand: at most rowCap keys, since a run
-// shows no more group rows than that.
+// shows no more group rows than that, and at most maxExpandValues values.
 func parseExpansion(opts Options) (*expansion, error) {
 	e := &expansion{all: opts.ExpandAll, set: map[string]bool{}}
 	if len(opts.Expand) > runLimits.rowCap {
 		return nil, invalid("options.expand", fmt.Sprintf("a run expands at most %d groups", runLimits.rowCap))
+	}
+	values := 0
+	for _, key := range opts.Expand {
+		values += len(key)
+	}
+	if values > maxExpandValues {
+		return nil, invalid("options.expand", fmt.Sprintf("the expanded group keys hold at most %d values: expand fewer groups, or use expandAll", maxExpandValues))
 	}
 	for i, key := range opts.Expand {
 		if len(key) == 0 {
@@ -596,29 +608,40 @@ func parseExpansion(opts Options) (*expansion, error) {
 }
 
 // where matches rows whose first depth group keys and currency keys equal
-// an expanded group key.
+// an expanded group key. The keys are a VALUES list the row is looked up
+// in: an OR per key would make SQLite parse one level deeper per key (it
+// refuses past 1,000) and plan in time that grows with the square of the
+// keys.
 func (e *expansion) where(c *compiler, s *stmt, depth int, prefix string) string {
 	if e.all {
 		return "1"
 	}
-	var ors []string
+	cols := make([]string, 0, depth+len(c.currencies))
+	for i := range depth {
+		cols = append(cols, fmt.Sprintf("%sk%d", prefix, i))
+	}
+	for _, ck := range c.currencies {
+		cols = append(cols, prefix+ck)
+	}
+	var rows []string
 	for _, key := range e.keys {
-		if len(key) != depth+len(c.currencies) {
+		if len(key) != len(cols) {
 			continue
 		}
-		conds := []string{"1"}
-		for i := range depth {
-			conds = append(conds, fmt.Sprintf("%sk%d IS %s", prefix, i, s.bind(key[i])))
+		values := make([]string, len(key))
+		for i, v := range key {
+			values[i] = s.bind(v)
 		}
-		for j, ck := range c.currencies {
-			conds = append(conds, fmt.Sprintf("%s%s IS %s", prefix, ck, s.bind(key[depth+j])))
-		}
-		ors = append(ors, "("+strings.Join(conds, " AND ")+")")
+		rows = append(rows, "("+strings.Join(values, ", ")+")")
 	}
-	if len(ors) == 0 {
+	if len(rows) == 0 {
 		return "0"
 	}
-	return "(" + strings.Join(ors, " OR ") + ")"
+	match := make([]string, len(cols))
+	for i, col := range cols {
+		match[i] = fmt.Sprintf("x.column%d IS %s", i+1, col)
+	}
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM (VALUES %s) x WHERE %s)", strings.Join(rows, ", "), strings.Join(match, " AND "))
 }
 
 func (e *expansion) has(key []any) bool {
