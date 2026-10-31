@@ -17,6 +17,7 @@ import (
 
 	"tinycld.org/core/appstate"
 	"tinycld.org/core/audit"
+	"tinycld.org/core/background"
 	"tinycld.org/core/backup/archive"
 	"tinycld.org/core/backup/arm"
 	"tinycld.org/core/backup/format"
@@ -626,6 +627,7 @@ func newExpiryWatcher(app core.App, row *core.Record, src stallSource) *expiryWa
 	id := row.Id
 	go func() {
 		defer close(w.done)
+		defer background.Recover(app, "backup", "restore expiry watcher")
 		t := time.NewTicker(expiryPollInterval)
 		defer t.Stop()
 		last := src.Offset()

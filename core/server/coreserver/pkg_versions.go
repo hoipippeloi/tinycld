@@ -1,7 +1,9 @@
 package coreserver
 
 import (
+	"fmt"
 	"net/http"
+	"runtime/debug"
 	"sync"
 
 	"github.com/pocketbase/pocketbase"
@@ -68,6 +70,20 @@ func versionInfosForRows(
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// A panic in discovery becomes this row's error: it runs on its
+			// own goroutine, where a panic would end the process.
+			defer func() {
+				if p := recover(); p != nil {
+					srvLog.Error("package version discovery panicked", "slug", rec.GetString("slug"),
+						"panic", fmt.Sprint(p), "stack", string(debug.Stack()))
+					infos[i] = VersionInfo{
+						Slug:      rec.GetString("slug"),
+						Current:   rec.GetString("version"),
+						Available: []string{},
+						Error:     "version lookup failed",
+					}
+				}
+			}()
 			infos[i] = versionInfoForRegistryRow(rec, discover)
 		}(i, rec)
 	}

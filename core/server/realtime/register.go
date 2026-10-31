@@ -324,6 +324,9 @@ type connIdentity struct {
 // per-user hello payloads (e.g. role-based read-only flags) and seed
 // presence for anons.
 func runConnection(broker *Broker, opts Options, ident connIdentity, conn *websocket.Conn) {
+	// Deferred first, so it runs last: the cleanup below has already left the
+	// room and closed the socket when it stops the panic.
+	defer recoverGoroutine("connection", "kind", ident.kind, "roomID", ident.roomID)
 	kind := ident.kind
 	roomID := ident.roomID
 	ctx, cancel := context.WithCancel(context.Background())
@@ -379,6 +382,7 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		defer recoverGoroutine("connection writer", "kind", kind, "roomID", roomID)
 		writeCtx := ctx
 		ticker := time.NewTicker(opts.PingInterval)
 		defer ticker.Stop()

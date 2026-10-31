@@ -71,11 +71,18 @@ func (b *Broker) startJanitor() {
 				case <-b.stop:
 					return
 				case <-ticker.C:
-					b.evictIdle(time.Now())
+					b.sweepParked(time.Now())
 				}
 			}
 		}()
 	})
+}
+
+// sweepParked runs one janitor pass. A panic in a kind's checkpoint code ends
+// this pass only: the janitor keeps its loop, and the process keeps running.
+func (b *Broker) sweepParked(now time.Time) {
+	defer recoverGoroutine("parked-document janitor")
+	b.evictIdle(now)
 }
 
 // evictIdle checkpoints and closes every parked document idle for ParkIdle
@@ -226,6 +233,7 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer recoverGoroutine("checkpoint on suspend", "kind", t.key.kind, "roomID", t.key.id)
 			fp, err := t.opts.Fingerprint(t.key.id)
 			if err != nil {
 				log.Error("checkpoint skipped: fingerprint failed",

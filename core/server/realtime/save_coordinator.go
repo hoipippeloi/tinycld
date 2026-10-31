@@ -409,7 +409,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 		// that outlives teardownTimeout still holds the database, and the
 		// stop waits for it.
 		defer gate.leave()
-		done <- c.flush(flushCtx, driveItemID, handle)
+		done <- c.safeFlush(flushCtx, driveItemID, handle)
 	}()
 	select {
 	case err := <-done:
@@ -480,7 +480,7 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 	handle := rs.handle
 	rs.mu.Unlock()
 
-	err := c.flush(gate.ctx, driveItemID, handle)
+	err := c.safeFlush(gate.ctx, driveItemID, handle)
 	gate.leave()
 
 	rs.mu.Lock()
@@ -696,7 +696,7 @@ func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onl
 		handle := rs.handle
 		rs.mu.Unlock()
 
-		err := c.flush(ctx, driveItemID, handle)
+		err := c.safeFlush(ctx, driveItemID, handle)
 		gate.leave()
 
 		rs.mu.Lock()

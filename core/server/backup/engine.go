@@ -26,6 +26,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/audit"
+	"tinycld.org/core/background"
 	"tinycld.org/core/backup/archive"
 	"tinycld.org/core/backup/format"
 	"tinycld.org/core/backup/repo"
@@ -375,6 +376,7 @@ func newProgress(app core.App, row *core.Record, total func() int64) *progress {
 	p := &progress{stopCh: make(chan struct{}), done: make(chan struct{})}
 	go func() {
 		defer close(p.done)
+		defer background.Recover(app, "backup", "backup progress writer")
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
 		for {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/background"
 	"tinycld.org/core/readonly"
 )
 
@@ -224,8 +225,10 @@ func (s *installLogProgressSaver) scheduleTrailingSave() {
 // onTrailingTimer is the timer callback: it flushes whatever is pending. If
 // the save is skipped because read-only mode is still on, flush re-arms the
 // timer itself so the state keeps retrying on the throttle schedule until
-// writes resume — see flush.
+// writes resume — see flush. It runs on the timer's own goroutine, so a
+// panic in the save is recovered here.
 func (s *installLogProgressSaver) onTrailingTimer() {
+	defer background.Recover(s.app, "core", "install progress save")
 	s.mu.Lock()
 	if s.finalized {
 		s.mu.Unlock()

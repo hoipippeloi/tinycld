@@ -8,7 +8,8 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
-	"tinycld.org/core/appstate")
+	"tinycld.org/core/appstate"
+)
 
 // ErrStopping refuses a run on an app that is shutting down. It matches ErrBusy
 // because a caller handles it the same way: nothing was attempted, and the run
