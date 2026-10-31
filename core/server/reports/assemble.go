@@ -114,6 +114,7 @@ type tree struct {
 	totals   []map[string]any
 	computed map[string]map[string]any // by row id and currency key
 	details  map[string][]map[string]any
+	nested   []map[any][]map[string]any
 }
 
 func keyString(key []any) string {
@@ -136,8 +137,8 @@ func (rn *runner) rowKey(row map[string]any, n int) []any {
 
 func (rn *runner) currencyKey(row map[string]any) string { return keyString(rn.rowKey(row, 0)) }
 
-func (rn *runner) assemble(groupRows, details []map[string]any) {
-	t := &tree{children: map[string][]map[string]any{}, computed: map[string]map[string]any{}, details: map[string][]map[string]any{}}
+func (rn *runner) assemble(groupRows, details []map[string]any, nested []map[any][]map[string]any) {
+	t := &tree{children: map[string][]map[string]any{}, computed: map[string]map[string]any{}, details: map[string][]map[string]any{}, nested: nested}
 	for _, row := range groupRows {
 		n := int(toInt(row["__level"]))
 		switch {
@@ -223,10 +224,13 @@ func (rn *runner) groupWithLabel(t *tree, row map[string]any, n int, section, id
 	}
 }
 
-// detail emits a detail row.
+// detail emits a detail row and the child rows nested under it.
 func (rn *runner) detail(t *tree, row map[string]any, section string, depth int) {
 	id := fmt.Sprintf("d:%v", row["__id"])
 	rn.push(Row{ID: id, Kind: KindDetail, Depth: depth, Label: rn.firstLabel(rn.c.p.cols, row), Section: section, Cells: rn.cells(row)})
+	if len(t.nested) > 0 {
+		rn.nestedRows(t, 0, row["__n0"], id, section, depth+1)
+	}
 }
 
 // cells maps a statement row's v<idx> and pv<j> values to column ids, with each

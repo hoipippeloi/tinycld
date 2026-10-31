@@ -238,9 +238,13 @@ func (rn *runner) run() error {
 	if err := rn.detailTypes(); err != nil {
 		return err
 	}
+	nested, err := rn.nestPass(details)
+	if err != nil {
+		return err
+	}
 	rn.res.Columns = rn.columns()
 	rn.markCurrencies(groupRows)
-	rn.assemble(groupRows, details)
+	rn.assemble(groupRows, details, nested)
 	rn.res.Topics = make([]string, 0, len(rn.topics))
 	for t := range rn.topics {
 		rn.res.Topics = append(rn.res.Topics, t)
@@ -500,6 +504,9 @@ func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
 		}
 		sel = append(sel, fmt.Sprintf("%s AS v%d", e.sql, idx))
 		c.detailTypes[cp.col.ID] = e.typ
+	}
+	if len(c.p.nest) > 0 {
+		sel = append(sel, r.nestParent()+" AS __n0")
 	}
 	return "SELECT " + strings.Join(sel, ", ") + " FROM w", order, nil
 }
