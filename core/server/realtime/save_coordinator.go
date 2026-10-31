@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/logging"
 	"tinycld.org/core/readonly"
 )
 
@@ -93,6 +95,9 @@ type FlushFn func(ctx context.Context, driveItemID string, handle DocHandle) err
 // machine that drives persistence in package consumers. One instance
 // per process, shared across all rooms of a given kind.
 type SaveCoordinator struct {
+	// app is the app the coordinator's rooms belong to: while it is
+	// read-only, saves are deferred.
+	app             core.App
 	flush           FlushFn
 	debounceEvery   time.Duration
 	ceilingEvery    time.Duration
@@ -150,16 +155,17 @@ type roomSaver struct {
 }
 
 // NewSaveCoordinator returns a SaveCoordinator with production
-// defaults. Override intervals (e.g. for tests) by mutating the
-// returned value's fields before any room is created.
+// defaults for the rooms of app. Override intervals (e.g. for tests) by
+// mutating the returned value's fields before any room is created.
 //
 // flush is called whenever a save fires. It receives the room
 // identifier (whatever ID space the room kind uses — for calc and
 // text it's a drive_items.id; other kinds may key differently) and
 // the DocHandle the broker handed us at room creation. A nil flush
 // is a programmer error; the coordinator panics on first save attempt.
-func NewSaveCoordinator(flush FlushFn) *SaveCoordinator {
+func NewSaveCoordinator(app core.App, flush FlushFn) *SaveCoordinator {
 	return &SaveCoordinator{
+		app:             app,
 		flush:           flush,
 		debounceEvery:   DefaultDebounceInterval,
 		ceilingEvery:    DefaultCeilingInterval,
@@ -167,7 +173,7 @@ func NewSaveCoordinator(flush FlushFn) *SaveCoordinator {
 		maxAttempts:     DefaultMaxSaveAttempts,
 		logger:          log,
 		backoff:         RetryBackoff,
-		captureGiveUp:   captureGiveUpToSentry,
+		captureGiveUp:   func(d giveUpDetail) { captureGiveUpToSentry(app, d) },
 		rooms:           map[string]*roomSaver{},
 	}
 }
@@ -367,7 +373,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 	handle := rs.handle
 	rs.mu.Unlock()
 
-	if wasDirty && readonly.Active() {
+	if wasDirty && readonly.Active(c.app) {
 		// The flush writes. The broker parks the document with these
 		// edits in it, and Suspend has already stored its state for the
 		// case where this process is replaced.
@@ -403,7 +409,7 @@ func (c *SaveCoordinator) OnRoomEmpty(driveItemID string) {
 		// that outlives teardownTimeout still holds the database, and the
 		// stop waits for it.
 		defer gate.leave()
-		done <- c.flush(flushCtx, driveItemID, handle)
+		done <- c.safeFlush(flushCtx, driveItemID, handle)
 	}()
 	select {
 	case err := <-done:
@@ -453,7 +459,7 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 		rs.mu.Unlock()
 		return
 	}
-	if readonly.Active() {
+	if readonly.Active(c.app) {
 		c.deferForReadOnly(driveItemID, rs)
 		rs.mu.Unlock()
 		return
@@ -474,7 +480,7 @@ func (c *SaveCoordinator) triggerSave(driveItemID, reason string) {
 	handle := rs.handle
 	rs.mu.Unlock()
 
-	err := c.flush(gate.ctx, driveItemID, handle)
+	err := c.safeFlush(gate.ctx, driveItemID, handle)
 	gate.leave()
 
 	rs.mu.Lock()
@@ -606,7 +612,7 @@ func (c *SaveCoordinator) deferForReadOnly(driveItemID string, rs *roomSaver) {
 // server is read-only it returns ErrReadOnly without flushing, and once
 // the stop has begun ErrStopping.
 func (c *SaveCoordinator) FlushNow(driveItemID string) error {
-	if readonly.Active() {
+	if readonly.Active(c.app) {
 		return ErrReadOnly
 	}
 	return c.flushRoom(context.Background(), driveItemID, false, false)
@@ -690,7 +696,7 @@ func (c *SaveCoordinator) flushRoom(ctx context.Context, driveItemID string, onl
 		handle := rs.handle
 		rs.mu.Unlock()
 
-		err := c.flush(ctx, driveItemID, handle)
+		err := c.safeFlush(ctx, driveItemID, handle)
 		gate.leave()
 
 		rs.mu.Lock()
@@ -723,9 +729,10 @@ type giveUpDetail struct {
 // Capturing the underlying flush error (rather than a synthetic message)
 // preserves Sentry's grouping by error value, so all give-ups sharing a
 // root cause (e.g. one unrepresentable document) collapse into a single
-// issue. No-op when the Sentry SDK has no DSN configured (dev).
-func captureGiveUpToSentry(d giveUpDetail) {
-	hub := sentry.CurrentHub().Clone()
+// issue. It reports on app's own hub. No-op when that hub has no DSN
+// configured (dev).
+func captureGiveUpToSentry(app core.App, d giveUpDetail) {
+	hub := logging.Hub(app).Clone()
 	hub.WithScope(func(scope *sentry.Scope) {
 		scope.SetLevel(sentry.LevelError)
 		scope.SetTag("realtime.give_up", "true")

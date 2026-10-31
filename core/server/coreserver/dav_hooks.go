@@ -3,6 +3,7 @@ package coreserver
 import (
 	"github.com/grafana/sobek"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
 
 	"tinycld.org/core/davhooks"
@@ -33,27 +34,27 @@ func (a hookPointAdapter) Call(payload map[string]any) (any, bool, error) {
 }
 
 // davHostBindings returns the host surface the DAV protocol packages need to
-// register TS handlers against this app's hook registry. webdav and caldav
-// alias the same davhooks.HostBindings type, so one builder serves both; the
-// two named constructors below are what feature packages call.
-func davHostBindings() davhooks.HostBindings {
+// register TS handlers against app's hook registry. webdav and caldav alias
+// the same davhooks.HostBindings type, so one builder serves both; the two
+// named constructors below are what feature packages call.
+func davHostBindings(app core.App) davhooks.HostBindings {
 	return davhooks.HostBindings{
 		Point: func(name string) davhooks.TSHookPoint {
-			return hookPointAdapter{hp: RegisterHookPoint(name)}
+			return hookPointAdapter{hp: RegisterHookPoint(app, name)}
 		},
 		AddHandler: func(name string, fn jsvm.Callable) {
-			RegisterHookPoint(name).Add(fn)
+			RegisterHookPoint(app, name).Add(fn)
 		},
 		RegisterLoaderBinder: func(b func(*sobek.Runtime, jsvm.Compiler, *pocketbase.PocketBase) error) {
-			RegisterLoaderBinder(LoaderBinder(b))
+			RegisterLoaderBinder(app, LoaderBinder(b))
 		},
 	}
 }
 
 // WebDAVHostBindings returns the host surface core/webdav needs to register TS
-// handlers against this app's hook registry.
-func WebDAVHostBindings() davhooks.HostBindings { return davHostBindings() }
+// handlers against app's hook registry.
+func WebDAVHostBindings(app core.App) davhooks.HostBindings { return davHostBindings(app) }
 
 // CalDAVHostBindings returns the host surface core/caldav needs to register TS
-// handlers against this app's hook registry.
-func CalDAVHostBindings() davhooks.HostBindings { return davHostBindings() }
+// handlers against app's hook registry.
+func CalDAVHostBindings(app core.App) davhooks.HostBindings { return davHostBindings(app) }

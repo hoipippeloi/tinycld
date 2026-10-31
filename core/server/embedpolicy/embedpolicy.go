@@ -21,6 +21,10 @@ package embedpolicy
 import (
 	"net/http"
 	"sync"
+
+	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/appstate"
 )
 
 // Resolver answers "may this request's page be framed, and by whom?".
@@ -36,22 +40,34 @@ import (
 // lookup at most. The request is read-only.
 type Resolver func(r *http.Request) []string
 
-var (
-	mu        sync.RWMutex
-	resolvers []Resolver
-)
+// resolvers is one app's registered resolvers. Each app keeps its own: a
+// resolver looks the request up in its app's database, so running it for
+// another app's request would read the wrong data and could grant framing on
+// a token that only exists there.
+type resolvers struct {
+	mu   sync.RWMutex
+	list []Resolver
+}
 
-// Register adds a resolver. Called from a package's Register(app) at startup.
-func Register(fn Resolver) {
+var resolversKey = appstate.NewKey[*resolvers]("embedpolicy.resolvers")
+
+func resolversFor(app core.App) *resolvers {
+	return resolversKey.GetOrInit(app, func() *resolvers { return &resolvers{} })
+}
+
+// Register adds a resolver for app. Called from a package's Register(app).
+func Register(app core.App, fn Resolver) {
 	if fn == nil {
 		return
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	resolvers = append(resolvers, fn)
+	r := resolversFor(app)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.list = append(r.list, fn)
 }
 
-// FrameAncestors returns the CSP `frame-ancestors` value for a request.
+// FrameAncestors returns the CSP `frame-ancestors` value for a request app
+// serves, asking only app's resolvers.
 //
 // Always returns a complete, non-empty directive value, so the caller can
 // write it unconditionally and cannot accidentally omit the header on the path
@@ -61,11 +77,12 @@ func Register(fn Resolver) {
 // FIRST claim wins, and a claim is not re-checked against later resolvers: two
 // packages cannot both own one URL, and consulting the rest could only widen
 // what the first one decided.
-func FrameAncestors(r *http.Request) string {
-	mu.RLock()
-	defer mu.RUnlock()
+func FrameAncestors(app core.App, r *http.Request) string {
+	res := resolversFor(app)
+	res.mu.RLock()
+	defer res.mu.RUnlock()
 
-	for _, fn := range resolvers {
+	for _, fn := range res.list {
 		if origins := fn(r); len(origins) > 0 {
 			return joinOrigins(origins)
 		}
@@ -90,11 +107,4 @@ func joinOrigins(origins []string) string {
 		out += origin
 	}
 	return out
-}
-
-// ResetForTesting clears the registry.
-func ResetForTesting() {
-	mu.Lock()
-	defer mu.Unlock()
-	resolvers = nil
 }

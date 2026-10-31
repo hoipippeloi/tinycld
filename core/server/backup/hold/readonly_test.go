@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/readonly"
 )
 
@@ -15,8 +16,9 @@ func TestLeaseKeepsRenewingWhileReadOnly(t *testing.T) {
 	prev := renewInterval
 	renewInterval = 10 * time.Millisecond
 	t.Cleanup(func() { renewInterval = prev })
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	base := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	var calls atomic.Int64

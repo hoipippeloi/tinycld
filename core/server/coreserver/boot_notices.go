@@ -29,7 +29,7 @@ func startBootNotices(app core.App, mail bootMailFn) {
 	background.For(app, "coreserver").Run("boot notices", func(jobCtx context.Context) {
 		ctx, cancel := context.WithTimeout(jobCtx, readonly.TailWait)
 		defer cancel()
-		err := readonly.WhenWritable(ctx, func() error {
+		err := readonly.WhenWritable(ctx, app, func() error {
 			reportUnrestored(jobCtx, app, mail)
 			reconcileAutoUpgradeResults(app, time.Now(), func(n notice) {
 				// send logs each failure; a blocked-upgrade notice is not retried.

@@ -150,3 +150,49 @@ func TestClearBootstrap_StopsTheNotifyWatcher(t *testing.T) {
 		}
 	}
 }
+
+// notifyGuards is keyed by app. A process that opens and closes many apps
+// must not keep a guard for every app it ever ran.
+func TestNotifyGuard_ForgottenAfterTerminate(t *testing.T) {
+	app := NewBaseApp(BaseAppConfig{DataDir: t.TempDir()})
+	if err := app.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := notifyGuards.Load(app); !ok {
+		t.Fatal("a bootstrapped app has no notify guard")
+	}
+
+	event := &TerminateEvent{}
+	event.App = app
+	if err := app.OnTerminate().Trigger(event, func(e *TerminateEvent) error {
+		return e.App.ClearBootstrap()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := notifyGuards.Load(app); ok {
+		t.Fatal("the notify guard outlived the app's terminate")
+	}
+}
+
+// A restart's terminate bootstraps the app again when execve fails, so it
+// must keep the guard the watcher reads.
+func TestNotifyGuard_KeptAcrossARestartsTerminate(t *testing.T) {
+	app := NewBaseApp(BaseAppConfig{DataDir: t.TempDir()})
+	if err := app.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.ClearBootstrap() })
+
+	event := &TerminateEvent{}
+	event.App = app
+	event.IsRestart = true
+	if err := app.OnTerminate().Trigger(event, func(e *TerminateEvent) error {
+		_ = e.App.ClearBootstrap()
+		return e.App.Bootstrap()
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !notifyLive(app) {
+		t.Fatal("the app was bootstrapped again, but its notify guard says it is not")
+	}
+}

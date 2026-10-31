@@ -6,12 +6,11 @@ import (
 	"sync"
 
 	"github.com/mrz1836/postmark"
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/maildomains"
-	"tinycld.org/core/mailer"
 	"tinycld.org/core/syscfg"
 )
 
@@ -32,13 +31,20 @@ type SystemConfig struct {
 	onChange []func(key, value string)
 }
 
-// systemConfig is the process-wide instance, constructed by RegisterSystemConfig
-// and read by subsystems (sentry.go, push, mail) via SystemSettings().
-var systemConfig = &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+// systemConfigKey holds each app's SystemConfig: the values of that app's own
+// system_settings collection and the change callbacks of that app's
+// consumers. Kept on the app so that one app's settings, secret flags and
+// callbacks never reach another app in the process.
+var systemConfigKey = appstate.NewKey[*SystemConfig]("coreserver.systemConfig")
 
-// SystemSettings returns the process-wide SystemConfig. Always non-nil; before
-// load() runs (i.e. before the DB is ready) every Get returns "".
-func SystemSettings() *SystemConfig { return systemConfig }
+// SystemSettings returns app's SystemConfig, read by subsystems (sentry.go,
+// push, mail, backup repository). Always non-nil; before load() runs (i.e.
+// before the DB is ready) every Get returns "".
+func SystemSettings(app core.App) *SystemConfig {
+	return systemConfigKey.GetOrInit(app, func() *SystemConfig {
+		return &SystemConfig{values: map[string]string{}, secret: map[string]bool{}}
+	})
+}
 
 // Get returns the current value for key, or "" if unset. Pure in-memory read.
 func (c *SystemConfig) Get(key string) string {
@@ -135,7 +141,7 @@ func (c *SystemConfig) set(key, value string, isSecret bool) {
 // no protection at all. A hand-placed check at each call site is not a boundary;
 // this is.
 func refuseManagedWrite(e *core.RecordEvent) error {
-	if syscfg.IsManaged(e.Record.GetString("key")) {
+	if syscfg.IsManaged(e.App, e.Record.GetString("key")) {
 		return apis.NewForbiddenError(
 			"This setting is managed by the server's operator and cannot be changed here.", nil)
 	}
@@ -146,13 +152,15 @@ func refuseManagedWrite(e *core.RecordEvent) error {
 // once the server starts, init the consumers that depend on them, and keep the
 // in-memory map in sync as rows are created or updated. Edits take effect without
 // a restart — re-init handlers registered via OnChange run on each change.
-func RegisterSystemConfig(app *pocketbase.PocketBase) {
-	// Point the syscfg seam at this collection, and the mailer at the seam.
+func RegisterSystemConfig(app core.App) {
+	cfg := SystemSettings(app)
+
+	// Point app's syscfg seam at this collection; the mailer reads through it.
 	// The resolver reads lazily (per-send), so it's safe to set here before the
 	// OnServe load — Get returns "" until then, and sends only happen well
 	// after boot.
 	//
-	// SetResolver is inert once a supervising composition has claimed the seam,
+	// SetResolver is inert once a supervising composition has claimed app's seam,
 	// so this cannot hand administration back to a deployment whose operator
 	// owns these values. Called unconditionally because the claim, not the
 	// caller, is what decides.
@@ -161,20 +169,16 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// whose config failed to load claims the seam managing nothing yet, and
 	// treating that as unclaimed would silently restore the org's own
 	// collection — the precise fallback the supervisor exists to prevent.
-	syscfg.SetResolver(systemConfig.Get)
-	wireMailDomains(func() string { return app.Settings().Meta.AppName })
-	// syscfg, not systemConfig.Get, is what keeps the mailer out of an import
-	// cycle with this package (mailer can't import coreserver).
-	mailer.ConfigResolver = syscfg.Get
-	mailer.ServerTokenResolver = maildomains.ServerToken
+	syscfg.SetResolver(app, cfg.Get)
+	wireMailDomains(app)
 
 	// Re-init Sentry whenever a sentry.* value changes. Registered before the
 	// initial load so no early change is missed. Sentry is the only stateful
 	// consumer; push reads VAPID per-send and mail builds its provider per-call,
 	// so both pick up changes via Get without a re-init handler.
-	systemConfig.OnChange(func(key, _ string) {
+	cfg.OnChange(func(key, _ string) {
 		if strings.HasPrefix(key, "sentry.") {
-			initSentryFromConfig()
+			initSentryFromConfig(app)
 		}
 	})
 
@@ -184,8 +188,8 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	// bound (registerSharedMiddleware); this supplies the client the middleware
 	// reports to.
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
-		systemConfig.load(app)
-		initSentryFromConfig()
+		cfg.load(app)
+		initSentryFromConfig(app)
 		return e.Next()
 	})
 
@@ -209,7 +213,7 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 	app.OnRecordDelete("system_settings").BindFunc(refuseManagedWrite)
 
 	syncRow := func(e *core.RecordEvent) error {
-		systemConfig.set(
+		cfg.set(
 			e.Record.GetString("key"),
 			e.Record.GetString("value"),
 			e.Record.GetBool("is_secret"),
@@ -225,10 +229,10 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 // account token — and installs the server-token source every sender asks.
 //
 // Called synchronously from RegisterSystemConfig, which runs BEFORE
-// systemConfig.load(app) (that happens later, in an OnServe hook — see the
-// comment above). So syscfg.Get("mail.postmark_account_token") returns "" at
+// SystemSettings(app).load(app) (that happens later, in an OnServe hook — see the
+// comment above). So syscfg.Get(app, "mail.postmark_account_token") returns "" at
 // the moment this function runs. That is fine ONLY because every consumer is
-// given an accessor, not a value: the registrar re-reads syscfg.Get on every
+// given an accessor, not a value: the registrar re-reads syscfg.Get(app, …) on every
 // AddDomain/GetDomain call, and the token source rebuilds its resolver
 // whenever the settings it keys on change, long after load() has populated
 // the map. Do not "simplify" this back to reading the token once here and
@@ -244,18 +248,18 @@ func RegisterSystemConfig(app *pocketbase.PocketBase) {
 // the org the account credentials the supervisor exists to keep from it.
 // SetResolver enforces this itself; the early return is so we do not build a
 // client we will discard.
-func wireMailDomains(orgName func() string) {
-	// Installed whether or not the seam is claimed: every sender asks this
+func wireMailDomains(app core.App) {
+	// Installed whether or not app's seam is claimed: every sender asks this
 	// source, and a supervising composition satisfies it by shipping the org
 	// a configured server token, which the source returns without deriving.
 	// Skipping it there would leave senders with no token at all.
-	maildomains.SetServerTokenSource(newServerTokenSource(orgName))
-	if maildomains.IsClaimed() {
+	maildomains.SetServerTokenSource(app, newServerTokenSource(app))
+	if maildomains.IsClaimed(app) {
 		return
 	}
-	client := postmark.NewClient(syscfg.Get("mail.postmark_server_token"), syscfg.Get("mail.postmark_account_token"))
-	accountToken := func() string { return syscfg.Get("mail.postmark_account_token") }
-	maildomains.SetResolver(maildomains.NewPostmarkRegistrar(accountToken, client))
+	client := postmark.NewClient(syscfg.Get(app, "mail.postmark_server_token"), syscfg.Get(app, "mail.postmark_account_token"))
+	accountToken := func() string { return syscfg.Get(app, "mail.postmark_account_token") }
+	maildomains.SetResolver(app, maildomains.NewPostmarkRegistrar(accountToken, client))
 }
 
 // serverTokenInputs is everything the derived server token depends on. A
@@ -267,9 +271,9 @@ type serverTokenInputs struct {
 
 // newServerTokenSource memoizes one TokenResolver per set of inputs, so the
 // derived token is fetched once and served from cache on every later send.
-// orgName is read per call: the organization is named in the setup wizard,
+// The organization name is read per call: it is named in the setup wizard,
 // after boot, and the Postmark server takes that name when it is created.
-func newServerTokenSource(orgName func() string) func(context.Context) (string, error) {
+func newServerTokenSource(app core.App) func(context.Context) (string, error) {
 	var (
 		mu       sync.Mutex
 		inputs   serverTokenInputs
@@ -277,12 +281,12 @@ func newServerTokenSource(orgName func() string) func(context.Context) (string, 
 	)
 	return func(ctx context.Context) (string, error) {
 		now := serverTokenInputs{
-			accountToken:    syscfg.Get("mail.postmark_account_token"),
-			configuredToken: syscfg.Get("mail.postmark_server_token"),
-			serverName:      syscfg.Get("mail.postmark_server_name"),
+			accountToken:    syscfg.Get(app, "mail.postmark_account_token"),
+			configuredToken: syscfg.Get(app, "mail.postmark_server_token"),
+			serverName:      syscfg.Get(app, "mail.postmark_server_name"),
 			// The server is created under the organization's name, so it is
 			// recognizable in the Postmark account.
-			createAs: orgName(),
+			createAs: app.Settings().Meta.AppName,
 		}
 		mu.Lock()
 		if resolver == nil || now != inputs {

@@ -32,7 +32,7 @@ func handleRevert(app *pocketbase.PocketBase, re *core.RequestEvent) error {
 
 	job := installjob.New("revert", "", "")
 	job.BuildID = body.BuildID
-	if busy, ok := installjob.Claim(job); !ok {
+	if busy, ok := installjob.Claim(app, job); !ok {
 		return re.JSON(http.StatusConflict, map[string]any{
 			"error":      "Another operation is in progress",
 			"currentJob": busy.Info(),

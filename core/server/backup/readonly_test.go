@@ -68,12 +68,12 @@ func TestProgressSkipsItsSaveWhileReadOnly(t *testing.T) {
 	var ticks atomic.Int64
 	saves := saveTicks(app, row.Id, &ticks)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 	// Tick 1 runs while read-only; tick 2 ends the mode before its check.
 	progressTickForTesting = func() {
 		if ticks.Add(1) == 2 {
-			readonly.Leave()
+			readonly.Leave(app)
 		}
 	}
 	t.Cleanup(func() { progressTickForTesting = nil })
@@ -110,14 +110,14 @@ func TestExpiryWatcherSkipsItsSaveWhileReadOnly(t *testing.T) {
 	var ticks atomic.Int64
 	saves := saveTicks(app, row.Id, &ticks)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 	// The stall is reached at tick expiryStallPolls, while read-only; the
 	// mode ends two ticks later.
 	leaveAt := int64(expiryStallPolls + 2)
 	expiryTickForTesting = func() {
 		if ticks.Add(1) == leaveAt {
-			readonly.Leave()
+			readonly.Leave(app)
 		}
 	}
 	t.Cleanup(func() { expiryTickForTesting = nil })

@@ -6,7 +6,10 @@ import (
 
 	"github.com/grafana/sobek"
 	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
+
+	"tinycld.org/core/appstate"
 )
 
 // The Go→TS hook-point seam.
@@ -54,33 +57,50 @@ type HookPoint struct {
 	handlers []jsvm.Callable
 }
 
-var (
-	hookPointsMu sync.RWMutex
-	hookPoints   = map[string]*HookPoint{}
-)
+// hookRegistry is one app's hook points and loader binders. A TS handler is
+// compiled on the loader VM of the app whose hook files registered it, and it
+// runs on that app's executor pool with that app's $app. Only that app may
+// reach it: a process-wide registry would run one app's handler for every app
+// in the process.
+type hookRegistry struct {
+	mu      sync.RWMutex
+	points  map[string]*HookPoint
+	binders []LoaderBinder
+}
 
-// RegisterHookPoint declares a hook point by name and returns it. Calling it
-// twice with the same name returns the same HookPoint, so a package and its
-// host can both reach a point without ordering constraints.
+var hookRegistryKey = appstate.NewKey[*hookRegistry]("coreserver.hooks")
+
+func hooksOf(app core.App) *hookRegistry {
+	return hookRegistryKey.GetOrInit(app, func() *hookRegistry {
+		return &hookRegistry{points: map[string]*HookPoint{}}
+	})
+}
+
+// RegisterHookPoint declares a hook point by name on app and returns it.
+// Calling it twice with the same app and name returns the same HookPoint, so a
+// package and its host can both reach a point without ordering constraints.
+// Another app gets its own point under the same name.
 //
-// Declare points at init/Register time; the returned pointer is stable.
-func RegisterHookPoint(name string) *HookPoint {
-	hookPointsMu.Lock()
-	defer hookPointsMu.Unlock()
+// Declare points at Register time; the returned pointer is stable.
+func RegisterHookPoint(app core.App, name string) *HookPoint {
+	r := hooksOf(app)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	if existing, ok := hookPoints[name]; ok {
+	if existing, ok := r.points[name]; ok {
 		return existing
 	}
 	hp := &HookPoint{name: name}
-	hookPoints[name] = hp
+	r.points[name] = hp
 	return hp
 }
 
-// LookupHookPoint returns a previously registered hook point, or nil.
-func LookupHookPoint(name string) *HookPoint {
-	hookPointsMu.RLock()
-	defer hookPointsMu.RUnlock()
-	return hookPoints[name]
+// LookupHookPoint returns a hook point previously registered on app, or nil.
+func LookupHookPoint(app core.App, name string) *HookPoint {
+	r := hooksOf(app)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.points[name]
 }
 
 // Name returns the hook point's registered name.
@@ -141,33 +161,22 @@ func (h *HookPoint) Call(payload map[string]any) (HookResult, error) {
 	return out, nil
 }
 
-// resetHookPointsForTesting clears the registry. Tests that register their own
-// points need a clean slate per case.
-func resetHookPointsForTesting() {
-	hookPointsMu.Lock()
-	defer hookPointsMu.Unlock()
-	hookPoints = map[string]*HookPoint{}
-}
-
 // LoaderBinder installs loader-only bindings — the ones that REGISTER a TS
 // handler against a hook point. Unlike JSVMBinder (which runs per VM), this
 // runs once, on the hooks loader runtime, and receives a compiler that turns a
 // JS handler into a Go-callable closure.
 type LoaderBinder func(loader *sobek.Runtime, compile jsvm.Compiler, app *pocketbase.PocketBase) error
 
-var (
-	loaderBindersMu sync.RWMutex
-	loaderBinders   []LoaderBinder
-)
-
-// RegisterLoaderBinder adds a binder invoked once on the hooks loader VM. Call
-// it from a sub-package's Register(app). Like RegisterJSVMBinder, this must
-// happen BEFORE jsvm.Register — the hook files execute synchronously inside it,
-// so a binding registered later would not exist when a .pb.ts calls it.
-func RegisterLoaderBinder(b LoaderBinder) {
-	loaderBindersMu.Lock()
-	defer loaderBindersMu.Unlock()
-	loaderBinders = append(loaderBinders, b)
+// RegisterLoaderBinder adds a binder invoked once on app's hooks loader VM.
+// Call it from a sub-package's Register(app). Like RegisterJSVMBinder, this
+// must happen BEFORE jsvm.Register — the hook files execute synchronously
+// inside it, so a binding registered later would not exist when a .pb.ts calls
+// it.
+func RegisterLoaderBinder(app core.App, b LoaderBinder) {
+	r := hooksOf(app)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.binders = append(r.binders, b)
 }
 
 // JSVMBindings returns the two jsvm callbacks that install core's JS seams:
@@ -182,23 +191,20 @@ func JSVMBindings(app *pocketbase.PocketBase) (func(*sobek.Runtime), jsvm.Loader
 	return BuildJsvmOnInit(app), BuildJsvmOnLoaderInit(app)
 }
 
-// resetLoaderBindersForTesting clears the binder registry.
-func resetLoaderBindersForTesting() {
-	loaderBindersMu.Lock()
-	defer loaderBindersMu.Unlock()
-	loaderBinders = nil
-}
-
-// BuildJsvmOnLoaderInit returns the jsvm.Config.OnLoaderInit callback. Mirrors
-// BuildJsvmOnInit's failure mode: a binder error panics, because a loader
-// missing its registration binding would surface later as an opaque
-// "undefined is not a function" inside hook code rather than a clear boot
-// failure.
+// BuildJsvmOnLoaderInit returns the jsvm.Config.OnLoaderInit callback. It runs
+// the binders registered on app. Mirrors BuildJsvmOnInit's failure mode: a
+// binder error panics, because a loader missing its registration binding would
+// surface later as an opaque "undefined is not a function" inside hook code
+// rather than a clear boot failure.
 func BuildJsvmOnLoaderInit(app *pocketbase.PocketBase) jsvm.LoaderInit {
 	return func(loader *sobek.Runtime, compile jsvm.Compiler) {
-		loaderBindersMu.RLock()
-		defer loaderBindersMu.RUnlock()
-		for _, b := range loaderBinders {
+		r := hooksOf(app)
+		// A copy, so a binder may register a hook point (which takes r.mu)
+		// without deadlocking against this loop.
+		r.mu.RLock()
+		binders := append([]LoaderBinder(nil), r.binders...)
+		r.mu.RUnlock()
+		for _, b := range binders {
 			if err := b(loader, compile, app); err != nil {
 				panic("coreserver: JS loader binding install failed: " + err.Error())
 			}

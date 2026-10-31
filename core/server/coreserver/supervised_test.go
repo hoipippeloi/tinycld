@@ -68,7 +68,6 @@ func supervisedFixtureWith(t *testing.T, ls map[string]net.Listener) net.Conn {
 	t.Cleanup(listeners.SetForTest(ls))
 	t.Cleanup(listeners.SetFilesForTest(map[string]*os.File{supervise.ControlFD: childEnd}))
 	t.Cleanup(closeControl)
-	t.Cleanup(readonly.Leave)
 	t.Cleanup(resetReplacementForTest)
 	t.Cleanup(drainhooks.ResetForTest)
 	return parent
@@ -346,7 +345,7 @@ func TestSupervisedControlCloseKeepsServing(t *testing.T) {
 		t.Fatal("the closed control socket started a drain")
 	default:
 	}
-	if readonly.Active() {
+	if readonly.Active(app) {
 		t.Fatal("the closed control socket made the server read-only")
 	}
 }
@@ -369,7 +368,8 @@ func TestSupervisedFixtureClosesTheControlConn(t *testing.T) {
 	var conn net.Conn
 	t.Run("supervised", func(t *testing.T) {
 		supervisedFixture(t)
-		registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+		app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+		registerSupervised(app)
 		if c := currentControl(); c != nil {
 			conn, _ = c.conn.(net.Conn)
 		}
@@ -451,9 +451,10 @@ func TestSupervisedRestartWithoutAckExits75(t *testing.T) {
 	notDevelopment(t)
 	shortAckTimeout(t)
 	exits := recordExit(t)
-	registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	registerSupervised(app)
 
-	requestRestart(false)
+	requestRestart(app, false)
 	if got := recvLine(t, parent, bufio.NewReader(parent)); got != `{"type":"restart","version":1}` {
 		t.Fatalf("control message = %q", got)
 	}
@@ -469,10 +470,11 @@ func TestSupervisedRestartBeforeReadyIsAcked(t *testing.T) {
 	notDevelopment(t)
 	shortAckTimeout(t)
 	exits := recordExit(t)
-	registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	registerSupervised(app)
 	lines := ackRestarts(t, parent)
 
-	if !requestRestart(false) {
+	if !requestRestart(app, false) {
 		t.Fatal("restart not under way")
 	}
 	if got := nextLine(t, lines); got != `{"type":"restart","version":1}` {
@@ -487,10 +489,11 @@ func TestSupervisedRequestRestartSendsAndKeepsServing(t *testing.T) {
 	_, parent := supervisedFixture(t)
 	notDevelopment(t)
 	exits := recordExit(t)
-	registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	registerSupervised(app)
 	lines := ackRestarts(t, parent)
 
-	if !requestRestart(false) {
+	if !requestRestart(app, false) {
 		t.Fatal("requestRestart under a supervisor did not report the restart under way")
 	}
 	if got := nextLine(t, lines); got != `{"type":"restart","version":1}` {
@@ -499,7 +502,7 @@ func TestSupervisedRequestRestartSendsAndKeepsServing(t *testing.T) {
 	if len(*exits) != 0 {
 		t.Fatalf("requestRestart exited %v under a supervisor", *exits)
 	}
-	if !readonly.Active() {
+	if !readonly.Active(app) {
 		t.Fatal("a process that asked to be replaced must stop writing")
 	}
 }
@@ -528,12 +531,13 @@ func TestSupervisedBackupRestoreRestartIsCold(t *testing.T) {
 }
 
 func TestRequestRestartWithoutSupervisorExits75(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	notDevelopment(t)
 	exits := recordExit(t)
 	if listeners.Supervised() {
 		t.Fatal("test process is supervised")
 	}
-	requestRestart(false)
+	requestRestart(app, false)
 	if len(*exits) != 1 || (*exits)[0] != restartExitCode {
 		t.Fatalf("exits = %v, want [%d]", *exits, restartExitCode)
 	}
@@ -550,13 +554,13 @@ func TestSupervisedRestartWithoutControlSocketExits75(t *testing.T) {
 	t.Cleanup(func() { l.Close() })
 	t.Cleanup(listeners.SetForTest(map[string]net.Listener{supervise.ListenerHTTP: l}))
 	t.Cleanup(func() { setControl(nil) })
-	t.Cleanup(readonly.Leave)
 	t.Cleanup(resetReplacementForTest)
 	notDevelopment(t)
 	exits := recordExit(t)
-	registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	registerSupervised(app)
 
-	requestRestart(false)
+	requestRestart(app, false)
 	if len(*exits) != 1 || (*exits)[0] != restartExitCode {
 		t.Fatalf("exits = %v, want [%d]", *exits, restartExitCode)
 	}
@@ -567,16 +571,17 @@ func TestSupervisedRebuildIsReadOnlyFromTheBackup(t *testing.T) {
 	for _, failAt := range []string{"", "backup", "migrate", "activate"} {
 		t.Run("fail="+failAt, func(t *testing.T) {
 			t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
-			t.Cleanup(readonly.Leave)
 			var restored, restarted bool
 			var atPipeline, atBackup bool
+			app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 			deps := happyDeps(&restored, &restarted)
+			deps.app = app
 			deps.pipeline = func(*installjob.Job, string) (buildOutput, error) {
-				atPipeline = readonly.Active()
+				atPipeline = readonly.Active(app)
 				return buildOutput{}, nil
 			}
 			deps.backupDB = func() error {
-				atBackup = readonly.Active()
+				atBackup = readonly.Active(app)
 				if failAt == "backup" {
 					return errors.New("disk full")
 				}
@@ -600,10 +605,10 @@ func TestSupervisedRebuildIsReadOnlyFromTheBackup(t *testing.T) {
 			if !atBackup {
 				t.Fatal("the backup ran while writes were still accepted")
 			}
-			if failAt == "" && !readonly.Active() {
+			if failAt == "" && !readonly.Active(app) {
 				t.Fatal("a rebuild that asked for a restart left read-only mode")
 			}
-			if failAt != "" && readonly.Active() {
+			if failAt != "" && readonly.Active(app) {
 				t.Fatalf("a rebuild that failed at %s left the server read-only", failAt)
 			}
 		})
@@ -612,15 +617,16 @@ func TestSupervisedRebuildIsReadOnlyFromTheBackup(t *testing.T) {
 
 func TestUnsupervisedRebuildNeverReadOnly(t *testing.T) {
 	t.Setenv("TINYCLD_STATE_DIR", t.TempDir())
-	t.Cleanup(readonly.Leave)
 	var restored, restarted, atBackup bool
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	deps := happyDeps(&restored, &restarted)
-	deps.backupDB = func() error { atBackup = readonly.Active(); return nil }
+	deps.app = app
+	deps.backupDB = func() error { atBackup = readonly.Active(app); return nil }
 	job := &installjob.Job{ID: "j", Done: make(chan struct{})}
 	if err := rebuildWith(job, RebuildManifest{BuildID: "build-plain"}, deps); err != nil {
 		t.Fatal(err)
 	}
-	if atBackup || readonly.Active() {
+	if atBackup || readonly.Active(app) {
 		t.Fatal("an unsupervised rebuild entered read-only mode")
 	}
 }
@@ -633,28 +639,29 @@ func TestSupervisedRestartHoldsTheInterlockAndReadOnly(t *testing.T) {
 	_, parent := supervisedFixture(t)
 	notDevelopment(t)
 	recordExit(t)
-	registerSupervised(core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()}))
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	registerSupervised(app)
 	lines := ackRestarts(t, parent)
 
 	restarting := installjob.New("install", "acme", "")
-	if _, ok := installjob.Claim(restarting); !ok {
+	if _, ok := installjob.Claim(app, restarting); !ok {
 		t.Fatal("claim on an idle interlock lost")
 	}
-	if !requestRestart(false) {
+	if !requestRestart(app, false) {
 		t.Fatal("restart not under way")
 	}
 	nextLine(t, lines)
 	finishJob(restarting)
 
-	if _, ok := installjob.Claim(installjob.New("backup", "", "")); ok {
+	if _, ok := installjob.Claim(app, installjob.New("backup", "", "")); ok {
 		t.Fatal("a new job claimed the interlock after this process asked to be replaced")
 	}
-	if !installjob.Running() {
+	if !installjob.Running(app) {
 		t.Fatal("the auto-upgrade tick would see an idle interlock")
 	}
 
-	pauseWritesForBackup()()
-	if !readonly.Active() {
+	pauseWritesForBackup(app)()
+	if !readonly.Active(app) {
 		t.Fatal("a failure path re-opened writes after this process asked to be replaced")
 	}
 }
@@ -662,14 +669,15 @@ func TestSupervisedRestartHoldsTheInterlockAndReadOnly(t *testing.T) {
 // Without a supervisor the process exits on a restart, so nothing is held; a
 // dev-mode restart that does nothing must not wedge the interlock either.
 func TestUnsupervisedRestartHoldsNothing(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	t.Cleanup(resetReplacementForTest)
 	recordExit(t)
-	requestRestart(false) // dev mode: the test binary runs from the temp dir
+	requestRestart(app, false) // dev mode: the test binary runs from the temp dir
 	notDevelopment(t)
-	requestRestart(false)
+	requestRestart(app, false)
 
 	job := installjob.New("backup", "", "")
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		t.Fatal("an unsupervised restart left the interlock held")
 	}
 	installjob.Release(job)
@@ -677,7 +685,6 @@ func TestUnsupervisedRestartHoldsNothing(t *testing.T) {
 
 func resetReplacementForTest() {
 	beingReplaced.Store(false)
-	installjob.ResetForTesting()
 }
 
 // A package that serves its own port must stop accepting when the drain
@@ -707,10 +714,10 @@ func TestSupervisedDrainRunsBeginHandlersFirst(t *testing.T) {
 	}()
 	<-inFlight
 
-	drainhooks.OnBegin("acme-listeners", func() { close(release) })
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	drainhooks.OnBegin(app, "acme-listeners", func() { close(release) })
 	d := &drain{drainer: dr, requested: true}
 	done := make(chan struct{})
-	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 	go func() { d.shutdown(app); close(done) }()
 	select {
 	case <-done:

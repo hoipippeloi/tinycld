@@ -10,7 +10,7 @@ transactional email without depending on the mail feature package.
 import "tinycld.org/core/mailer"
 
 // Simple transactional email (notifications, invites, etc.)
-err := mailer.DefaultSender().Send(ctx, &mailer.Message{
+err := mailer.DefaultSender(app).Send(ctx, &mailer.Message{
     To:      []mailer.Recipient{{Name: "Holly", Email: "holly@example.com"}},
     Subject: "You've been invited",
     HTML:    "<p>Hello!</p>",
@@ -18,16 +18,17 @@ err := mailer.DefaultSender().Send(ctx, &mailer.Message{
 })
 ```
 
-`DefaultSender()` returns the configured provider, or a log-only sender when
-delivery is disabled or nothing is configured. `CanDeliver()` reports whether a
+`DefaultSender(app)` returns the configured provider, or a log-only sender when
+delivery is disabled or nothing is configured. `CanDeliver(app)` reports whether a
 real send would actually go out.
 
 ## Configuration
 
 Configuration lives in the **`system_settings`** collection (the `mail.*` keys),
 edited from the **/admin → Settings** console — there is no `os.Getenv` in the
-runtime read path. The server reads through `mailer.ConfigResolver`, which
-`coreserver` points at the in-memory `SystemConfig`. Reads happen per-send, so an
+runtime read path. The mailer reads through core's `syscfg` seam for the app a
+send belongs to; `coreserver` points each app's seam at that app's in-memory
+`SystemConfig`. Reads happen per-send, so an
 /admin edit applies on the next send without a restart.
 
 | `system_settings` key | Secret | Description |

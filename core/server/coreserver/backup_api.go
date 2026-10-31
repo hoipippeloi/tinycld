@@ -131,7 +131,7 @@ func RegisterBackupBoot(app core.App) {
 	app.OnBootstrap().BindFunc(func(e *core.BootstrapEvent) error {
 		// Before e.Next(): PocketBase opens the database inside it, and the swap
 		// renames pb_data as a whole.
-		if err := backup.ApplyPendingRestore(app.DataDir()); err != nil {
+		if err := backup.ApplyPendingRestore(app); err != nil {
 			return fmt.Errorf("apply pending restore: %w", err)
 		}
 		if err := e.Next(); err != nil {
@@ -288,9 +288,10 @@ func handleBackupCreate(app core.App, re *core.RequestEvent) error {
 		// NOT re.Request.Context(): Start runs the backup on a goroutine that
 		// outlives this handler, and net/http cancels the request context the
 		// moment the handler returns — which killed the PUT after its first
-		// bytes ("io: read/write on closed pipe"). The streamed branch above is
+		// bytes ("io: read/write on closed pipe"). The app's transfer context
+		// ends at the app's stop instead. The streamed branch above is
 		// synchronous, so it is the only one that may use the request context.
-		Sink:      format.NewPutSink(context.WithoutCancel(re.Request.Context()), body.Target),
+		Sink:      format.NewPutSink(backup.TransferContext(app), body.Target),
 		Initiator: initiator,
 		// Only the hostname reaches the ledger: a presigned target URL carries
 		// its own credentials in the query string.
@@ -631,10 +632,11 @@ func readRemoteArchive(app core.App, re *core.RequestEvent, req *backup.RestoreR
 	// The source is registered for a URL swap, so an expiring presigned link can
 	// be replaced mid-transfer instead of restarting from zero.
 	//
-	// WithoutCancel for the same reason the backup sink uses it: the URL branch
-	// of handleRestore calls StartRestore, which reads the archive on a
-	// goroutine after this handler has returned and its context is cancelled.
-	src := format.NewRangeSource(context.WithoutCancel(re.Request.Context()), body.Source)
+	// The app's transfer context for the same reason the backup sink uses it:
+	// the URL branch of handleRestore calls StartRestore, which reads the
+	// archive on a goroutine after this handler has returned and its context
+	// is cancelled.
+	src := format.NewRangeSource(backup.TransferContext(app), body.Source)
 	req.Identity, req.Source, req.Ranged = identity, src, src
 	req.Force, req.SourceHost = body.Force, backup.HostOnly(body.Source)
 	return nil
@@ -656,7 +658,7 @@ func handleRestoreSwap(re *core.RequestEvent) error {
 	if err := checkBackupTarget(body.Source); err != nil {
 		return re.BadRequestError(err.Error(), nil)
 	}
-	err := backup.SwapSource(re.Request.PathValue("id"), body.Source)
+	err := backup.SwapSource(re.App, re.Request.PathValue("id"), body.Source)
 	switch {
 	case err == nil:
 		return re.NoContent(http.StatusNoContent)

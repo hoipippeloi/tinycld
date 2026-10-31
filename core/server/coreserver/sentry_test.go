@@ -17,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 	"github.com/pocketbase/pocketbase/tools/router"
+	"tinycld.org/core/logging"
 	"tinycld.org/core/syscfg"
 )
 
@@ -368,21 +369,33 @@ func TestSentryMiddlewareCapturesDirectWriteServerError(t *testing.T) {
 }
 
 // initSentryFromConfig is safe to call with an empty or a set DSN — empty leaves
-// the SDK a no-op, a value swaps the active client. It must never panic; the boot
-// path and the on-change re-init both call it unconditionally.
+// the app's hub a no-op, a value swaps the app's client. It must never panic;
+// the boot path and the on-change re-init both call it unconditionally. It
+// binds the app's own hub and leaves the process hub alone.
 func TestInitSentryFromConfig(t *testing.T) {
-	t.Cleanup(func() { _ = sentry.Init(sentry.ClientOptions{}) }) // reset global client
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	processClient := sentry.CurrentHub().Client()
 
 	// The DSN now arrives through the syscfg seam, so drive it from there.
 	cfg := &SystemConfig{values: map[string]string{}}
-	syscfg.ResetForTesting()
-	syscfg.SetResolver(cfg.Get)
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetResolver(app, cfg.Get)
 
-	initSentryFromConfig() // empty DSN — no-op, no panic
+	initSentryFromConfig(app) // empty DSN — no-op, no panic
 
-	cfg.set("sentry.dsn", "https://abc@o1.ingest.sentry.io/1", false)
-	initSentryFromConfig() // valid-shaped DSN — swaps the client, no panic
+	const dsn = "https://abc@o1.ingest.sentry.io/1"
+	cfg.set("sentry.dsn", dsn, false)
+	initSentryFromConfig(app) // valid-shaped DSN — swaps the app's client, no panic
+
+	if got := logging.Hub(app).Client().Options().Dsn; got != dsn {
+		t.Errorf("app hub DSN = %q, want %q", got, dsn)
+	}
+	if sentry.CurrentHub().Client() != processClient {
+		t.Error("initSentryFromConfig replaced the process hub's client")
+	}
 }
 
 // The re-init wiring fires ONLY for sentry.* keys: a sentry.dsn change re-inits,

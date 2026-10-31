@@ -36,14 +36,9 @@ func newLifecycleFixture(t *testing.T, broker *Broker) *lifecycleFixture {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	registerLifecycle(app)
-	// The process-wide hooks act on the shared broker; point it at this one.
-	swapSharedBrokerForTest(t, broker)
+	t.Cleanup(drainhooks.ResetForTest)
+	attachBrokerForTest(app, broker)
+	registerLifecycle(app, broker)
 
 	f := &lifecycleFixture{app: app, broker: broker, store: NewMemoryCheckpointStore(), rt: newStubRuntime()}
 	f.opts = startTestServerWithOpts(t, broker, RoomKindOptions{
@@ -78,7 +73,7 @@ func TestDrainBeginSuspendsThenClosesGoingAway(t *testing.T) {
 	// releases the document, after which DocEpoch is 0.
 	epoch := room.DocEpoch()
 
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	expectClose(t, a.conn, websocket.StatusGoingAway)
 	cp, found, _ := f.store.Load("test", "room-d")
@@ -94,11 +89,11 @@ func TestDrainBeginSkipsSuspendWhileReadOnly(t *testing.T) {
 	a := dialClient(t, f.opts, "room-ro", "alice")
 	waitForRoomMembers(t, broker, "test", "room-ro", 1, time.Second)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 	// Enter stored the state; the drain must not write again under the pause.
 	_ = f.store.Delete("test", "room-ro")
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	expectClose(t, a.conn, websocket.StatusGoingAway)
 	if _, found, _ := f.store.Load("test", "room-ro"); found {
@@ -110,7 +105,7 @@ func TestConnectionRefusedWhileDraining(t *testing.T) {
 	broker := NewBroker()
 	t.Cleanup(broker.Close)
 	f := newLifecycleFixture(t, broker)
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(f.app)
 
 	hdr := http.Header{}
 	hdr.Set("X-Test-User", "alice")
@@ -134,13 +129,8 @@ func TestUpgradeAnswers503WhileDraining(t *testing.T) {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	resetRegistry()
-	RegisterRoomKindWith("test", RoomKindOptions{Authorize: allowAllAuth})
+	t.Cleanup(drainhooks.ResetForTest)
+	RegisterRoomKindWith(app, "test", RoomKindOptions{Authorize: allowAllAuth})
 	Register(app, Options{})
 	router, err := apis.NewRouter(app)
 	if err != nil {
@@ -168,7 +158,7 @@ func TestUpgradeAnswers503WhileDraining(t *testing.T) {
 	if res := get(); res.StatusCode == http.StatusServiceUnavailable {
 		t.Fatal("refused before any drain")
 	}
-	drainhooks.RunBegin()
+	drainhooks.RunBegin(app)
 	res := get()
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status while draining = %d; want 503", res.StatusCode)
@@ -207,8 +197,8 @@ func TestReadOnlyEnterSuspends(t *testing.T) {
 	_ = dialClient(t, f.opts, "room-e", "alice")
 	room := waitForRoomMembers(t, broker, "test", "room-e", 1, time.Second)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 	// Enter runs the hook synchronously, so the row exists on return.
 	cp, found, _ := f.store.Load("test", "room-e")
 	if !found || cp.Epoch != room.DocEpoch() {
@@ -217,21 +207,6 @@ func TestReadOnlyEnterSuspends(t *testing.T) {
 	if broker.roomCount() != 1 {
 		t.Fatal("the room was closed by the pause")
 	}
-}
-
-// swapSharedBrokerForTest makes the process-wide hooks (read-only enter,
-// terminate) act on broker for the test's duration.
-func swapSharedBrokerForTest(t *testing.T, broker *Broker) {
-	t.Helper()
-	processBrokerMu.Lock()
-	prev := processBroker
-	processBroker = broker
-	processBrokerMu.Unlock()
-	t.Cleanup(func() {
-		processBrokerMu.Lock()
-		processBroker = prev
-		processBrokerMu.Unlock()
-	})
 }
 
 var _ = strings.TrimSpace

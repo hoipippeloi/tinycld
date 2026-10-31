@@ -39,7 +39,7 @@ func TestTerminateCancelsRunningActionAndWaitsForIt(t *testing.T) {
 		made.Set("id", core.GenerateDefaultRandomId())
 		made.Set("title", "after cancel")
 		made.Set("user", u.Id)
-		err := MarkEngineWrite(req, made.Id, func() error {
+		err := MarkEngineWrite(a, req, made.Id, func() error {
 			wrote.Store(true)
 			return a.Save(made)
 		})
@@ -131,7 +131,7 @@ func TestActionWritesNothingAfterCancel(t *testing.T) {
 			made := core.NewRecord(thingsCol)
 			made.Set("id", core.GenerateDefaultRandomId())
 			made.Set("title", "stamped")
-			return MarkEngineWrite(req, made.Id, func() error {
+			return MarkEngineWrite(a, req, made.Id, func() error {
 				wrote = true
 				return a.Save(made)
 			})
@@ -168,7 +168,7 @@ func TestCoreActionsHonourTheActionContext(t *testing.T) {
 		// return would read as ended afterwards whatever its parent was.
 		var endedAtSend bool
 		original := sendEmailNow
-		sendEmailNow = func(sendCtx context.Context, _ *mailer.Message) error {
+		sendEmailNow = func(sendCtx context.Context, _ core.App, _ *mailer.Message) error {
 			endedAtSend = sendCtx.Err() != nil
 			return sendCtx.Err()
 		}

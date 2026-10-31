@@ -360,9 +360,9 @@ func TestRangeSourceGivesUpOnAStalledSource(t *testing.T) {
 	}
 }
 
-// A graceful stop must reach a transfer that is already in flight.
-func TestCancelAllEndsATransferInFlight(t *testing.T) {
-	t.Cleanup(ResetShutdownForTesting)
+// A stop of the transfer's owner, which cancels the parent context, must
+// reach a transfer that is already in flight.
+func TestCancellingTheParentEndsATransferInFlight(t *testing.T) {
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block
@@ -370,8 +370,8 @@ func TestCancelAllEndsATransferInFlight(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { close(block) })
 
-	SetShutdown(context.Background())
-	sink := NewPutSink(context.Background(), srv.URL+"/x")
+	parent, stop := context.WithCancel(context.Background())
+	sink := NewPutSink(parent, srv.URL+"/x")
 	done := make(chan error, 1)
 	go func() {
 		var err error
@@ -385,14 +385,14 @@ func TestCancelAllEndsATransferInFlight(t *testing.T) {
 		}
 		done <- err
 	}()
-	CancelAll()
+	stop()
 	select {
 	case err := <-done:
 		if err == nil {
 			t.Fatal("a cancelled transfer must report an error")
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("CancelAll did not release the transfer")
+		t.Fatal("cancelling the parent did not release the transfer")
 	}
 }
 
@@ -499,41 +499,32 @@ func TestWatchEndsOnceProgressStopsAtTheDeadline(t *testing.T) {
 	}
 }
 
-// A graceful stop must reach a repository transfer as well as an archive one.
-func TestCancelAllEndsAWatchedTransfer(t *testing.T) {
-	t.Cleanup(ResetShutdownForTesting)
-	SetShutdown(context.Background())
-	ctx, w := Watch(context.Background())
+// A stop must reach a repository transfer as well as an archive one, and is
+// not reported as a stall.
+func TestCancellingTheParentEndsAWatchedTransfer(t *testing.T) {
+	parent, stop := context.WithCancel(context.Background())
+	ctx, w := Watch(parent)
 	t.Cleanup(w.Stop)
-	life, cancel := Lifetime(context.Background())
-	t.Cleanup(cancel)
-	CancelAll()
-	for _, c := range []context.Context{ctx, life} {
-		select {
-		case <-c.Done():
-		case <-time.After(5 * time.Second):
-			t.Fatal("CancelAll did not cancel the transfer")
-		}
+	stop()
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelling the parent did not cancel the transfer")
 	}
 	if err := w.Err(ctx.Err()); errors.Is(err, ErrStalled) {
-		t.Fatal("a shutdown is not a stall")
+		t.Fatal("a stop is not a stall")
 	}
 }
 
-// A transfer begun after the stop must be cancelled the moment it is made, not
-// a scheduler tick later: a client that checks its context first would
-// otherwise start real work on a process that is going away.
-func TestATransferBegunAfterCancelAllStartsCancelled(t *testing.T) {
-	t.Cleanup(ResetShutdownForTesting)
-	SetShutdown(context.Background())
-	CancelAll()
-	ctx, w := Watch(context.Background())
+// A transfer begun after its owner stopped must be cancelled the moment it is
+// made: a client that checks its context first would otherwise start real
+// work on an app that is going away.
+func TestATransferBegunAfterTheParentEndedStartsCancelled(t *testing.T) {
+	parent, stop := context.WithCancel(context.Background())
+	stop()
+	ctx, w := Watch(parent)
 	t.Cleanup(w.Stop)
-	life, cancel := Lifetime(context.Background())
-	t.Cleanup(cancel)
-	for name, c := range map[string]context.Context{"Watch": ctx, "Lifetime": life} {
-		if c.Err() == nil {
-			t.Errorf("%s after CancelAll returned a live context", name)
-		}
+	if ctx.Err() == nil {
+		t.Error("Watch on an ended parent returned a live context")
 	}
 }

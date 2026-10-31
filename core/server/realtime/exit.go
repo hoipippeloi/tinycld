@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"tinycld.org/core/readonly"
 )
 
 // ErrStopping is what FlushNow returns once the process has begun to stop:
@@ -159,7 +157,7 @@ type liveConn struct {
 func (b *Broker) trackConn(client *Client, conn *websocket.Conn, cut context.CancelFunc) (*liveConn, bool) {
 	b.connsMu.Lock()
 	defer b.connsMu.Unlock()
-	if draining.Load() || b.gate.current() != phaseOpen {
+	if b.draining.Load() || b.gate.current() != phaseOpen {
 		return nil, false
 	}
 	lc := &liveConn{conn: conn, cut: cut, left: make(chan struct{})}
@@ -235,7 +233,7 @@ func (b *Broker) Stop(ctx context.Context, reason string) {
 	if !b.fence(budget, ctx, reason) {
 		return
 	}
-	if readonly.Active() {
+	if b.readOnly() {
 		log.Info("documents were stored when read-only began; nothing to write now", "reason", reason)
 	} else {
 		b.Suspend(budget, reason)

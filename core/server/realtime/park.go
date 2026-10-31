@@ -7,9 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	ycrdt "github.com/skyterra/y-crdt"
-
-	"tinycld.org/core/readonly"
 )
 
 // parkedDoc is a server document whose room has emptied but which the
@@ -72,11 +71,18 @@ func (b *Broker) startJanitor() {
 				case <-b.stop:
 					return
 				case <-ticker.C:
-					b.evictIdle(time.Now())
+					b.sweepParked(time.Now())
 				}
 			}
 		}()
 	})
+}
+
+// sweepParked runs one janitor pass. A panic in a kind's checkpoint code ends
+// this pass only: the janitor keeps its loop, and the process keeps running.
+func (b *Broker) sweepParked(now time.Time) {
+	defer recoverGoroutine("parked-document janitor")
+	b.evictIdle(now)
 }
 
 // evictIdle checkpoints and closes every parked document idle for ParkIdle
@@ -85,7 +91,7 @@ func (b *Broker) startJanitor() {
 // their state at Enter. Once the stop has begun it does nothing: the stop's
 // Suspend stores every parked document.
 func (b *Broker) evictIdle(now time.Time) {
-	if readonly.Active() {
+	if b.readOnly() {
 		return
 	}
 	if _, ok := b.gate.enter(false); !ok {
@@ -172,13 +178,6 @@ func restoreCheckpoint(handle DocHandle, state []byte) (ok bool) {
 	return maps.Equal(want, got) && (len(want) > 0 || bytes.Equal(state, applied))
 }
 
-// Suspend flushes every dirty room and stores every open and parked
-// document's state, for a process that is about to pause writes, drain,
-// or exit. It runs on the shared broker; see Broker.Suspend.
-func Suspend(ctx context.Context, reason string) {
-	sharedBroker().Suspend(ctx, reason)
-}
-
 // Suspend is the process-event checkpoint. Order matters: each kind's
 // FlushDirty runs first so the derived file is current, then the
 // fingerprint is read and the state stored, so the row names the file it
@@ -200,8 +199,8 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 		return
 	}
 	defer b.gate.leave()
-	for _, kind := range registeredKinds() {
-		opts, err := optionsFor(kind)
+	for _, kind := range b.registeredKinds() {
+		opts, err := b.optionsFor(kind)
 		if err != nil || opts.FlushDirty == nil {
 			continue
 		}
@@ -234,6 +233,7 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer recoverGoroutine("checkpoint on suspend", "kind", t.key.kind, "roomID", t.key.id)
 			fp, err := t.opts.Fingerprint(t.key.id)
 			if err != nil {
 				log.Error("checkpoint skipped: fingerprint failed",
@@ -247,12 +247,12 @@ func (b *Broker) Suspend(ctx context.Context, reason string) {
 	log.Info("suspended collaborative documents", "reason", reason, "checkpointed", len(targets))
 }
 
-// DropRoom forgets everything the broker holds for a room whose record is
+// DropRoom forgets everything app's broker holds for a room whose record is
 // gone: it closes a parked document and deletes the stored checkpoint. A
 // room with clients still in it is left alone; its own teardown follows
 // when they leave, and the kind's Authorize refuses new joiners.
-func DropRoom(kind, id string) error {
-	return sharedBroker().DropRoom(kind, id)
+func DropRoom(app core.App, kind, id string) error {
+	return BrokerFor(app).DropRoom(kind, id)
 }
 
 func (b *Broker) DropRoom(kind, id string) error {
@@ -263,7 +263,7 @@ func (b *Broker) DropRoom(kind, id string) error {
 	if p != nil {
 		p.close(key)
 	}
-	opts, err := optionsFor(kind)
+	opts, err := b.optionsFor(kind)
 	if err != nil || opts.Checkpoints == nil {
 		return nil
 	}

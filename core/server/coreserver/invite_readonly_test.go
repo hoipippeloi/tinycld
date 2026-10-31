@@ -45,8 +45,8 @@ func inviteNotifications(t *testing.T, app core.App, userID string) int {
 
 func TestInviteNotificationWaitsForReadOnlyToEnd(t *testing.T) {
 	app, user := inviteNotifyApp(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	probe, waiting := readonlytest.WaitProbe(t)
 	done := make(chan struct{})
@@ -65,7 +65,7 @@ func TestInviteNotificationWaitsForReadOnlyToEnd(t *testing.T) {
 		t.Fatalf("an invite notification was written while read-only: %d rows", n)
 	}
 
-	readonly.Leave()
+	readonly.Leave(app)
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -79,8 +79,8 @@ func TestInviteNotificationWaitsForReadOnlyToEnd(t *testing.T) {
 func TestInviteNotificationDroppedAndLoggedWhenReadOnlyOutlastsTheWait(t *testing.T) {
 	app, user := inviteNotifyApp(t)
 	logs := readonlytest.CaptureLogs(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

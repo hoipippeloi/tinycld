@@ -25,7 +25,7 @@ func resetBinders(t *testing.T) {
 func TestBuildJsvmOnInit_RunsBindersAndExposesCallable(t *testing.T) {
 	resetBinders(t)
 
-	RegisterJSVMBinder(func(vm *sobek.Runtime, _ *pocketbase.PocketBase) error {
+	RegisterJSVMBinder("probe", func(vm *sobek.Runtime, _ *pocketbase.PocketBase) error {
 		ns, err := NewBindNamespace(vm, map[string]any{
 			"echo": func(s string) string { return "got:" + s },
 		})
@@ -50,7 +50,7 @@ func TestBuildJsvmOnInit_RunsBindersAndExposesCallable(t *testing.T) {
 func TestBuildJsvmOnInit_BinderErrorPanics(t *testing.T) {
 	resetBinders(t)
 
-	RegisterJSVMBinder(func(_ *sobek.Runtime, _ *pocketbase.PocketBase) error {
+	RegisterJSVMBinder("failing", func(_ *sobek.Runtime, _ *pocketbase.PocketBase) error {
 		return errTestBinder
 	})
 

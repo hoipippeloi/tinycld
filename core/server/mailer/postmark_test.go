@@ -35,9 +35,9 @@ func TestPostmarkSender_APIURLOverrideReceivesTheSend(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(postmark.EmailResponse{MessageID: "stand-in-1"})
 	}))
 	t.Cleanup(srv.Close)
-	withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL + "/"})
+	app := withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL + "/"})
 
-	s := NewPostmarkSender("server-tok", "", "noreply@widgets.test")
+	s := NewPostmarkSender(app, "server-tok", "", "noreply@widgets.test")
 	res, err := s.SendFull(context.Background(), &SendRequest{
 		To:      []Recipient{{Email: "a@widgets.test"}},
 		Subject: "hi",
@@ -54,8 +54,8 @@ func TestPostmarkSender_APIURLOverrideReceivesTheSend(t *testing.T) {
 }
 
 func TestPostmarkSender_UnsetAPIURLKeepsPostmark(t *testing.T) {
-	withConfig(t, map[string]string{})
-	if got := NewPostmarkSender("tok", "", "").Client().BaseURL; got != postmark.NewClient("", "").BaseURL {
+	app := withConfig(t, map[string]string{})
+	if got := NewPostmarkSender(app, "tok", "", "").Client().BaseURL; got != postmark.NewClient("", "").BaseURL {
 		t.Errorf("BaseURL = %q, want the client's default", got)
 	}
 }
@@ -77,9 +77,9 @@ func TestPostmarkSender_ResultKeepsCallerMessageID(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(postmark.EmailResponse{MessageID: "stand-in-2"})
 	}))
 	t.Cleanup(srv.Close)
-	withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL + "/"})
+	app := withConfig(t, map[string]string{keyPostmarkAPIURL: srv.URL + "/"})
 
-	s := NewPostmarkSender("server-tok", "", "noreply@widgets.test")
+	s := NewPostmarkSender(app, "server-tok", "", "noreply@widgets.test")
 	res, err := s.SendFull(context.Background(), &SendRequest{
 		To:        []Recipient{{Email: "a@widgets.test"}},
 		Subject:   "hi",

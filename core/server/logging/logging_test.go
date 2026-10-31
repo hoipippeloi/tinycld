@@ -9,8 +9,7 @@ import (
 
 func TestForPackageStampsThePkgAttr(t *testing.T) {
 	var buf bytes.Buffer
-	Install(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	t.Cleanup(func() { slog.SetDefault(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))) })
+	t.Cleanup(InstallTo(&buf))
 
 	ForPackage("widgets").Warn("refusing to flush")
 
@@ -24,13 +23,16 @@ func TestForPackageStampsThePkgAttr(t *testing.T) {
 }
 
 func TestInstallSetsTheDefaultLogger(t *testing.T) {
-	var buf bytes.Buffer
-	Install(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	t.Cleanup(func() { slog.SetDefault(slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))) })
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	slog.Info("via the package-level default")
-
-	if !strings.Contains(buf.String(), "via the package-level default") {
-		t.Errorf("slog.Default was not installed: %q", buf.String())
+	Install()
+	if slog.Default().Handler() != slog.Handler(processRouter) {
+		t.Fatalf("default handler = %T, want the process router", slog.Default().Handler())
+	}
+	installed := slog.Default()
+	Install()
+	if slog.Default() != installed {
+		t.Fatal("a second Install replaced the installed default")
 	}
 }

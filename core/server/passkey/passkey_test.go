@@ -154,7 +154,6 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	loginLimiter.Reset()
 	app := rlstest.NewAssembledApp(t)
 	mfa.Register(app)
 	registerCore(app)

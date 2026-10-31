@@ -6,11 +6,11 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 )
 
 // Options configures the broker. All fields have sane defaults.
@@ -37,12 +37,21 @@ const (
 	defaultPingInterval  = 25 * time.Second
 )
 
-// processBroker is the singleton Broker for this process. Created on
-// first Register call. Shared across all room kinds.
-var (
-	processBrokerMu sync.Mutex
-	processBroker   *Broker
-)
+// brokerKey holds each app's broker. An app's rooms, room kinds, drain state
+// and stop belong to it alone: terminating one app must close only its own
+// connections and store only its own documents.
+var brokerKey = appstate.NewKey[*Broker]("realtime.broker")
+
+// BrokerFor returns app's broker, creating it on first use. A package may
+// register its room kind before or after Register mounts the route; both
+// reach the same broker.
+func BrokerFor(app core.App) *Broker {
+	return brokerKey.GetOrInit(app, func() *Broker {
+		b := NewBroker()
+		b.app = app
+		return b
+	})
+}
 
 // ShareSessionResolver verifies a signed share-session token and returns
 // the visitor's claims. Injected at startup (SetShareSessionResolver)
@@ -50,10 +59,10 @@ var (
 // generic broker with no knowledge of drive's share-link feature.
 type ShareSessionResolver func(app core.App, sessionToken string) (ShareClaims, error)
 
-var shareSessionResolver ShareSessionResolver = func(core.App, string) (ShareClaims, error) {
-	// Default: anonymous share sessions are unsupported until the app
-	// wires a resolver. Returning an error makes every anonymous WS
-	// attempt fail closed.
+// unsupportedShareSession is the default: anonymous share sessions are
+// unsupported until the app wires a resolver. Returning an error makes every
+// anonymous WS attempt fail closed.
+func unsupportedShareSession(core.App, string) (ShareClaims, error) {
 	return ShareClaims{}, errShareSessionUnsupported
 }
 
@@ -63,27 +72,29 @@ type errInternal string
 
 func (e errInternal) Error() string { return string(e) }
 
-// SetShareSessionResolver wires the function used to verify anonymous
-// share-session tokens on WS upgrade. Called once at startup by the app
+// SetShareSessionResolver wires the function app's broker uses to verify
+// anonymous share-session tokens on WS upgrade. Called once per app by the
 // composition layer with sharelink.VerifySession adapted to ShareClaims.
-func SetShareSessionResolver(fn ShareSessionResolver) {
-	if fn != nil {
-		shareSessionResolver = fn
+func SetShareSessionResolver(app core.App, fn ShareSessionResolver) {
+	if fn == nil {
+		return
 	}
+	b := BrokerFor(app)
+	b.kindsMu.Lock()
+	b.shareResolver = fn
+	b.kindsMu.Unlock()
 }
 
-func sharedBroker() *Broker {
-	processBrokerMu.Lock()
-	defer processBrokerMu.Unlock()
-	if processBroker == nil {
-		processBroker = NewBroker()
-	}
-	return processBroker
+func (b *Broker) resolveShareSession(app core.App, token string) (ShareClaims, error) {
+	b.kindsMu.RLock()
+	fn := b.shareResolver
+	b.kindsMu.RUnlock()
+	return fn(app, token)
 }
 
 // Register mounts the realtime WebSocket route on the PocketBase app and
-// readies the per-process broker. Each consuming package then calls
-// RegisterRoomKind from its own server-side Register(app) to plug in its
+// readies app's broker. Each consuming package then calls
+// RegisterRoomKind(app, …) from its own server-side Register(app) to plug in its
 // authorize handler.
 //
 // Route: GET /api/realtime/{roomKind}/{roomID}
@@ -108,14 +119,16 @@ func Register(app core.App, opts Options) {
 		opts.PingInterval = defaultPingInterval
 	}
 
-	broker := sharedBroker()
-	registerLifecycle(app)
+	broker := BrokerFor(app)
+	broker.lifecycleOnce.Do(func() { registerLifecycle(app, broker) })
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.GET("/api/realtime/{roomKind}/{roomID}", func(re *core.RequestEvent) error {
 			return handleConnect(broker, opts, re)
 		})
-		e.Router.POST("/api/realtime/{roomKind}/{roomID}/flush", handleForceFlush)
+		e.Router.POST("/api/realtime/{roomKind}/{roomID}/flush", func(re *core.RequestEvent) error {
+			return handleForceFlush(broker, re)
+		})
 		return e.Next()
 	})
 }
@@ -130,7 +143,7 @@ func Register(app core.App, opts Options) {
 // to edit the room can force its flush. Anonymous share-session visitors
 // (including read-only link viewers) are rejected: a flush mutates
 // durable storage and must not be reachable without a PB identity.
-func handleForceFlush(re *core.RequestEvent) error {
+func handleForceFlush(broker *Broker, re *core.RequestEvent) error {
 	if re.Auth == nil {
 		return re.UnauthorizedError("Authentication required", nil)
 	}
@@ -140,7 +153,7 @@ func handleForceFlush(re *core.RequestEvent) error {
 		return re.BadRequestError("roomKind and roomID required", nil)
 	}
 
-	opts, err := optionsFor(kind)
+	opts, err := broker.optionsFor(kind)
 	if err != nil {
 		return re.NotFoundError(err.Error(), nil)
 	}
@@ -168,7 +181,7 @@ func handleConnect(broker *Broker, opts Options, re *core.RequestEvent) error {
 	// Accepting stopped when the drain began; a request that still arrives
 	// came in on a connection accepted before that, and belongs to the
 	// next server. A stopping broker admits nobody either.
-	if draining.Load() || broker.stopping() {
+	if broker.draining.Load() || broker.stopping() {
 		return refuseWhileDraining(re)
 	}
 
@@ -187,7 +200,7 @@ func handleConnect(broker *Broker, opts Options, re *core.RequestEvent) error {
 		return re.BadRequestError("roomKind and roomID required", nil)
 	}
 
-	opts2, err := optionsFor(kind)
+	opts2, err := broker.optionsFor(kind)
 	if err != nil {
 		return re.NotFoundError(err.Error(), nil)
 	}
@@ -207,7 +220,7 @@ func handleConnect(broker *Broker, opts Options, re *core.RequestEvent) error {
 	} else {
 		// Anonymous share-session path. Only kinds that registered
 		// AuthorizeShare accept these; everyone else rejects.
-		claims, shareErr := resolveShareConnect(re, opts2, kind, roomID, creds.shareSession)
+		claims, shareErr := resolveShareConnect(re, broker, opts2, kind, roomID, creds.shareSession)
 		if shareErr != nil {
 			return shareErr
 		}
@@ -243,14 +256,14 @@ func handleConnect(broker *Broker, opts Options, re *core.RequestEvent) error {
 // into anonymous visitors, confirm the session is for THIS room (item),
 // and run the kind's ShareAuthorizeFn. Returns the verified claims or an
 // HTTP error to reject the upgrade.
-func resolveShareConnect(re *core.RequestEvent, opts RoomKindOptions, kind, roomID, sessionToken string) (ShareClaims, error) {
+func resolveShareConnect(re *core.RequestEvent, broker *Broker, opts RoomKindOptions, kind, roomID, sessionToken string) (ShareClaims, error) {
 	if opts.AuthorizeShare == nil {
 		return ShareClaims{}, re.UnauthorizedError("Authentication required", nil)
 	}
 	if sessionToken == "" {
 		return ShareClaims{}, re.UnauthorizedError("Authentication required", nil)
 	}
-	claims, err := shareSessionResolver(re.App, sessionToken)
+	claims, err := broker.resolveShareSession(re.App, sessionToken)
 	if err != nil {
 		return ShareClaims{}, re.ForbiddenError("invalid share session", err)
 	}
@@ -311,6 +324,9 @@ type connIdentity struct {
 // per-user hello payloads (e.g. role-based read-only flags) and seed
 // presence for anons.
 func runConnection(broker *Broker, opts Options, ident connIdentity, conn *websocket.Conn) {
+	// Deferred first, so it runs last: the cleanup below has already left the
+	// room and closed the socket when it stops the panic.
+	defer recoverGoroutine("connection", "kind", ident.kind, "roomID", ident.roomID)
 	kind := ident.kind
 	roomID := ident.roomID
 	ctx, cancel := context.WithCancel(context.Background())
@@ -366,6 +382,7 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 	writerDone := make(chan struct{})
 	go func() {
 		defer close(writerDone)
+		defer recoverGoroutine("connection writer", "kind", kind, "roomID", roomID)
 		writeCtx := ctx
 		ticker := time.NewTicker(opts.PingInterval)
 		defer ticker.Stop()
@@ -403,7 +420,7 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 	// Deliver MsgServerHello before the sync handshake runs: the kind's
 	// own payload (OnConnect) plus, for a room with a server document, the
 	// document epoch the client compares against the one it synced under.
-	if payload, ok := buildServerHello(ctx, kind, roomID, client); ok {
+	if payload, ok := buildServerHello(ctx, broker, kind, roomID, client); ok {
 		deliver(client, makeServerHelloFrame(client.id, payload))
 	}
 
@@ -453,8 +470,8 @@ func runConnection(broker *Broker, opts Options, ident connIdentity, conn *webso
 // keeps its protocol shape. A failing OnConnect or a non-object payload
 // skips the frame; the connection continues and the client renders
 // without a hello.
-func buildServerHello(ctx context.Context, kind, roomID string, client *Client) ([]byte, bool) {
-	opts, err := optionsFor(kind)
+func buildServerHello(ctx context.Context, broker *Broker, kind, roomID string, client *Client) ([]byte, bool) {
+	opts, err := broker.optionsFor(kind)
 	if err != nil {
 		return nil, false
 	}

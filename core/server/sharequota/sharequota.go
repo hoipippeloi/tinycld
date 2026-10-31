@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/appstate"
 )
 
 // ShareLimits are the per-link download ceilings.
@@ -71,55 +72,71 @@ type MeteredCollection struct {
 	Meter Meter
 }
 
+// The metered-collection registry is code: the same packages register the same
+// collections in every app, so it stays process-wide and dedupes by collection.
 var (
 	mu       sync.RWMutex
-	limits   ShareLimitsFunc
-	claimed  bool
 	metered  []MeteredCollection
 	byColumn = map[string]bool{}
 )
 
-// SetLimits installs the process-wide ceiling resolver. A supervising
-// composition calls it BEFORE any package registers, so a package's first read
-// already resolves through it.
+// claim is one app's ceiling resolver. It lives on the app: each deployment's
+// download ceilings are its own, and one app's plan must not limit another's.
+type claim struct {
+	mu      sync.RWMutex
+	limits  ShareLimitsFunc
+	claimed bool
+}
+
+var claimKey = appstate.NewKey[*claim]("sharequota.limits")
+
+func claimFor(app core.App) *claim {
+	return claimKey.GetOrInit(app, func() *claim { return &claim{} })
+}
+
+// SetLimits installs app's ceiling resolver. A supervising composition calls
+// it BEFORE any package registers on app, so a package's first read already
+// resolves through it.
 //
-// This CLAIMS the seam: a later call is ignored, so core's own wiring cannot
-// point these ceilings back at something the deployment controls. The reason
-// is the one syscfg states — every deployment has its own superusers, so a
-// ceiling stored inside the deployment is a ceiling that deployment can
+// This CLAIMS app's seam: a later call on app is ignored, so core's own wiring
+// cannot point these ceilings back at something the deployment controls. The
+// reason is the one syscfg states — every deployment has its own superusers,
+// so a ceiling stored inside the deployment is a ceiling that deployment can
 // raise, and a ceiling you can raise is not a ceiling.
 //
 // A nil resolver is ignored rather than installed: it would silently mean
 // unlimited, and a caller passing nil has a bug rather than an intent.
-func SetLimits(fn ShareLimitsFunc) {
+func SetLimits(app core.App, fn ShareLimitsFunc) {
 	if fn == nil {
 		return
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if claimed {
+	c := claimFor(app)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.claimed {
 		return
 	}
-	limits = fn
-	claimed = true
+	c.limits, c.claimed = fn, true
 }
 
-// IsClaimed reports whether a supervising composition installed a resolver.
-func IsClaimed() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return claimed
+// IsClaimed reports whether a supervising composition installed app's resolver.
+func IsClaimed(app core.App) bool {
+	c := claimFor(app)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.claimed
 }
 
-// Limits resolves the current ceilings, or unlimited when nobody claimed the
-// seam. Negative values are normalized to zero (unlimited) here rather than at
-// each call site: a negative ceiling reaching an enforcement expression would
-// refuse every download. Whoever supplies the ceilings may validate them,
-// but this must not depend on their having done so.
+// Limits resolves app's current ceilings, or unlimited when nobody claimed
+// app's seam. Negative values are normalized to zero (unlimited) here rather
+// than at each call site: a negative ceiling reaching an enforcement
+// expression would refuse every download. Whoever supplies the ceilings may
+// validate them, but this must not depend on their having done so.
 func Limits(app core.App) ShareLimits {
-	mu.RLock()
-	fn := limits
-	mu.RUnlock()
+	c := claimFor(app)
+	c.mu.RLock()
+	fn := c.limits
+	c.mu.RUnlock()
 
 	if fn == nil {
 		return ShareLimits{}
@@ -169,12 +186,10 @@ func RegisteredMetered() []MeteredCollection {
 	return out
 }
 
-// ResetForTesting restores the zero state: no resolver, no claim, nothing
-// metered. A test that installs either must call it (t.Cleanup) so the claim
-// does not leak into the next test and make SetLimits inert there.
+// ResetForTesting empties the metered-collection registry. Ceiling claims live
+// on each app and end with it, so there is nothing else to reset.
 func ResetForTesting() {
 	mu.Lock()
-	limits, claimed = nil, false
 	metered, byColumn = nil, map[string]bool{}
 	mu.Unlock()
 }

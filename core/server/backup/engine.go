@@ -26,6 +26,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/audit"
+	"tinycld.org/core/background"
 	"tinycld.org/core/backup/archive"
 	"tinycld.org/core/backup/format"
 	"tinycld.org/core/backup/repo"
@@ -130,7 +131,7 @@ func Run(app core.App, req Request) (string, error) {
 // interlock leaves no ledger row, because nothing was attempted.
 func begin(app core.App, req Request) (*core.Record, *installjob.Job, error) {
 	job := installjob.New("backup", "", "")
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		return nil, nil, ErrBusy
 	}
 	// The ceiling is checked AFTER the interlock, because allowManual records
@@ -202,7 +203,7 @@ func run(app core.App, req Request, row *core.Record, job *installjob.Job) (err 
 		})
 		// The same lifetime as the transfer: a shutdown has to reach the
 		// network calls here too, or StopAll waits on a peer that never answers.
-		ctx, cancel := format.Lifetime(context.Background())
+		ctx, cancel := context.WithCancel(TransferContext(app))
 		defer cancel()
 		survive(row.Id, "announce", func() { announce(ctx, app, req, row, status, errMsg) })
 		survive(row.Id, "callback", func() { postCallback(ctx, req.Callback, row) })
@@ -235,9 +236,9 @@ func run(app core.App, req Request, row *core.Record, job *installjob.Job) (err 
 	// A repository's client owns its sockets, and one whose server goes silent
 	// blocks forever: the run would keep the interlock and keep renewing the
 	// delete hold, so every storage delete is journaled for the life of the
-	// process. The watchdog ends a Put whose count stops moving, and a shutdown
+	// process. The watchdog ends a Put whose count stops moving, and app's stop
 	// ends it too.
-	ctx, watchdog := format.Watch(context.Background())
+	ctx, watchdog := format.Watch(TransferContext(app))
 	defer watchdog.Stop()
 	putRan = true
 	result, err = r.Put(ctx, snap, func(n int64) {
@@ -375,6 +376,7 @@ func newProgress(app core.App, row *core.Record, total func() int64) *progress {
 	p := &progress{stopCh: make(chan struct{}), done: make(chan struct{})}
 	go func() {
 		defer close(p.done)
+		defer background.Recover(app, "backup", "backup progress writer")
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
 		for {
@@ -387,7 +389,7 @@ func newProgress(app core.App, row *core.Record, total func() int64) *progress {
 				}
 				// Skipped, not waited for: the next tick writes the count
 				// as it is then, so a skipped one loses nothing.
-				if readonly.Active() {
+				if readonly.Active(app) {
 					continue
 				}
 				row.Set("bytes", total())

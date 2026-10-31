@@ -16,7 +16,7 @@ type SyncResult struct {
 	Reverted []string // DOWN migrations run against the outgoing binary
 	Pending  []string // UP migrations the NEW binary will apply on boot
 	// SkippedUnregistered are migrations the diff flagged for DOWN but that aren't
-	// registered in the running binary's core.AppMigrations, so they could NOT be
+	// registered in the running binary's core.AppMigrationsOf(app), so they could NOT be
 	// reverted (their Down never ran). For core's compiled-in Go migrations this is
 	// expected; for a uninstalled PACKAGE's JS migrations it means its tables were
 	// left behind — the symptom this surfaces. Logged for diagnosis.
@@ -65,7 +65,7 @@ func logSyncResult(job *installjob.Job, res SyncResult) {
 // The DOWN set is filtered to migrations REGISTERED in the currently-running
 // binary (pkgMigrationByFile). The applied set legitimately contains migrations
 // this binary can't revert — core's compiled-in Go migrations (e.g.
-// normalize_indexes.go) live in core.AppMigrations but are NOT files in
+// normalize_indexes.go) live in core.AppMigrationsOf(app) but are NOT files in
 // pb_migrations/, so a raw applied−newSet diff would flag every Go migration as
 // "dropped." Those persist across every build and are never reverted by a
 // package operation; a file-based newSet can't list them, so we exclude any
@@ -90,8 +90,8 @@ func syncMigrations(app core.App, applied, newSet []string, resolver MigrationRe
 	// Resolvability is judged against the SAME resolver that will run the downs,
 	// so a migration the incoming build can revert is not skipped merely because
 	// the outgoing binary lacks it, and vice versa.
-	down := registeredOnlyWith(candidates, resolver)
-	skipped := unregisteredOnlyWith(candidates, resolver)
+	down := registeredOnlyWith(app, candidates, resolver)
+	skipped := unregisteredOnlyWith(app, candidates, resolver)
 	up := migrationsToApply(applied, newSet)
 
 	var reverted []string
@@ -110,7 +110,7 @@ func syncMigrations(app core.App, applied, newSet []string, resolver MigrationRe
 // they weren't registered in the running binary (the SkippedUnregistered set).
 //
 // Why this is needed: an uninstall runs DOWN only for migrations still registered
-// in core.AppMigrations (registeredOnly). When the active build no longer carries
+// in core.AppMigrationsOf(app) (registeredOnly). When the active build no longer carries
 // a package's JS migrations (e.g. after a prior failed-install rollback), they're
 // unregistered, so their Down is skipped AND their _migrations rows are left
 // behind. A later REINSTALL then sees those rows as "already applied" and skips
@@ -214,14 +214,16 @@ func packageCollectionsPresent(app core.App, slug string) ([]string, error) {
 	return out, nil
 }
 
-// unregisteredOnly is the complement of registeredOnly: the files NOT resolvable
-// in the running binary's core.AppMigrations. For an uninstall these are the
-// dropped package's migrations whose Down can't run — diagnostic only.
-func unregisteredOnly(files []string) []string { return unregisteredOnlyWith(files, nil) }
+// unregisteredOnly is the complement of registeredOnly: the files NOT
+// registered for app. For an uninstall these are the dropped package's
+// migrations whose Down can't run — diagnostic only.
+func unregisteredOnly(app core.App, files []string) []string {
+	return unregisteredOnlyWith(app, files, nil)
+}
 
 // unregisteredOnlyWith is unregisteredOnly against a specific resolver.
-func unregisteredOnlyWith(files []string, resolver MigrationResolver) []string {
-	resolve := resolveWith(resolver)
+func unregisteredOnlyWith(app core.App, files []string, resolver MigrationResolver) []string {
+	resolve := resolveWith(app, resolver)
 	var out []string
 	for _, f := range files {
 		if _, ok := resolve(f); !ok {
@@ -231,15 +233,17 @@ func unregisteredOnlyWith(files []string, resolver MigrationResolver) []string {
 	return out
 }
 
-// registeredOnly keeps only the migration files registered in the running
-// binary (core.AppMigrations via pkgMigrationByFile). Unregistered files can't
-// be reverted by this binary and are not this operation's concern.
-func registeredOnly(files []string) []string { return registeredOnlyWith(files, nil) }
+// registeredOnly keeps only the migration files registered for app
+// (pkgMigrationByFile). Unregistered files can't be reverted by this binary and
+// are not this operation's concern.
+func registeredOnly(app core.App, files []string) []string {
+	return registeredOnlyWith(app, files, nil)
+}
 
 // registeredOnlyWith is registeredOnly against a specific resolver — the
 // incoming build's migration set, when the caller can read it.
-func registeredOnlyWith(files []string, resolver MigrationResolver) []string {
-	resolve := resolveWith(resolver)
+func registeredOnlyWith(app core.App, files []string, resolver MigrationResolver) []string {
+	resolve := resolveWith(app, resolver)
 	out := files[:0:0]
 	for _, f := range files {
 		if _, ok := resolve(f); ok {

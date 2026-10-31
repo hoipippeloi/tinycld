@@ -30,7 +30,6 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	codeLimiter.Reset()
 	app := rlstest.NewAssembledApp(t)
 	Register(app)
 
@@ -278,7 +277,7 @@ func TestVerify_RateLimited(t *testing.T) {
 	h := newHarness(t)
 	ada := h.user("ada@test.local", "member")
 	secret, _ := h.enroll(ada)
-	codeLimiter.Reset()
+	codeLimiter.For(h.app).Reset()
 	mfaToken := h.passwordLogin("ada").str("mfaToken")
 
 	for i := 0; i < 10; i++ {
@@ -534,7 +533,7 @@ func TestVerify_SameCodeRacingSignsInOnce(t *testing.T) {
 		if ok != 1 {
 			t.Fatalf("%v: %d racing requests signed in, want exactly 1", proof, ok)
 		}
-		codeLimiter.Reset()
+		codeLimiter.For(h.app).Reset()
 	}
 }
 

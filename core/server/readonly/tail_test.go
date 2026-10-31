@@ -22,16 +22,15 @@ func registeredTestApp(t *testing.T) *tests.TestApp {
 // A supervised upgrade keeps the mode on until the process exits, so a tail
 // parked in the wait must be ended by the app's terminate, without its write.
 func TestTailParkedInReadOnlyEndsAtTerminate(t *testing.T) {
-	t.Cleanup(Leave)
 	app := registeredTestApp(t)
-	Enter()
+	Enter(app)
 
 	ctx, release := TailContext(app)
 	ran := false
 	result := make(chan error, 1)
 	go func() {
 		defer release()
-		result <- WhenWritable(ctx, func() error {
+		result <- WhenWritable(ctx, app, func() error {
 			ran = true
 			return nil
 		})

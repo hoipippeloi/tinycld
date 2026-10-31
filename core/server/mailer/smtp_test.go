@@ -73,6 +73,7 @@ func TestGroupRecipientsByDomain(t *testing.T) {
 // the right body is delivered. This is the integration-level test for the
 // outbound code path.
 func TestSMTPSenderSend_DirectMX_Success(t *testing.T) {
+	app := withConfig(t, map[string]string{})
 	receiver := newFakeSMTPReceiver(t, smtpReceiverConfig{})
 	defer receiver.close()
 
@@ -81,7 +82,7 @@ func TestSMTPSenderSend_DirectMX_Success(t *testing.T) {
 	})
 	swapSMTPDial(t, receiver.dialOverride)
 
-	p := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"})
+	p := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"})
 	result, err := p.SendFull(context.Background(), &SendRequest{
 		From:     "alice@tinycld.test",
 		To:       []Recipient{{Email: "bob@example.org"}},
@@ -117,6 +118,7 @@ func TestSMTPSenderSend_DirectMX_Success(t *testing.T) {
 // transport error. This is the contract that lets endpoints_send mark the
 // stored message as bounced with the right reason.
 func TestSMTPSenderSend_PermanentFailureSurfacesAsRecipientFailure(t *testing.T) {
+	app := withConfig(t, map[string]string{})
 	receiver := newFakeSMTPReceiver(t, smtpReceiverConfig{
 		rejectRcpt: map[string]string{
 			"unknown@example.org": "550 5.1.1 No such user",
@@ -129,7 +131,7 @@ func TestSMTPSenderSend_PermanentFailureSurfacesAsRecipientFailure(t *testing.T)
 	})
 	swapSMTPDial(t, receiver.dialOverride)
 
-	p := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"})
+	p := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"})
 	result, err := p.SendFull(context.Background(), &SendRequest{
 		From:     "alice@tinycld.test",
 		To:       []Recipient{{Email: "unknown@example.org"}},
@@ -154,12 +156,13 @@ func TestSMTPSenderSend_PermanentFailureSurfacesAsRecipientFailure(t *testing.T)
 // dial, Send must return a transport error so the calling endpoint surfaces
 // a 502 to the user instead of silently dropping the message.
 func TestSMTPSenderSend_AllMXDown_TransportError(t *testing.T) {
+	app := withConfig(t, map[string]string{})
 	swapMXLookup(t, map[string][]*net.MX{})
 	swapSMTPDial(t, func(_ context.Context, _, _ string) (net.Conn, error) {
 		return nil, errors.New("dial error: connection refused")
 	})
 
-	p := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test", OutboundTimeout: 2 * time.Second})
+	p := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test", OutboundTimeout: 2 * time.Second})
 	_, err := p.SendFull(context.Background(), &SendRequest{
 		From:     "alice@tinycld.test",
 		To:       []Recipient{{Email: "bob@example.org"}},
@@ -350,6 +353,7 @@ func extractAddress(s string) string {
 // see, so a caller-supplied ID is the one on the wire, and it goes out with
 // exactly one pair of angle brackets.
 func TestSMTPSenderSend_UsesCallerMessageID(t *testing.T) {
+	app := withConfig(t, map[string]string{})
 	receiver := newFakeSMTPReceiver(t, smtpReceiverConfig{})
 	defer receiver.close()
 
@@ -358,7 +362,7 @@ func TestSMTPSenderSend_UsesCallerMessageID(t *testing.T) {
 	})
 	swapSMTPDial(t, receiver.dialOverride)
 
-	p := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"})
+	p := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"})
 	result, err := p.SendFull(context.Background(), &SendRequest{
 		From:      "alice@tinycld.test",
 		To:        []Recipient{{Email: "bob@example.org"}},
@@ -380,6 +384,7 @@ func TestSMTPSenderSend_UsesCallerMessageID(t *testing.T) {
 }
 
 func TestSMTPSenderSend_GeneratedMessageIDHasSingleBrackets(t *testing.T) {
+	app := withConfig(t, map[string]string{})
 	receiver := newFakeSMTPReceiver(t, smtpReceiverConfig{})
 	defer receiver.close()
 
@@ -388,7 +393,7 @@ func TestSMTPSenderSend_GeneratedMessageIDHasSingleBrackets(t *testing.T) {
 	})
 	swapSMTPDial(t, receiver.dialOverride)
 
-	p := NewSMTPSender(SMTPConfig{PublicHostname: "mx.tinycld.test"})
+	p := NewSMTPSender(app, SMTPConfig{PublicHostname: "mx.tinycld.test"})
 	result, err := p.SendFull(context.Background(), &SendRequest{
 		From:     "alice@tinycld.test",
 		To:       []Recipient{{Email: "bob@example.org"}},

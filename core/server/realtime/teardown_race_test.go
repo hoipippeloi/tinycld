@@ -27,7 +27,8 @@ func TestJoinDuringTeardownWaitsForAFreshRoom(t *testing.T) {
 	var creates atomic.Int32
 	teardownStarted := make(chan struct{})
 	releaseTeardown := make(chan struct{})
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: stubDocRuntime{},
 		OnRoomCreate:    func(string, DocHandle, *Room) { creates.Add(1) },
@@ -36,9 +37,7 @@ func TestJoinDuringTeardownWaitsForAFreshRoom(t *testing.T) {
 			<-releaseTeardown
 		},
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
 
-	b := NewBroker()
 	first := &Client{joinedAt: time.Now()}
 	b.join(kind, "room-x", first)
 	original := b.lookupRoomForTest(kind, "room-x")
@@ -96,7 +95,7 @@ func TestOnRoomEmptyWaitsOutAnInFlightSaveAndFlushesItsFailure(t *testing.T) {
 	var calls atomic.Int32
 	flushEntered := make(chan struct{})
 	releaseFlush := make(chan struct{})
-	c := NewSaveCoordinator(func(context.Context, string, DocHandle) error {
+	c := NewSaveCoordinator(coordApp(t), func(context.Context, string, DocHandle) error {
 		if calls.Add(1) == 1 {
 			close(flushEntered)
 			<-releaseFlush

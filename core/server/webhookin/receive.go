@@ -46,7 +46,8 @@ var log = logging.ForPackage("core")
 // check already rejects a forged caller before any database write. This is a
 // ceiling against a verified-but-runaway sender, not an authentication
 // control.
-var deliveryLimiter = ratelimit.New(300, time.Minute)
+// The ceiling is per app: two apps can have a source with the same name.
+var deliveryLimiter = ratelimit.NewPerApp("webhookin.delivery", 300, time.Minute)
 
 // RegisterRoutes binds MountRoutes into the app's OnServe hook. Named
 // RegisterRoutes rather than Register because this package already exports
@@ -114,7 +115,7 @@ func handleDelivery(re *core.RequestEvent, name string, source Source) error {
 
 	// Metered after verification so an unverified caller cannot consume
 	// another source's budget.
-	if !deliveryLimiter.Allow(name) {
+	if !deliveryLimiter.For(re.App).Allow(name) {
 		log.WarnContext(re.Request.Context(),
 			"rejecting a webhook over its rate ceiling", "source", name)
 		return re.TooManyRequestsError("rate limit exceeded", nil)

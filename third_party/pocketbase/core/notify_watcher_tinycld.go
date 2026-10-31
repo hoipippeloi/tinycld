@@ -87,6 +87,20 @@ func notifyGuardOf(app App) *notifyGuard {
 	return g.(*notifyGuard)
 }
 
+// forgetNotifyGuard drops app's notifyGuard once its terminate has run,
+// ClearBootstrap included, so a process that opens and closes many apps does
+// not keep one guard per app it ever ran. A restart's terminate bootstraps the
+// app again when execve fails, so it keeps the guard.
+//
+// app is the *BaseApp the guard is keyed by, not e.App, which an embedding
+// type such as tests.TestApp replaces.
+func forgetNotifyGuard(app App, e *TerminateEvent) {
+	if e.IsRestart {
+		return
+	}
+	notifyGuards.Delete(app)
+}
+
 // notifyLive reports whether app is bootstrapped. Unlike app.IsBootstrapped,
 // it is safe to call from the watcher's goroutines.
 func notifyLive(app App) bool {

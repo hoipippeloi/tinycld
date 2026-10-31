@@ -379,7 +379,6 @@ func TestShouldBypassCORS(t *testing.T) {
 // Nothing in the product needs it, and a framed workspace is a clickjacking
 // target — the user's own session, rendered under someone else's overlay.
 func TestStatic_ShellRefusesFramingByDefault(t *testing.T) {
-	embedpolicy.ResetForTesting()
 
 	publicDir, websiteDir, releasesDir := staticDirs(t, nil, nil, "<html>APP SHELL</html>")
 	runStaticScenario(t, publicDir, websiteDir, releasesDir, &tests.ApiScenario{
@@ -399,18 +398,16 @@ func TestStatic_ShellRefusesFramingByDefault(t *testing.T) {
 // A registered package claims its own public URL and names the origins. Core
 // still knows nothing about that package — the resolver is all it sees.
 func TestStatic_ShellHonoursARegisteredEmbedPolicy(t *testing.T) {
-	embedpolicy.ResetForTesting()
-	defer embedpolicy.ResetForTesting()
-
-	embedpolicy.Register(func(r *http.Request) []string {
-		if r.URL.Path == "/p/example/tok" && r.URL.Query().Get("embed") == "1" {
-			return []string{"https://intranet.example.com", "https://wiki.example.com"}
-		}
-		return nil
-	})
-
 	publicDir, websiteDir, releasesDir := staticDirs(t, nil, nil, "<html>APP SHELL</html>")
 	runStaticScenario(t, publicDir, websiteDir, releasesDir, &tests.ApiScenario{
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, _ *core.ServeEvent) {
+			embedpolicy.Register(app, func(r *http.Request) []string {
+				if r.URL.Path == "/p/example/tok" && r.URL.Query().Get("embed") == "1" {
+					return []string{"https://intranet.example.com", "https://wiki.example.com"}
+				}
+				return nil
+			})
+		},
 		Name:            "an embeddable public page names its origins",
 		Method:          http.MethodGet,
 		URL:             "/p/example/tok?embed=1",
@@ -428,13 +425,11 @@ func TestStatic_ShellHonoursARegisteredEmbedPolicy(t *testing.T) {
 // A resolver that declines the request leaves the default in place. This is the
 // path a revoked, expired or non-embeddable token takes.
 func TestStatic_ShellRefusesFramingWhenTheResolverDeclines(t *testing.T) {
-	embedpolicy.ResetForTesting()
-	defer embedpolicy.ResetForTesting()
-
-	embedpolicy.Register(func(_ *http.Request) []string { return nil })
-
 	publicDir, websiteDir, releasesDir := staticDirs(t, nil, nil, "<html>APP SHELL</html>")
 	runStaticScenario(t, publicDir, websiteDir, releasesDir, &tests.ApiScenario{
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, _ *core.ServeEvent) {
+			embedpolicy.Register(app, func(_ *http.Request) []string { return nil })
+		},
 		Name:            "a declined page falls back to 'none'",
 		Method:          http.MethodGet,
 		URL:             "/p/example/tok?embed=1",
@@ -452,7 +447,6 @@ func TestStatic_ShellRefusesFramingWhenTheResolverDeclines(t *testing.T) {
 // actually received — so a revalidation that omitted the directive is how a
 // page silently becomes framable on its second load.
 func TestStatic_ConditionalGetStillCarriesTheFramingPolicy(t *testing.T) {
-	embedpolicy.ResetForTesting()
 
 	const shell = "<html>APP SHELL</html>"
 	publicDir, websiteDir, releasesDir := staticDirs(t, nil, nil, shell)

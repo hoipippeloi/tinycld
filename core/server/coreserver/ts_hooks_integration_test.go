@@ -19,8 +19,12 @@ import (
 // This is the test that would catch a regression in the fork's OnLoaderInit
 // wiring, which the unit tests (which construct a Compiler directly) cannot.
 func TestLoaderBinderRegistersHandlerFromDiskTS(t *testing.T) {
-	resetHookPointsForTesting()
-	resetLoaderBindersForTesting()
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	pbApp := pocketbase.NewWithConfig(pocketbase.Config{
+		DefaultDataDir: testApp.DataDir(),
+	})
 
 	hooksDir := t.TempDir()
 
@@ -40,9 +44,9 @@ func TestLoaderBinderRegistersHandlerFromDiskTS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hp := RegisterHookPoint("test.integration")
+	hp := RegisterHookPoint(pbApp, "test.integration")
 
-	RegisterLoaderBinder(func(loader *sobek.Runtime, compile jsvm.Compiler, _ *pocketbase.PocketBase) error {
+	RegisterLoaderBinder(pbApp, func(loader *sobek.Runtime, compile jsvm.Compiler, _ *pocketbase.PocketBase) error {
 		return loader.Set("testHook", func(handler string) error {
 			fn, cerr := compile(handler)
 			if cerr != nil {
@@ -51,13 +55,6 @@ func TestLoaderBinderRegistersHandlerFromDiskTS(t *testing.T) {
 			hp.Add(fn)
 			return nil
 		})
-	})
-
-	testApp, _ := tests.NewTestApp()
-	defer testApp.Cleanup()
-
-	pbApp := pocketbase.NewWithConfig(pocketbase.Config{
-		DefaultDataDir: testApp.DataDir(),
 	})
 
 	// Register jsvm the way coreserver.Register does, pointing at our hooks dir.
@@ -112,8 +109,12 @@ func TestLoaderBinderRegistersHandlerFromDiskTS(t *testing.T) {
 //
 // A pool of 8 makes any per-VM leak show up as 9 rather than 1.
 func TestLoaderBinderRegistersExactlyOnce(t *testing.T) {
-	resetHookPointsForTesting()
-	resetLoaderBindersForTesting()
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	pbApp := pocketbase.NewWithConfig(pocketbase.Config{
+		DefaultDataDir: testApp.DataDir(),
+	})
 
 	hooksDir := t.TempDir()
 	err := os.WriteFile(filepath.Join(hooksDir, "once.pb.ts"), []byte(`
@@ -124,9 +125,9 @@ func TestLoaderBinderRegistersExactlyOnce(t *testing.T) {
 	}
 
 	var binderInvocations, handlerRegistrations int
-	hp := RegisterHookPoint("test.once")
+	hp := RegisterHookPoint(pbApp, "test.once")
 
-	RegisterLoaderBinder(func(loader *sobek.Runtime, compile jsvm.Compiler, _ *pocketbase.PocketBase) error {
+	RegisterLoaderBinder(pbApp, func(loader *sobek.Runtime, compile jsvm.Compiler, _ *pocketbase.PocketBase) error {
 		binderInvocations++
 		return loader.Set("countingHook", func(handler string) error {
 			fn, cerr := compile(handler)
@@ -137,13 +138,6 @@ func TestLoaderBinderRegistersExactlyOnce(t *testing.T) {
 			hp.Add(fn)
 			return nil
 		})
-	})
-
-	testApp, _ := tests.NewTestApp()
-	defer testApp.Cleanup()
-
-	pbApp := pocketbase.NewWithConfig(pocketbase.Config{
-		DefaultDataDir: testApp.DataDir(),
 	})
 
 	err = jsvm.Register(pbApp, jsvm.Config{
@@ -172,7 +166,7 @@ func TestLoaderBinderRegistersExactlyOnce(t *testing.T) {
 	// And the consequence that actually matters at runtime: one registration
 	// means one invocation per call, not N.
 	var calls int
-	hp2 := RegisterHookPoint("test.once.effect")
+	hp2 := RegisterHookPoint(pbApp, "test.once.effect")
 	hp2.Add(func(_ ...any) (any, error) { calls++; return nil, nil })
 	if _, err := hp2.Call(map[string]any{}); err != nil {
 		t.Fatal(err)

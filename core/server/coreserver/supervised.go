@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/listeners"
 	"tinycld.org/core/readonly"
 	"tinycld.org/core/supervise"
@@ -36,6 +37,10 @@ func (c *controlChannel) send(m supervise.Msg) error {
 // handles. It is a variable so a test need not wait the full time.
 var restartAckTimeout = 10 * time.Second
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
+//
 // beingReplaced is set once a supervised process has asked for its
 // replacement. It stays set: the process only waits to be drained.
 var beingReplaced atomic.Bool
@@ -98,14 +103,14 @@ func askSupervisorToRestart(cold bool) bool {
 // resume also does nothing once this process has asked to be replaced: read-
 // only mode is one switch, and a late failure path must not re-open writes
 // in a process that is only waiting to be drained.
-func pauseWritesForBackup() (resume func()) {
+func pauseWritesForBackup(app core.App) (resume func()) {
 	if !listeners.Supervised() {
 		return func() {}
 	}
-	readonly.Enter()
+	readonly.Enter(app)
 	return func() {
 		if !beingReplaced.Load() {
-			readonly.Leave()
+			readonly.Leave(app)
 		}
 	}
 }

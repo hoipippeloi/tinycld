@@ -92,11 +92,6 @@ func TestSandboxBudget_RunawayMigrationTopLevelFailsLoad(t *testing.T) {
 // only at load: registration evaluates the file's top level, but the up/down
 // callbacks execute later, against the org's database.
 func TestSandboxBudget_RunawayMigrationUpIsInterrupted(t *testing.T) {
-	// Snapshot the global migrations list — same hygiene as sandbox_test.go —
-	// so this test's registration doesn't leak into other tests.
-	original := core.AppMigrations
-	core.AppMigrations = core.MigrationsList{}
-	t.Cleanup(func() { core.AppMigrations = original })
 
 	app, err := tests.NewTestApp()
 	if err != nil {
@@ -121,7 +116,7 @@ func TestSandboxBudget_RunawayMigrationUpIsInterrupted(t *testing.T) {
 		t.Fatalf("registration itself should succeed (the spin is inside up): %v", err)
 	}
 
-	items := core.AppMigrations.Items()
+	items := core.OwnAppMigrations(app).Items()
 	if len(items) != 1 {
 		t.Fatalf("registered %d migrations, want 1", len(items))
 	}

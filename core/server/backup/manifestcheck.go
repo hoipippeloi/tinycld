@@ -114,7 +114,7 @@ func CheckManifest(app core.App, r io.Reader, identity age.Identity) (format.Man
 	if err != nil {
 		return format.Manifest{}, err
 	}
-	if HasRebuilder() {
+	if HasRebuilder(app) {
 		return m, nil
 	}
 	installed, err := installedPackages(app)

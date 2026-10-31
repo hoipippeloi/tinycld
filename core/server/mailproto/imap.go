@@ -158,15 +158,16 @@ func startIMAPExternalTLS(app core.App, opts IMAPOptions) (func(), error) {
 		imapsAddr = ":993"
 	}
 
-	d := newDrain("IMAP", true)
-	server := newIMAPServerInstance(app, nil, true, opts.NewSession, d)
-
 	ln, err := opts.Listen(imapsAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", imapsAddr, err)
 	}
+
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, nil, true, opts.NewSession, d)
+	e := startEntry(app, ServiceIMAP, d, "IMAP", server.Serve)
 	mailLog.Info("IMAP server listening (external TLS termination)", "addr", imapsAddr)
-	d.serve(d.listen(ln), "IMAP", imapsAddr, server.Serve)
+	d.serve(ln, "IMAP", imapsAddr, e.acceptFrom(nil))
 
 	return d.bind(app), nil
 }
@@ -177,15 +178,16 @@ func startIMAPTLSOnly(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (fu
 		imapsAddr = ":993"
 	}
 
-	d := newDrain("IMAP", true)
-	server := newIMAPServerInstance(app, tlsConfig, false, opts.NewSession, d)
-
 	rawLn, err := listenWith(opts.Listen, imapsAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", imapsAddr, err)
 	}
+
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, tlsConfig, false, opts.NewSession, d)
+	e := startEntry(app, ServiceIMAP, d, "IMAPS", server.Serve)
 	mailLog.Info("IMAPS server listening (implicit TLS, no plain listener)", "addr", imapsAddr)
-	d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), "IMAPS", imapsAddr, server.Serve)
+	d.serve(rawLn, "IMAPS", imapsAddr, e.acceptFrom(tlsConfig))
 
 	return d.bind(app), nil
 }
@@ -197,15 +199,17 @@ func startIMAPDev(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func()
 	}
 
 	insecureAuth := os.Getenv("IMAP_INSECURE_AUTH") == "true" || app.IsDev()
-	d := newDrain("IMAP", true)
-	server := newIMAPServerInstance(app, tlsConfig, insecureAuth, opts.NewSession, d)
 
 	plainLn, err := listenWith(opts.Listen, addr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", addr, err)
 	}
+
+	d := newDrain("IMAP", true)
+	server := newIMAPServerInstance(app, tlsConfig, insecureAuth, opts.NewSession, d)
+	e := startEntry(app, ServiceIMAP, d, "IMAP", server.Serve)
 	mailLog.Info("IMAP server listening", "addr", addr, "starttls", tlsConfig != nil)
-	d.serve(d.listen(plainLn), "IMAP", addr, server.Serve)
+	d.serve(plainLn, "IMAP", addr, e.acceptFrom(nil))
 
 	if tlsConfig != nil {
 		imapsAddr := os.Getenv("IMAPS_ADDR")
@@ -234,7 +238,7 @@ func startIMAPDev(app core.App, tlsConfig *tls.Config, opts IMAPOptions) (func()
 			)
 		} else {
 			mailLog.Info("IMAPS server listening (implicit TLS)", "addr", imapsAddr)
-			d.serve(tls.NewListener(d.listen(rawLn), tlsConfig), "IMAPS", imapsAddr, server.Serve)
+			d.serve(rawLn, "IMAPS", imapsAddr, e.acceptFrom(tlsConfig))
 		}
 	}
 

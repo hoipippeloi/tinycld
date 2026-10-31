@@ -240,6 +240,7 @@ func TestLoadIncomingMigrationsDoesNotTouchGlobalRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	app := newMigrateTestApp(t)
 	globalBefore := len(core.AppMigrations.Items())
 
 	incoming, err := LoadIncomingMigrations(dir, false, nil)
@@ -253,7 +254,7 @@ func TestLoadIncomingMigrationsDoesNotTouchGlobalRegistry(t *testing.T) {
 		t.Errorf("core.AppMigrations grew from %d to %d — the load leaked into the global registry",
 			globalBefore, got)
 	}
-	if _, ok := pkgMigrationByFile(name); ok {
+	if _, ok := pkgMigrationByFile(app, name); ok {
 		t.Error("the incoming migration is resolvable via the GLOBAL registry; it must be private")
 	}
 
@@ -403,7 +404,7 @@ func TestResolverPrefersIncomingOverOutgoingForSharedFiles(t *testing.T) {
 	}})
 
 	incomingRan := false
-	resolve := resolveWith(func(f string) (*core.Migration, bool) {
+	resolve := resolveWith(newMigrateTestApp(t), func(f string) (*core.Migration, bool) {
 		if f != file {
 			return nil, false
 		}

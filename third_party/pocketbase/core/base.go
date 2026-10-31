@@ -861,7 +861,7 @@ func (app *BaseApp) RunSystemMigrations() error {
 
 // RunAppMigrations applies all new migrations registered in the [core.AppMigrations] list.
 func (app *BaseApp) RunAppMigrations() error {
-	_, err := NewMigrationsRunner(app, AppMigrations).Up()
+	_, err := NewMigrationsRunner(app, AppMigrationsOf(app)).Up() // fork: the app's own JS migrations too (migrations_app_tinycld.go)
 	return err
 }
 
@@ -870,7 +870,7 @@ func (app *BaseApp) RunAppMigrations() error {
 func (app *BaseApp) RunAllMigrations() error {
 	list := MigrationsList{}
 	list.Copy(SystemMigrations)
-	list.Copy(AppMigrations)
+	list.Copy(AppMigrationsOf(app)) // fork: the app's own JS migrations too (migrations_app_tinycld.go)
 	_, err := NewMigrationsRunner(app, list).Up()
 	return err
 }

@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"errors"
+	"github.com/pocketbase/pocketbase/core"
 	"time"
 )
 
@@ -31,8 +32,8 @@ const replacedCloseReason = "file replaced; reconnect"
 // so the next open would save the old content over the write.
 //
 // write must load the item again: the final save changes its record.
-func WriteItem(id string, write func() error) error {
-	return sharedBroker().WriteItem(id, write)
+func WriteItem(app core.App, id string, write func() error) error {
+	return BrokerFor(app).WriteItem(id, write)
 }
 
 func (b *Broker) WriteItem(id string, write func() error) error {
@@ -56,7 +57,7 @@ func (b *Broker) WriteItem(id string, write func() error) error {
 	if err := write(); err != nil {
 		return err
 	}
-	for _, kind := range registeredKinds() {
+	for _, kind := range b.registeredKinds() {
 		if err := b.DropRoom(kind, id); err != nil {
 			log.Warn("parked document not dropped after an external write",
 				"kind", kind, "roomID", id, "err", err)
@@ -98,11 +99,10 @@ func (b *Broker) closeRooms(id string) error {
 	}
 }
 
-// JoinItemForTest puts a test client in the shared broker's room (kind, id)
-// so a package test can hold an item open. Production code must not call
-// this.
-func JoinItemForTest(kind, id string) (leave func()) {
-	b := sharedBroker()
+// JoinItemForTest puts a test client in app's room (kind, id) so a package
+// test can hold an item open. Production code must not call this.
+func JoinItemForTest(app core.App, kind, id string) (leave func()) {
+	b := BrokerFor(app)
 	c := NewClientForTest("test-" + id)
 	b.JoinForTest(kind, id, c)
 	return func() { b.LeaveForTest(c) }

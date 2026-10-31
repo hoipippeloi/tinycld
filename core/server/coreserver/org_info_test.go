@@ -134,8 +134,7 @@ func TestOrgInfoPublishesManagedNamespacesNeverValues(t *testing.T) {
 	}
 	t.Cleanup(app.Cleanup)
 
-	syscfg.SetProvider(secretfulProvider{})
-	t.Cleanup(syscfg.ResetForTesting)
+	syscfg.SetProvider(app, secretfulProvider{})
 
 	RegisterOrgInfoEndpoint(app)
 
@@ -166,8 +165,6 @@ func TestOrgInfoManagedSettingsEmptyWhenStandalone(t *testing.T) {
 	}
 	t.Cleanup(app.Cleanup)
 
-	syscfg.ResetForTesting()
-	t.Cleanup(syscfg.ResetForTesting)
 	RegisterOrgInfoEndpoint(app)
 
 	scenario := &tests.ApiScenario{
@@ -190,19 +187,17 @@ func TestOrgInfo_PublishesTheConfiguredMailHost(t *testing.T) {
 		{"unset", "", `"mailHost":""`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			syscfg.ResetForTesting()
-			t.Cleanup(syscfg.ResetForTesting)
-			syscfg.SetResolver(func(key string) string {
-				if key == mailhost.Key {
-					return tc.setting
-				}
-				return ""
-			})
 			app, err := tests.NewTestApp()
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(app.Cleanup)
+			syscfg.SetResolver(app, func(key string) string {
+				if key == mailhost.Key {
+					return tc.setting
+				}
+				return ""
+			})
 			app.Settings().Meta.AppURL = "https://web.example.com"
 			RegisterOrgInfoEndpoint(app)
 

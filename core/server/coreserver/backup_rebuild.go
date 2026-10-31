@@ -38,7 +38,7 @@ func nameRestoreJob(job *installjob.Job) {
 // phase 2), which is the correct outcome there — restoring rows that belong to
 // packages the binary does not carry leaves data no screen can reach.
 func RegisterBackupSelfRebuild(app *pocketbase.PocketBase) {
-	backup.RegisterRebuilder(restoreRebuilder(app))
+	backup.RegisterRebuilder(app, restoreRebuilder(app))
 	// A restore that needs no rebuild still has to end the process: the staged
 	// data is what the next one boots on. The WAL checkpoint first, or the new
 	// process reads a data.db missing this one's last writes.
@@ -48,7 +48,7 @@ func RegisterBackupSelfRebuild(app *pocketbase.PocketBase) {
 	// deployment behind the maintenance 503 for good. Say so instead: the restore
 	// then goes back to serving the current data and its row records that a
 	// restart is still owed.
-	backup.SetRestart(func() bool { return restartForRestore(app) })
+	backup.SetRestart(app, func() bool { return restartForRestore(app) })
 }
 
 // restoreRebuildDeps builds the rebuild's dependencies for a restore. It is
@@ -112,5 +112,5 @@ func restartForRestore(app *pocketbase.PocketBase) bool {
 		return false
 	}
 	checkpointWAL(app)
-	return requestRestart(true)
+	return requestRestart(app, true)
 }

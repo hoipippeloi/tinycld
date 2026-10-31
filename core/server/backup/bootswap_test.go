@@ -2,6 +2,7 @@ package backup
 
 import (
 	"encoding/json"
+	"github.com/pocketbase/pocketbase/core"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,9 +47,9 @@ func read(t *testing.T, p string) string {
 }
 
 func TestApplyPendingRestoreSwaps(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "new" {
@@ -77,21 +78,21 @@ func TestApplyPendingRestoreSwaps(t *testing.T) {
 	if read(t, swappedPathOf(dataDir)) == "<missing>" {
 		t.Fatal("swapped marker missing")
 	}
-	if !Restoring() {
+	if !Restoring(boot) {
 		t.Fatal("Restoring() must be true until finalize")
 	}
 }
 
 func TestApplyPendingRestoreNoop(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := filepath.Join(t.TempDir(), "pb_data")
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
-	if Restoring() {
+	if Restoring(boot) {
 		t.Fatal("a boot with nothing staged must not enter maintenance mode")
 	}
 }
@@ -99,9 +100,9 @@ func TestApplyPendingRestoreNoop(t *testing.T) {
 // A first boot on a data dir that does not exist yet must not fail: the swap
 // runs before PocketBase creates it.
 func TestApplyPendingRestoreMissingDataDir(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := filepath.Join(t.TempDir(), "pb_data")
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -111,7 +112,6 @@ func TestApplyPendingRestoreMissingDataDir(t *testing.T) {
 // absence is the only sound evidence: a missing data.db can equally mean the
 // swap already moved it in.
 func TestApplyPendingRestoreDiscardsAnUnstagedPending(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
 	pending := filepath.Join(filepath.Dir(dataDir), "restore", "pending", "r1")
 	if err := os.Remove(filepath.Join(pending, stagedSentinel)); err != nil {
@@ -120,7 +120,8 @@ func TestApplyPendingRestoreDiscardsAnUnstagedPending(t *testing.T) {
 	if err := os.Remove(filepath.Join(pending, "data.db")); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -132,13 +133,12 @@ func TestApplyPendingRestoreDiscardsAnUnstagedPending(t *testing.T) {
 	if _, err := os.Stat(pending); !os.IsNotExist(err) {
 		t.Fatal("the half-staged directory was kept")
 	}
-	if Restoring() {
+	if Restoring(boot) {
 		t.Fatal("an aborted stage must not enter maintenance mode")
 	}
 }
 
 func TestApplyPendingRestoreRecoversFromHalfSwap(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
 	// Simulate a crash after pb_data was moved aside but before pending moved in.
 	prev := filepath.Join(filepath.Dir(dataDir), "restore", "previous", "r1")
@@ -148,7 +148,8 @@ func TestApplyPendingRestoreRecoversFromHalfSwap(t *testing.T) {
 	if err := os.Rename(dataDir, prev); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "new" {
@@ -160,14 +161,15 @@ func TestApplyPendingRestoreRecoversFromHalfSwap(t *testing.T) {
 }
 
 func TestApplyPendingRestoreRollsBackAfterFailedBoot(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	// The process boots, fails before FinalizeRestore, and is relaunched:
 	// the swapped marker is still there, so the next boot must swap back.
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -182,7 +184,7 @@ func TestApplyPendingRestoreRollsBackAfterFailedBoot(t *testing.T) {
 	if read(t, filepath.Join(filepath.Dir(dataDir), "restore", "failed", "r1", "data.db")) != "new" {
 		t.Fatal("failed restore data not kept for inspection")
 	}
-	if Restoring() {
+	if Restoring(boot) {
 		t.Fatal("a rolled-back boot serves the previous data, so it is not restoring")
 	}
 }
@@ -190,12 +192,13 @@ func TestApplyPendingRestoreRollsBackAfterFailedBoot(t *testing.T) {
 // A second failed boot must not trip over the failed/<id> directory the first
 // one left behind.
 func TestApplyPendingRestoreRollsBackTwice(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	// Re-arm with a freshly staged pending directory and fail again with the
@@ -215,10 +218,12 @@ func TestApplyPendingRestoreRollsBackTwice(t *testing.T) {
 	if err := os.WriteFile(armedPathOf(dataDir), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -229,9 +234,9 @@ func TestApplyPendingRestoreRollsBackTwice(t *testing.T) {
 // The two markers overlap for one instant. A crash inside that window leaves
 // both, and swapped must win: the data is already restored.
 func TestApplyPendingRestorePrefersTheSwappedMarker(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	// Put the armed marker back, as a crash between the two writes would. It
@@ -243,7 +248,8 @@ func TestApplyPendingRestorePrefersTheSwappedMarker(t *testing.T) {
 	if err := os.WriteFile(armedPathOf(dataDir), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -257,15 +263,16 @@ func TestApplyPendingRestorePrefersTheSwappedMarker(t *testing.T) {
 // A rollback exists to get the previous copy back. It must still do that if
 // something removed pb_data between the two boots.
 func TestApplyPendingRestoreRollsBackWithoutPbData(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(dataDir); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -288,7 +295,6 @@ func markStaged(t *testing.T, pending string) {
 // old code read a missing <pending>/data.db as an aborted stage and deleted the
 // staged storage tree, losing every attachment in the archive.
 func TestApplyPendingRestoreResumesAfterTheDatabaseMoved(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
 	root := filepath.Dir(dataDir)
 	pending := filepath.Join(root, "restore", "pending", "r1")
@@ -308,7 +314,8 @@ func TestApplyPendingRestoreResumesAfterTheDatabaseMoved(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "new" {
@@ -323,7 +330,7 @@ func TestApplyPendingRestoreResumesAfterTheDatabaseMoved(t *testing.T) {
 	if _, err := os.Stat(armedPathOf(dataDir)); !os.IsNotExist(err) {
 		t.Fatal("armed marker not cleared")
 	}
-	if !Restoring() {
+	if !Restoring(boot) {
 		t.Fatal("a resumed swap is still a restore awaiting finalize")
 	}
 }
@@ -331,7 +338,6 @@ func TestApplyPendingRestoreResumesAfterTheDatabaseMoved(t *testing.T) {
 // A crash after both members moved but before the swapped marker was written.
 // Pending is empty, previous/<id> exists: finish by writing the marker.
 func TestApplyPendingRestoreResumesAfterBothMembersMoved(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
 	root := filepath.Dir(dataDir)
 	pending := filepath.Join(root, "restore", "pending", "r1")
@@ -352,7 +358,8 @@ func TestApplyPendingRestoreResumesAfterBothMembersMoved(t *testing.T) {
 		}
 	}
 
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "new" || read(t, filepath.Join(dataDir, "storage", "c", "d", "new.txt")) != "new" {
@@ -361,7 +368,7 @@ func TestApplyPendingRestoreResumesAfterBothMembersMoved(t *testing.T) {
 	if read(t, swappedPathOf(dataDir)) == "<missing>" {
 		t.Fatal("the swap was never marked, so a failed boot could not roll back")
 	}
-	if !Restoring() {
+	if !Restoring(boot) {
 		t.Fatal("a resumed swap is still a restore awaiting finalize")
 	}
 }
@@ -369,13 +376,13 @@ func TestApplyPendingRestoreResumesAfterBothMembersMoved(t *testing.T) {
 // An armed marker whose pending directory has no sentinel and no previous/<id>
 // beside it: staging never finished and the swap never started. Discard.
 func TestApplyPendingRestoreDiscardsAStageWithoutItsSentinel(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
 	pending := filepath.Join(filepath.Dir(dataDir), "restore", "pending", "r1")
 	if err := os.Remove(filepath.Join(pending, stagedSentinel)); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -387,7 +394,7 @@ func TestApplyPendingRestoreDiscardsAStageWithoutItsSentinel(t *testing.T) {
 	if _, err := os.Stat(armedPathOf(dataDir)); !os.IsNotExist(err) {
 		t.Fatal("armed marker not cleared")
 	}
-	if Restoring() {
+	if Restoring(boot) {
 		t.Fatal("an aborted stage must not enter maintenance mode")
 	}
 }
@@ -397,12 +404,13 @@ func TestApplyPendingRestoreDiscardsAStageWithoutItsSentinel(t *testing.T) {
 // undone. The rollback runs before the database is open, so the marker is the
 // only way the news reaches the ledger.
 func TestApplyPendingRestoreLeavesARollbackMarker(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(rolledBackDirOf(dataDir), "r1.json")
@@ -431,13 +439,14 @@ func TestApplyPendingRestoreLeavesARollbackMarker(t *testing.T) {
 // renamed into its place, and the final rename then failed on the missing
 // previous/<id> — leaving no pb_data at all.
 func TestRollBackTwiceKeepsTheRecoveredData(t *testing.T) {
-	resetRestoreState(t)
 	dataDir := layout(t)
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	// The failed boot: the data goes back and the marker is cleared.
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	if read(t, filepath.Join(dataDir, "data.db")) != "old" {
@@ -465,7 +474,8 @@ func TestRollBackTwiceKeepsTheRecoveredData(t *testing.T) {
 		t.Fatal("this test is only meaningful with previous/<id> already consumed")
 	}
 
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot = bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatalf("re-entering the rollback must not fail: %v", err)
 	}
 	if got := read(t, filepath.Join(dataDir, "data.db")); got != "old" {
@@ -485,7 +495,12 @@ func TestRollBackTwiceKeepsTheRecoveredData(t *testing.T) {
 	if _, serr := os.Stat(swappedPathOf(dataDir)); !os.IsNotExist(serr) {
 		t.Fatal("the swapped marker was not cleared on the second pass")
 	}
-	if Restoring() {
+	if Restoring(boot) {
 		t.Fatal("a rolled-back boot serves the previous data, so it is not restoring")
 	}
+}
+
+// bootAt is one boot of the app on dataDir: a fresh app, as a restart gives.
+func bootAt(dataDir string) core.App {
+	return core.NewBaseApp(core.BaseAppConfig{DataDir: dataDir})
 }

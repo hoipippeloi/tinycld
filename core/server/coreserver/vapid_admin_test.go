@@ -112,9 +112,7 @@ func TestUpsertSystemSettingRefusesAManagedKey(t *testing.T) {
 	app.OnRecordCreate("system_settings").BindFunc(refuseManagedWrite)
 	app.OnRecordUpdate("system_settings").BindFunc(refuseManagedWrite)
 
-	syscfg.ResetForTesting()
-	t.Cleanup(syscfg.ResetForTesting)
-	syscfg.SetProvider(managedProvider{prefixes: []string{"vapid."}})
+	syscfg.SetProvider(app, managedProvider{prefixes: []string{"vapid."}})
 
 	if err := upsertSystemSetting(app, "vapid.private_key", "org-supplied", true); err == nil {
 		t.Fatal("a managed key was written through app.Save; the model hook did not fire")

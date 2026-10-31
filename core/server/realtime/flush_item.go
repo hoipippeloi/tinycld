@@ -1,9 +1,13 @@
 package realtime
 
-import "fmt"
+import (
+	"fmt"
 
-// FlushItem persists the live state of every room open for id, across all
-// registered room kinds, and returns once each write has landed. A kind
+	"github.com/pocketbase/pocketbase/core"
+)
+
+// FlushItem persists the live state of every room open for id in app, across
+// all of app's room kinds, and returns once each write has landed. A kind
 // with no room for id has nothing to flush and reports success, so the
 // caller needs no map from item to kind.
 //
@@ -13,9 +17,10 @@ import "fmt"
 //
 // ErrReadOnly and ErrStopping propagate unchanged so the caller can refuse
 // to serve a file it could not bring current.
-func FlushItem(id string) error {
-	for _, kind := range registeredKinds() {
-		opts, err := optionsFor(kind)
+func FlushItem(app core.App, id string) error {
+	b := BrokerFor(app)
+	for _, kind := range b.registeredKinds() {
+		opts, err := b.optionsFor(kind)
 		if err != nil || opts.ForceFlush == nil {
 			continue
 		}

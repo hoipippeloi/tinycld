@@ -8,8 +8,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/editcheckpoint"
+	"tinycld.org/core/logging"
 )
 
 type checkpointCall struct {
@@ -18,21 +20,22 @@ type checkpointCall struct {
 	reason  editcheckpoint.Reason
 }
 
-// recordCheckpoints registers a listener that sends every checkpoint to the
-// returned channel, and shortens the idle period for the test.
-func recordCheckpoints(t *testing.T, idle time.Duration) chan checkpointCall {
+// recordCheckpoints returns a broker that serves a fresh app whose listener
+// sends every checkpoint to the returned channel, and shortens the idle period
+// for the test.
+func recordCheckpoints(t *testing.T, idle time.Duration) (chan checkpointCall, *Broker) {
 	t.Helper()
 	prev := idleCheckpointAfter
 	idleCheckpointAfter = idle
+	t.Cleanup(func() { idleCheckpointAfter = prev })
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	broker := NewBroker()
+	attachBrokerForTest(app, broker)
 	calls := make(chan checkpointCall, 8)
-	editcheckpoint.Register(func(_ context.Context, id string, e editcheckpoint.Editors, r editcheckpoint.Reason) {
+	editcheckpoint.Register(app, func(_ context.Context, id string, e editcheckpoint.Editors, r editcheckpoint.Reason) {
 		calls <- checkpointCall{id, e, r}
 	})
-	t.Cleanup(func() {
-		idleCheckpointAfter = prev
-		editcheckpoint.ResetForTest()
-	})
-	return calls
+	return calls, broker
 }
 
 func waitCheckpoint(t *testing.T, calls chan checkpointCall) checkpointCall {
@@ -86,8 +89,8 @@ func checkpointKind(t *testing.T, broker *Broker, opts RoomKindOptions) dialOpts
 }
 
 func TestIdleCheckpointFiresAfterEditsOnly(t *testing.T) {
-	calls := recordCheckpoints(t, 80*time.Millisecond)
-	opts := checkpointKind(t, NewBroker(), RoomKindOptions{})
+	calls, broker := recordCheckpoints(t, 80*time.Millisecond)
+	opts := checkpointKind(t, broker, RoomKindOptions{})
 
 	a := dialClient(t, opts, "idle-room", "alice")
 	expectNoCheckpoint(t, calls, 200*time.Millisecond)
@@ -105,8 +108,8 @@ func TestIdleCheckpointFiresAfterEditsOnly(t *testing.T) {
 }
 
 func TestIdleTimerResetsOnEachEdit(t *testing.T) {
-	calls := recordCheckpoints(t, 150*time.Millisecond)
-	opts := checkpointKind(t, NewBroker(), RoomKindOptions{})
+	calls, broker := recordCheckpoints(t, 150*time.Millisecond)
+	opts := checkpointKind(t, broker, RoomKindOptions{})
 
 	a := dialClient(t, opts, "reset-room", "alice")
 	start := time.Now()
@@ -124,18 +127,17 @@ func TestIdleTimerResetsOnEachEdit(t *testing.T) {
 // written the file) and off the teardown path, so a slow version save does
 // not hold the room key and block a rejoin.
 func TestRoomEmptyCheckpointFiresOnceAfterOnEmptyWithoutBlocking(t *testing.T) {
-	calls := recordCheckpoints(t, time.Hour)
+	calls, broker := recordCheckpoints(t, time.Hour)
 	release := make(chan struct{})
 	var mu sync.Mutex
 	var order []string
-	editcheckpoint.Register(func(_ context.Context, id string, e editcheckpoint.Editors, r editcheckpoint.Reason) {
+	editcheckpoint.Register(broker.app, func(_ context.Context, id string, e editcheckpoint.Editors, r editcheckpoint.Reason) {
 		mu.Lock()
 		order = append(order, "checkpoint")
 		mu.Unlock()
 		<-release
 		calls <- checkpointCall{id, e, r}
 	})
-	broker := NewBroker()
 	opts := checkpointKind(t, broker, RoomKindOptions{
 		OnEmpty: func(string) {
 			mu.Lock()
@@ -175,8 +177,8 @@ func TestRoomEmptyCheckpointFiresOnceAfterOnEmptyWithoutBlocking(t *testing.T) {
 }
 
 func TestShareEditorsRecordedByDisplayName(t *testing.T) {
-	calls := recordCheckpoints(t, 80*time.Millisecond)
-	opts := checkpointKind(t, NewBroker(), RoomKindOptions{})
+	calls, broker := recordCheckpoints(t, 80*time.Millisecond)
+	opts := checkpointKind(t, broker, RoomKindOptions{})
 
 	anon := dialShareClient(t, opts, "share-room", "anon-123", "Anon Otter")
 	writeFrame(t, anon, MsgDocUpdate, []byte("e1"))
@@ -187,8 +189,7 @@ func TestShareEditorsRecordedByDisplayName(t *testing.T) {
 }
 
 func TestTakeEditorsClearsSetAndStopsTimer(t *testing.T) {
-	calls := recordCheckpoints(t, 100*time.Millisecond)
-	broker := NewBroker()
+	calls, broker := recordCheckpoints(t, 100*time.Millisecond)
 	opts := checkpointKind(t, broker, RoomKindOptions{})
 
 	a := dialClient(t, opts, "take-room", "alice")
@@ -206,8 +207,8 @@ func TestTakeEditorsClearsSetAndStopsTimer(t *testing.T) {
 }
 
 func TestKindWithoutEditCheckpointsNeverFires(t *testing.T) {
-	calls := recordCheckpoints(t, 50*time.Millisecond)
-	opts := startTestServerWithOpts(t, NewBroker(), RoomKindOptions{RuntimeProvider: newStubRuntime()})
+	calls, broker := recordCheckpoints(t, 50*time.Millisecond)
+	opts := startTestServerWithOpts(t, broker, RoomKindOptions{RuntimeProvider: newStubRuntime()})
 
 	a := dialClient(t, opts, "plain-room", "alice")
 	writeFrame(t, a, MsgDocUpdate, []byte("e1"))
@@ -234,14 +235,13 @@ func TestIdleFromEnv(t *testing.T) {
 // During a drain the database closes after the rooms; the room-empty
 // version is skipped (the edits are saved by OnEmpty).
 func TestRoomEmptyCheckpointSkippedDuringDrain(t *testing.T) {
-	calls := recordCheckpoints(t, time.Hour)
-	opts := checkpointKind(t, NewBroker(), RoomKindOptions{})
+	calls, broker := recordCheckpoints(t, time.Hour)
+	opts := checkpointKind(t, broker, RoomKindOptions{})
 	a := dialClient(t, opts, "drain-room", "alice")
 	writeFrame(t, a, MsgDocUpdate, []byte("e1"))
 	time.Sleep(50 * time.Millisecond)
 
-	draining.Store(true)
-	t.Cleanup(func() { draining.Store(false) })
+	broker.draining.Store(true)
 	_ = a.conn.Close(websocket.StatusNormalClosure, "bye")
 	expectNoCheckpoint(t, calls, 300*time.Millisecond)
 }
@@ -251,8 +251,7 @@ func TestRoomEmptyCheckpointSkippedDuringDrain(t *testing.T) {
 // writer (TakeEditors inside write), not fired as a room-empty checkpoint
 // that would race the write and could copy the new file.
 func TestWriteItemHandsTheEditorsToTheWriter(t *testing.T) {
-	calls := recordCheckpoints(t, time.Hour)
-	broker := NewBroker()
+	calls, broker := recordCheckpoints(t, time.Hour)
 	t.Cleanup(broker.Close)
 	opts := checkpointKind(t, broker, RoomKindOptions{})
 	a := dialClient(t, opts, "write-room", "alice")
@@ -274,6 +273,34 @@ func TestWriteItemHandsTheEditorsToTheWriter(t *testing.T) {
 	expectNoCheckpoint(t, calls, 300*time.Millisecond)
 	if left := broker.TakeEditors("write-room"); !left.Empty() {
 		t.Fatalf("editors left after the write = %+v", left)
+	}
+}
+
+// A checkpoint runs on a timer goroutine or a goroutine of its own, where a
+// panic in the package's listener that nothing stops ends the process and
+// every app it runs.
+func TestCheckpointListenerPanicIsRecovered(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	editcheckpoint.Register(app, func(context.Context, string, editcheckpoint.Editors, editcheckpoint.Reason) {
+		panic("listener bug")
+	})
+
+	fireEditCheckpoint(app, "item1", editcheckpoint.Editors{UserIDs: []string{"u1"}}, editcheckpoint.ReasonIdle)
+}
+
+// The listener logs and captures with the ctx it gets, so that ctx must name
+// the app, or its records reach no app's _logs table and no app's Sentry hub.
+func TestCheckpointListenerCtxNamesTheApp(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	var got core.App
+	editcheckpoint.Register(app, func(ctx context.Context, _ string, _ editcheckpoint.Editors, _ editcheckpoint.Reason) {
+		got, _ = logging.AppFrom(ctx)
+	})
+
+	fireEditCheckpoint(app, "item1", editcheckpoint.Editors{UserIDs: []string{"u1"}}, editcheckpoint.ReasonIdle)
+
+	if got != core.App(app) {
+		t.Fatalf("listener ctx names app %v, want the room's app", got)
 	}
 }
 

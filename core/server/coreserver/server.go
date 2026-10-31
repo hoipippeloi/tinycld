@@ -150,6 +150,12 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 		}
 	}
 
+	// A standalone process runs this one app, so a record logged with no app
+	// in its ctx (startup, tickers, a call site with no ctx) belongs to it:
+	// it lands in this app's _logs, and the process Sentry hub is this app's
+	// hub. First, so no record and no hub lookup comes before it. A process
+	// that holds many apps does not call Register and names no default app.
+	logging.SetDefaultApp(app)
 	registerFlags(app, &opts)
 
 	// Parse CLI args so flag-backed fields are populated before we register
@@ -231,7 +237,8 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 	// A single-binary build has no writable migrations dir, and `migrate
 	// create` / `migrate collections` are dev-time authoring commands with
 	// nowhere to write. Applying migrations does not depend on this: that runs
-	// off the in-memory core.AppMigrations registry which jsvm populates above.
+	// off the app's own migrations list (core.OwnAppMigrations), which jsvm
+	// populates above.
 	if opts.MigrationsFS == nil {
 		migratecmd.MustRegister(app, app.RootCmd, migratecmd.Config{
 			TemplateLang: migratecmd.TemplateLangJS,
@@ -265,7 +272,7 @@ func Register(app *pocketbase.PocketBase, opts Options) {
 		// A deployment that can rebuild itself also schedules its own updates.
 		// SetDelegate binds no hook, so the composition parity test is
 		// unaffected.
-		autoupgrade.SetDelegate(newLocalScheduler(app))
+		autoupgrade.SetDelegate(app, newLocalScheduler(app))
 	}
 
 	// Serving on a supervisor's listeners, reporting ready and draining on
@@ -353,20 +360,16 @@ func registerSharedMiddleware(app core.App) {
 // other arm of the comparison lives outside this repo, so the golden counts
 // here are what fires when a change is MADE.
 func RegisterSharedEarly(app *pocketbase.PocketBase) {
-	// Install the process-wide logger once PocketBase has bootstrapped, not
-	// here in Register (or a composing server's own entry point). app.Logger()
-	// falls back to slog.Default() until PocketBase's own initLogger() runs during
-	// bootstrap (pocketbase/core/base.go), so resolving it any earlier would
-	// hand Install the fan-out's own future default handler — wiring the
-	// fan-out to itself and recursing on the first log call. Waiting for
-	// e.Next() to complete first is also why the DB write works: the PB
-	// handler batches records into the _logs table, and there is no usable
-	// DB before bootstrap finishes.
+	// Install the process-wide log handler once PocketBase has bootstrapped.
+	// The handler holds no app: it writes each record to the _logs table of
+	// the app named in the record's ctx (logging.WithApp), so every app in
+	// the process shares the one handler and none of them owns it. Until an
+	// app's bootstrap opens its own logger, app.Logger() is slog.Default(),
+	// and the handler skips that app's _logs rather than writing into itself.
 	//
-	// Anything logged between that entry point and this one (e.g.
-	// registerFlags, jsvm/migratecmd setup) falls through to Go's default
-	// slog handler (stderr) instead of the fan-out. That's deliberate, not a
-	// gap: those calls have no _logs table to reach yet regardless.
+	// Anything logged before this hook runs (e.g. registerFlags, jsvm and
+	// migratecmd setup) goes to Go's default slog handler (stderr). Those
+	// calls have no _logs table to reach yet regardless.
 
 	// Bound before the logger's hook, because its first step runs before the
 	// database is opened: a restore that staged data before the last restart
@@ -380,7 +383,7 @@ func RegisterSharedEarly(app *pocketbase.PocketBase) {
 		if err := e.Next(); err != nil {
 			return err
 		}
-		logging.Install(app.Logger().Handler())
+		logging.Install()
 		return nil
 	})
 
@@ -417,7 +420,7 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	// tokens so calc/text editable share links can open a WS without a
 	// PB account. Adapts sharelink.VerifySession to the broker's
 	// ShareClaims shape (the broker stays decoupled from drive's feature).
-	realtime.SetShareSessionResolver(func(a core.App, token string) (realtime.ShareClaims, error) {
+	realtime.SetShareSessionResolver(app, func(a core.App, token string) (realtime.ShareClaims, error) {
 		claims, err := sharelink.VerifySession(a, token)
 		if err != nil {
 			return realtime.ShareClaims{}, err

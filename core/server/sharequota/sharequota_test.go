@@ -5,11 +5,22 @@ import (
 	"testing"
 
 	"github.com/pocketbase/pocketbase/core"
+	"github.com/pocketbase/pocketbase/tests"
 )
 
 // Every test here names a fictional package. Core must not know a real one,
 // and a test that reaches for "drive" is how that rule quietly stops holding.
 const fakeSlug = "widgets"
+
+func newApp(t *testing.T) core.App {
+	t.Helper()
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(app.Cleanup)
+	return app
+}
 
 func reset(t *testing.T) {
 	t.Helper()
@@ -18,29 +29,29 @@ func reset(t *testing.T) {
 }
 
 func TestLimits_UnclaimedIsUnlimited(t *testing.T) {
-	reset(t)
+	app := newApp(t)
 
-	got := Limits(nil)
+	got := Limits(app)
 	if got.Lifetime != 0 || got.PerDay != 0 {
 		t.Errorf("Limits = %+v, want the zero value (unlimited)", got)
 	}
-	if IsClaimed() {
+	if IsClaimed(app) {
 		t.Error("IsClaimed = true with nobody having claimed the seam")
 	}
 }
 
 func TestSetLimits_Resolves(t *testing.T) {
-	reset(t)
+	app := newApp(t)
 
-	SetLimits(func(core.App) ShareLimits {
+	SetLimits(app, func(core.App) ShareLimits {
 		return ShareLimits{Lifetime: 100, PerDay: 20}
 	})
 
-	got := Limits(nil)
+	got := Limits(app)
 	if got.Lifetime != 100 || got.PerDay != 20 {
 		t.Errorf("Limits = %+v, want {100 20}", got)
 	}
-	if !IsClaimed() {
+	if !IsClaimed(app) {
 		t.Error("IsClaimed = false after SetLimits")
 	}
 }
@@ -49,12 +60,12 @@ func TestSetLimits_Resolves(t *testing.T) {
 // core's own wiring must not be able to point them back at something the
 // deployment controls.
 func TestSetLimits_ClaimIsNotOverwritten(t *testing.T) {
-	reset(t)
+	app := newApp(t)
 
-	SetLimits(func(core.App) ShareLimits { return ShareLimits{PerDay: 20} })
-	SetLimits(func(core.App) ShareLimits { return ShareLimits{PerDay: 99999} })
+	SetLimits(app, func(core.App) ShareLimits { return ShareLimits{PerDay: 20} })
+	SetLimits(app, func(core.App) ShareLimits { return ShareLimits{PerDay: 99999} })
 
-	if got := Limits(nil); got.PerDay != 20 {
+	if got := Limits(app); got.PerDay != 20 {
 		t.Errorf("PerDay = %d, want the first resolver's 20", got.PerDay)
 	}
 }
@@ -62,10 +73,10 @@ func TestSetLimits_ClaimIsNotOverwritten(t *testing.T) {
 // A nil resolver would silently mean unlimited, which is the opposite of what
 // a caller installing one intends.
 func TestSetLimits_NilIsIgnored(t *testing.T) {
-	reset(t)
+	app := newApp(t)
 
-	SetLimits(nil)
-	if IsClaimed() {
+	SetLimits(app, nil)
+	if IsClaimed(app) {
 		t.Error("a nil resolver must not claim the seam")
 	}
 }
@@ -74,15 +85,42 @@ func TestSetLimits_NilIsIgnored(t *testing.T) {
 // download. Normalizing here means that cannot happen even if no plan
 // validator ran.
 func TestLimits_NegativeMeansUnlimited(t *testing.T) {
-	reset(t)
+	app := newApp(t)
 
-	SetLimits(func(core.App) ShareLimits {
+	SetLimits(app, func(core.App) ShareLimits {
 		return ShareLimits{Lifetime: -1, PerDay: -50}
 	})
 
-	got := Limits(nil)
+	got := Limits(app)
 	if got.Lifetime != 0 || got.PerDay != 0 {
 		t.Errorf("Limits = %+v, want negatives normalized to unlimited", got)
+	}
+}
+
+// Each app's ceilings are its own: the first app to claim used to set every
+// app's per-link download limits, and every later app's claim was ignored.
+func TestClaimIsPerApp(t *testing.T) {
+	a, b := newApp(t), newApp(t)
+	SetLimits(a, func(core.App) ShareLimits { return ShareLimits{PerDay: 20} })
+	SetLimits(b, func(core.App) ShareLimits { return ShareLimits{PerDay: 400} })
+
+	if got := Limits(a); got.PerDay != 20 {
+		t.Errorf("Limits(a).PerDay = %d, want 20", got.PerDay)
+	}
+	if got := Limits(b); got.PerDay != 400 {
+		t.Errorf("Limits(b).PerDay = %d, want b's own 400", got.PerDay)
+	}
+}
+
+func TestUnclaimedAppBesideAClaimedOne(t *testing.T) {
+	a, b := newApp(t), newApp(t)
+	SetLimits(a, func(core.App) ShareLimits { return ShareLimits{Lifetime: 3} })
+
+	if IsClaimed(b) {
+		t.Error("a's claim reached b")
+	}
+	if got := Limits(b); got.Lifetime != 0 || got.PerDay != 0 {
+		t.Errorf("Limits(b) = %+v, want unlimited", got)
 	}
 }
 

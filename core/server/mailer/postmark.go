@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/mrz1836/postmark"
+	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/syscfg"
 )
 
 var log = &LogSender{}
@@ -15,6 +17,7 @@ var log = &LogSender{}
 // When delivery is disabled (a --dev process or mail.delivery_enabled=false) it
 // logs emails to stdout instead of delivering — see deliveryEnabled.
 type PostmarkSender struct {
+	app         core.App
 	client      *postmark.Client
 	defaultFrom string
 }
@@ -24,12 +27,13 @@ type PostmarkSender struct {
 // override is for test and staging stacks only — it redirects sends to a fake
 // or staging Postmark API. It changes mail sends only. Domain and server calls
 // (domain validation, webhook setup) ignore it and always use Postmark's API.
-func NewPostmarkSender(serverToken, accountToken, defaultFrom string) *PostmarkSender {
+func NewPostmarkSender(app core.App, serverToken, accountToken, defaultFrom string) *PostmarkSender {
 	client := postmark.NewClient(serverToken, accountToken)
-	if apiURL := ConfigResolver(keyPostmarkAPIURL); apiURL != "" {
+	if apiURL := syscfg.Get(app, keyPostmarkAPIURL); apiURL != "" {
 		client.BaseURL = strings.TrimRight(apiURL, "/")
 	}
 	return &PostmarkSender{
+		app:         app,
 		client:      client,
 		defaultFrom: defaultFrom,
 	}
@@ -43,7 +47,7 @@ func (p *PostmarkSender) Client() *postmark.Client {
 
 // Send sends a simple transactional email.
 func (p *PostmarkSender) Send(ctx context.Context, msg *Message) error {
-	if !deliveryEnabled() {
+	if !deliveryEnabled(p.app) {
 		return log.Send(ctx, msg)
 	}
 	req, err := msg.sendRequest()
@@ -113,7 +117,7 @@ func buildPostmarkEmail(req *SendRequest, defaultFrom string) postmark.Email {
 
 // SendFull sends a rich email with CC, BCC, attachments, and threading headers.
 func (p *PostmarkSender) SendFull(ctx context.Context, req *SendRequest) (*SendResult, error) {
-	if !deliveryEnabled() {
+	if !deliveryEnabled(p.app) {
 		return log.SendFull(ctx, req)
 	}
 	email := buildPostmarkEmail(req, p.defaultFrom)

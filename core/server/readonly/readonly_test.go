@@ -20,12 +20,6 @@ import (
 // routes that answer 200 for any method, so a 503 can only come from the mode.
 func scenario(t *testing.T, method, url string, active bool, wantStatus int, wantBody []string) {
 	t.Helper()
-	if active {
-		Enter()
-	} else {
-		Leave()
-	}
-	t.Cleanup(Leave)
 	s := &tests.ApiScenario{
 		Method:          method,
 		URL:             url,
@@ -37,6 +31,9 @@ func scenario(t *testing.T, method, url string, active bool, wantStatus int, wan
 				t.Fatal(err)
 			}
 			Register(app)
+			if active {
+				Enter(app)
+			}
 			app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 				ok := func(re *core.RequestEvent) error { return re.String(http.StatusOK, "handled") }
 				e.Router.Any("/{path...}", ok)
@@ -116,14 +113,13 @@ func TestMiddlewareLetsPlainGETThroughWhileActive(t *testing.T) {
 }
 
 func TestMiddlewareSetsRetryAfter(t *testing.T) {
-	Enter()
-	t.Cleanup(Leave)
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer app.Cleanup()
 	Register(app)
+	Enter(app)
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
 		e.Router.POST("/api/x", func(re *core.RequestEvent) error { return re.NoContent(http.StatusOK) })
 		return e.Next()
@@ -146,8 +142,6 @@ func TestMiddlewareSetsRetryAfter(t *testing.T) {
 // POST /api/realtime only sets which topics an open stream carries; a client
 // that reconnects during the pause must be able to subscribe again.
 func TestMiddlewareLetsRealtimeSubscribe(t *testing.T) {
-	Enter()
-	t.Cleanup(Leave)
 	(&tests.ApiScenario{
 		Method:          http.MethodPost,
 		URL:             "/api/realtime",
@@ -160,20 +154,21 @@ func TestMiddlewareLetsRealtimeSubscribe(t *testing.T) {
 				t.Fatal(err)
 			}
 			Register(app)
+			Enter(app)
 			return app
 		},
 	}).Test(t)
 }
 
 func TestEnterLeave(t *testing.T) {
-	Leave()
-	Enter()
-	Enter()
-	if !Active() {
+	app := bareApp(t)
+	Enter(app)
+	Enter(app)
+	if !Active(app) {
 		t.Fatal("Enter did not switch the mode on")
 	}
-	Leave()
-	if Active() {
+	Leave(app)
+	if Active(app) {
 		t.Fatal("Leave did not switch the mode off")
 	}
 }
@@ -181,28 +176,26 @@ func TestEnterLeave(t *testing.T) {
 // OnEnter fns run once per false->true transition, in their own goroutine, and
 // must not run again on a second Enter while already active.
 func TestOnEnterRunsOnEachTransitionToActive(t *testing.T) {
-	t.Cleanup(resetOnEnterForTest)
-	t.Cleanup(Leave)
-	Leave()
+	app := bareApp(t)
 
 	var calls atomic.Int32
 	done := make(chan struct{}, 10)
-	OnEnter(func() {
+	OnEnter(app, func() {
 		calls.Add(1)
 		done <- struct{}{}
 	})
 
-	Enter()
+	Enter(app)
 	waitOrFatal(t, done, "OnEnter fn did not run on Enter")
-	Enter() // already active: must not run again
+	Enter(app) // already active: must not run again
 	select {
 	case <-done:
 		t.Fatal("OnEnter fn ran again on a repeated Enter while already active")
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	Leave()
-	Enter()
+	Leave(app)
+	Enter(app)
 	waitOrFatal(t, done, "OnEnter fn did not run on the next false->true transition")
 
 	if got := calls.Load(); got != 2 {
@@ -215,16 +208,14 @@ func TestOnEnterRunsOnEachTransitionToActive(t *testing.T) {
 // registered fns from running. It must still be logged, so the panic is not
 // silently swallowed.
 func TestOnEnterPanicIsRecoveredAndLogged(t *testing.T) {
-	t.Cleanup(resetOnEnterForTest)
-	t.Cleanup(Leave)
-	Leave()
+	app := bareApp(t)
 
 	logged := logSeen(t, "an OnEnter fn panicked")
 	otherRan := make(chan struct{})
-	OnEnter(func() { panic("boom") })
-	OnEnter(func() { close(otherRan) })
+	OnEnter(app, func() { panic("boom") })
+	OnEnter(app, func() { close(otherRan) })
 
-	Enter()
+	Enter(app)
 	waitOrFatal(t, otherRan, "the other OnEnter fn did not run after a sibling panicked")
 	waitOrFatal(t, logged, "the panic was not logged")
 }
@@ -278,10 +269,9 @@ func waitOrFatal(t *testing.T, ch <-chan struct{}, msg string) {
 }
 
 func TestWhenWritableRunsAtOnceWhenInactive(t *testing.T) {
-	t.Cleanup(Leave)
-	Leave()
+	app := bareApp(t)
 	var ran bool
-	err := WhenWritable(context.Background(), func() error {
+	err := WhenWritable(context.Background(), app, func() error {
 		ran = true
 		return nil
 	})
@@ -294,13 +284,13 @@ func TestWhenWritableRunsAtOnceWhenInactive(t *testing.T) {
 }
 
 func TestWhenWritableWaitsAndRunsAfterLeave(t *testing.T) {
-	t.Cleanup(Leave)
-	Enter()
+	app := bareApp(t)
+	Enter(app)
 
 	done := make(chan error, 1)
 	ran := make(chan struct{}, 1)
 	go func() {
-		done <- WhenWritable(context.Background(), func() error {
+		done <- WhenWritable(context.Background(), app, func() error {
 			ran <- struct{}{}
 			return nil
 		})
@@ -312,7 +302,7 @@ func TestWhenWritableWaitsAndRunsAfterLeave(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	Leave()
+	Leave(app)
 	select {
 	case err := <-done:
 		if err != nil {
@@ -329,13 +319,13 @@ func TestWhenWritableWaitsAndRunsAfterLeave(t *testing.T) {
 }
 
 func TestWhenWritableReturnsCtxErrWithoutRunningFn(t *testing.T) {
-	t.Cleanup(Leave)
-	Enter()
+	app := bareApp(t)
+	Enter(app)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	var ran bool
-	err := WhenWritable(ctx, func() error {
+	err := WhenWritable(ctx, app, func() error {
 		ran = true
 		return nil
 	})

@@ -22,7 +22,7 @@ import (
 // file swap + rebuild around it and records the result.
 //
 // The key enabler: the RUNNING process keeps every migration it registered at
-// its own startup in core.AppMigrations, regardless of later on-disk file
+// its own startup in the app's migrations list, regardless of later on-disk file
 // changes. So even after we swap a package's files down to an older version
 // (removing the newer migration files from disk), the running binary can still
 // execute the newer migrations' Down closures. That lets us use ONE ordering for
@@ -66,7 +66,7 @@ func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.Version
 			return nil, fmt.Errorf("invalid targetVersion for %s: %s", c.Slug, c.TargetVersion)
 		}
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		return nil, errJobBusy
 	}
 	// Pre-flight compat gate. The Versions UI runs the same solve as an
@@ -78,7 +78,7 @@ func beginVersionChange(app *pocketbase.PocketBase, changes []installjob.Version
 	job := installjob.New("version_change", changes[0].Slug, "")
 	job.Changes = changes
 	job.Trigger = trigger
-	if _, ok := installjob.Claim(job); !ok {
+	if _, ok := installjob.Claim(app, job); !ok {
 		return nil, errJobBusy
 	}
 	if err := rebuildJobsFor(app).start(app, job, func(run *jobRun) { runVersionChangeRebuild(run, app, job) }); err != nil {
@@ -98,7 +98,7 @@ func handleVersionChange(app *pocketbase.PocketBase, re *core.RequestEvent) erro
 	job, err := beginVersionChange(app, body.Changes, "manual")
 	if errors.Is(err, errJobBusy) {
 		info := map[string]any{}
-		if cur := installjob.Current(); cur != nil {
+		if cur := installjob.Current(app); cur != nil {
 			info = cur.Info()
 		}
 		return re.JSON(http.StatusConflict, map[string]any{

@@ -4,7 +4,6 @@ package automation
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/pocketbase/pocketbase/core"
 
@@ -16,17 +15,16 @@ type engineWrite struct {
 	Depth  int
 }
 
-// engineWrites carries provenance from an engine-performed Save/Delete to the
-// record hook it fires — the recentlyIndexed sentinel shape from mail. Entries
-// are consumed by the dispatcher (Task 6); stale entries are harmless.
-var engineWrites sync.Map
-
-func markEngineWrite(recordID, ruleID string, depth int) {
-	engineWrites.Store(recordID, engineWrite{RuleID: ruleID, Depth: depth})
+// markEngineWrite records, on app, that recordID was written by an engine
+// action, so the record hook the write fires carries the rule and depth.
+func markEngineWrite(app core.App, recordID, ruleID string, depth int) {
+	runStateFor(app).engineWrites.Store(recordID, engineWrite{RuleID: ruleID, Depth: depth})
 }
 
-func takeEngineWrite(recordID string) (engineWrite, bool) {
-	v, ok := engineWrites.LoadAndDelete(recordID)
+// takeEngineWrite returns and removes the provenance an engine write left on
+// recordID. Entries are consumed by the dispatcher; stale ones are harmless.
+func takeEngineWrite(app core.App, recordID string) (engineWrite, bool) {
+	v, ok := runStateFor(app).engineWrites.LoadAndDelete(recordID)
 	if !ok {
 		return engineWrite{}, false
 	}
@@ -43,7 +41,7 @@ func takeEngineWrite(recordID string) (engineWrite, bool) {
 // Call it around the Save/Delete, passing the ActionRequest so the rule id and
 // depth come from the firing that invoked the handler:
 //
-//	return automation.MarkEngineWrite(req, record.Id, func() error {
+//	return automation.MarkEngineWrite(app, req, record.Id, func() error {
 //	    return app.Save(record)
 //	})
 //
@@ -53,16 +51,16 @@ func takeEngineWrite(recordID string) (engineWrite, bool) {
 //
 // The write does not run once req.Context() has ended: the action timed out
 // or the app is terminating, and the database can close under the write.
-func MarkEngineWrite(req ActionRequest, recordID string, write func() error) error {
+func MarkEngineWrite(app core.App, req ActionRequest, recordID string, write func() error) error {
 	if err := req.Context().Err(); err != nil {
 		return fmt.Errorf("write refused: %w", err)
 	}
 	if req.Rule == nil || recordID == "" {
 		return write()
 	}
-	markEngineWrite(recordID, req.Rule.Id, req.Depth)
+	markEngineWrite(app, recordID, req.Rule.Id, req.Depth)
 	if err := write(); err != nil {
-		takeEngineWrite(recordID)
+		takeEngineWrite(app, recordID)
 		return err
 	}
 	return nil
@@ -328,11 +326,11 @@ func ExecuteActionContext(ctx context.Context, app core.App, defs *Defs, ref str
 		}
 		marked := defsHaveTrigger(defs, action.Collection, "create")
 		if marked {
-			markEngineWrite(made.Id, rule.Id, depth)
+			markEngineWrite(app, made.Id, rule.Id, depth)
 		}
 		if err := app.SaveWithContext(ctx, made); err != nil {
 			if marked {
-				takeEngineWrite(made.Id)
+				takeEngineWrite(app, made.Id)
 			}
 			return err
 		}
@@ -356,11 +354,11 @@ func ExecuteActionContext(ctx context.Context, app core.App, defs *Defs, ref str
 			}
 			marked := defsHaveTrigger(defs, action.Collection, "delete")
 			if marked {
-				markEngineWrite(record.Id, rule.Id, depth)
+				markEngineWrite(app, record.Id, rule.Id, depth)
 			}
 			if err := app.DeleteWithContext(ctx, record); err != nil {
 				if marked {
-					takeEngineWrite(record.Id)
+					takeEngineWrite(app, record.Id)
 				}
 				return err
 			}
@@ -380,11 +378,11 @@ func ExecuteActionContext(ctx context.Context, app core.App, defs *Defs, ref str
 		}
 		marked := defsHaveTrigger(defs, action.Collection, "update")
 		if marked {
-			markEngineWrite(record.Id, rule.Id, depth)
+			markEngineWrite(app, record.Id, rule.Id, depth)
 		}
 		if err := app.SaveWithContext(ctx, record); err != nil {
 			if marked {
-				takeEngineWrite(record.Id)
+				takeEngineWrite(app, record.Id)
 			}
 			return err
 		}

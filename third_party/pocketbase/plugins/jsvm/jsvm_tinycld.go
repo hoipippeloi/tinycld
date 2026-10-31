@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"regexp"
 	"time"
 
@@ -127,11 +128,11 @@ func (p *plugin) runScript(vm *sobek.Runtime, content string) (sobek.Value, erro
 }
 
 // migrateFunc returns the JS `migrate(up, down)` binding for one migration
-// file. It registers into Config.MigrationsList when set (core.AppMigrations
-// otherwise). The up/down callbacks execute LATER (RunAllMigrations, against
-// the org's DB) on this same vm, so they carry the budget with them —
-// bounding only the file's top level would leave the actual migration run
-// free to spin.
+// file. It registers into Config.MigrationsList when set, and into the app's
+// own list (core.OwnAppMigrations) otherwise. The up/down callbacks execute
+// LATER (RunAllMigrations, against the org's DB) on this same vm, so they
+// carry the budget with them — bounding only the file's top level would leave
+// the actual migration run free to spin.
 func (p *plugin) migrateFunc(vm *sobek.Runtime, file string) func(up, down func(txApp core.App) error) {
 	budget := p.execTimeout()
 	wrap := func(fn func(txApp core.App) error) func(core.App) error {
@@ -145,7 +146,7 @@ func (p *plugin) migrateFunc(vm *sobek.Runtime, file string) func(up, down func(
 
 	target := p.config.MigrationsList
 	if target == nil {
-		target = &core.AppMigrations
+		target = core.OwnAppMigrations(p.app)
 	}
 
 	return func(up, down func(txApp core.App) error) {
@@ -239,13 +240,35 @@ func filesContentFS(fsys fs.FS, pattern string) (map[string][]byte, error) {
 // sandboxed it installs a loader that refuses every file-based require (native
 // modules like process/console/buffer bypass the loader and still work), so
 // untrusted code cannot require an arbitrary host path to read/execute a file.
-func (p *plugin) newRequireRegistry() *require.Registry {
+//
+// Otherwise a relative require resolves from hooksDir, the app's own hooks
+// directory, and a bare module name is looked up in hooksDir/node_modules
+// first. Upstream names every hook and migration program as a file in the
+// working directory (defaultScriptPath), so "./lib.js" resolved from wherever
+// the process started: the same file for every app in the process.
+func (p *plugin) newRequireRegistry(hooksDir string) *require.Registry {
 	if p.config.Sandboxed {
 		return require.NewRegistryWithLoader(func(string) ([]byte, error) {
 			return nil, require.ModuleFileDoesNotExistError
 		})
 	}
-	return new(require.Registry)
+	return require.NewRegistry(
+		require.WithPathResolver(hooksDirResolver(hooksDir)),
+		require.WithGlobalFolders(filepath.Join(hooksDir, "node_modules")),
+	)
+}
+
+// hooksDirResolver resolves against hooksDir a require made from a hook or
+// migration program, whose module path is the working directory, and resolves
+// a require made from a required module as usual.
+func hooksDirResolver(hooksDir string) require.PathResolver {
+	scriptDir := filepath.Dir(defaultScriptPath)
+	return func(base, path string) string {
+		if base == scriptDir {
+			base = hooksDir
+		}
+		return require.DefaultPathResolver(base, path)
+	}
 }
 
 // bindHostAccess installs the host-capability bindings ($os, $filepath,

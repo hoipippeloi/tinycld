@@ -9,9 +9,9 @@ import (
 )
 
 func TestHookPointDisabledUntilHandlerAdded(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.point")
+	hp := RegisterHookPoint(app, "test.point")
 	if hp.Enabled() {
 		t.Fatal("a hook point with no handlers must report disabled")
 	}
@@ -26,14 +26,14 @@ func TestHookPointDisabledUntilHandlerAdded(t *testing.T) {
 // handler at all. A counter that stays at zero is the proof that an org which
 // customizes nothing never pays for a VM borrow.
 func TestHookPointFastPathInvokesNothing(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.fastpath")
+	hp := RegisterHookPoint(app, "test.fastpath")
 
 	var invoked int
 	// Registered on a DIFFERENT point, so this one stays empty. If Call ever
 	// fell through to a global/shared handler list, this would fire.
-	other := RegisterHookPoint("test.fastpath.other")
+	other := RegisterHookPoint(app, "test.fastpath.other")
 	other.Add(func(_ ...any) (any, error) {
 		invoked++
 		return nil, nil
@@ -52,9 +52,9 @@ func TestHookPointFastPathInvokesNothing(t *testing.T) {
 }
 
 func TestHookPointCallReturnsHandlerValue(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.value")
+	hp := RegisterHookPoint(app, "test.value")
 	hp.Add(func(args ...any) (any, error) {
 		payload := args[0].(map[string]any)
 		return payload["name"].(string) + "!", nil
@@ -75,9 +75,9 @@ func TestHookPointCallReturnsHandlerValue(t *testing.T) {
 // A handler that returns nil must still mark the call Handled — the caller has
 // to distinguish "TS ran and declined to change anything" from "no TS at all".
 func TestHookPointHandledWithNilValue(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.nilvalue")
+	hp := RegisterHookPoint(app, "test.nilvalue")
 	hp.Add(func(_ ...any) (any, error) { return nil, nil })
 
 	res, err := hp.Call(map[string]any{})
@@ -95,10 +95,10 @@ func TestHookPointHandledWithNilValue(t *testing.T) {
 // The veto path: a throwing handler aborts the chain and surfaces its error, so
 // a beforeWrite/beforeDelete point can refuse the operation.
 func TestHookPointCallPropagatesError(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
 	sentinel := errors.New("blocked by policy")
-	hp := RegisterHookPoint("test.err")
+	hp := RegisterHookPoint(app, "test.err")
 	var secondRan bool
 	hp.Add(func(_ ...any) (any, error) { return nil, sentinel })
 	hp.Add(func(_ ...any) (any, error) { secondRan = true; return "unreachable", nil })
@@ -116,9 +116,9 @@ func TestHookPointCallPropagatesError(t *testing.T) {
 }
 
 func TestHookPointLastNonNilWins(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.chain")
+	hp := RegisterHookPoint(app, "test.chain")
 	hp.Add(func(_ ...any) (any, error) { return "first", nil })
 	hp.Add(func(_ ...any) (any, error) { return nil, nil })
 	hp.Add(func(_ ...any) (any, error) { return "third", nil })
@@ -135,10 +135,10 @@ func TestHookPointLastNonNilWins(t *testing.T) {
 // Registering the same name twice must yield the same point, so a package and
 // its host can both reach it without ordering constraints.
 func TestRegisterHookPointIsIdempotent(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	a := RegisterHookPoint("test.same")
-	b := RegisterHookPoint("test.same")
+	a := RegisterHookPoint(app, "test.same")
+	b := RegisterHookPoint(app, "test.same")
 	if a != b {
 		t.Fatal("RegisterHookPoint must return the same point for the same name")
 	}
@@ -147,18 +147,18 @@ func TestRegisterHookPointIsIdempotent(t *testing.T) {
 	if !b.Enabled() {
 		t.Fatal("handlers added via one reference must be visible through the other")
 	}
-	if LookupHookPoint("test.same") != a {
+	if LookupHookPoint(app, "test.same") != a {
 		t.Fatal("LookupHookPoint must return the registered point")
 	}
-	if LookupHookPoint("test.missing") != nil {
+	if LookupHookPoint(app, "test.missing") != nil {
 		t.Fatal("LookupHookPoint must return nil for an unknown name")
 	}
 }
 
 func TestHookPointConcurrentCallAndAdd(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.concurrent")
+	hp := RegisterHookPoint(app, "test.concurrent")
 	hp.Add(func(args ...any) (any, error) {
 		return args[0].(map[string]any)["n"], nil
 	})
@@ -183,9 +183,9 @@ func TestHookPointConcurrentCallAndAdd(t *testing.T) {
 // Add(nil) must not flip Enabled — otherwise a mis-wired binder would push the
 // hot path onto the slow branch for every request while doing nothing.
 func TestHookPointIgnoresNilHandler(t *testing.T) {
-	resetHookPointsForTesting()
+	app := newHookTestApp(t)
 
-	hp := RegisterHookPoint("test.nil")
+	hp := RegisterHookPoint(app, "test.nil")
 	hp.Add(nil)
 	if hp.Enabled() {
 		t.Fatal("Add(nil) must not enable the hook point")

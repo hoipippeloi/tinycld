@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
@@ -57,7 +56,7 @@ func registerCoreWebhookAction() {
 // substitution, so its value is only as trustworthy as the record that
 // triggered the rule; safehttp.ValidateURL is what stands between a templated
 // value and an internal address.
-func actionPostWebhook(_ core.App, req ActionRequest) error {
+func actionPostWebhook(app core.App, req ActionRequest) error {
 	target := strings.TrimSpace(req.Params["url"])
 	if target == "" {
 		return fmt.Errorf("core:post-webhook: no url")
@@ -66,7 +65,7 @@ func actionPostWebhook(_ core.App, req ActionRequest) error {
 	// A request with no rule (a dry-run style invocation) has nothing to
 	// count against; every engine path supplies the rule.
 	if req.Rule != nil {
-		if err := reserveWebhookPost(req.Rule.Id, time.Now()); err != nil {
+		if err := reserveWebhookPost(app, req.Rule.Id, time.Now()); err != nil {
 			return fmt.Errorf("core:post-webhook: %w", err)
 		}
 	}
@@ -122,37 +121,31 @@ func webhookBody(req ActionRequest) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// webhookPostLedger tracks each rule's posts inside the rolling hour, in
-// memory. In-memory is deliberate, actions_email.go's reasoning: there is no
-// query that can fail, so the cap cannot fail open — and an unavailable count
-// must never be read as permission to send.
-var webhookPostLedger = struct {
-	sync.Mutex
-	posts map[string][]time.Time
-}{posts: map[string][]time.Time{}}
-
 // reserveWebhookPost claims one slot for the rule, or reports it is over the
-// hourly ceiling. Claimed BEFORE the post, so a concurrent dispatch cannot
-// slip past the ceiling and a failed delivery still consumes its slot —
-// over-counting is the safe direction for a loop guard.
-func reserveWebhookPost(ruleID string, now time.Time) error {
-	webhookPostLedger.Lock()
-	defer webhookPostLedger.Unlock()
+// hourly ceiling. The ledger is in memory, on the app, for actions_email.go's
+// reason: there is no query that can fail, so the cap cannot fail open.
+// Claimed BEFORE the post, so a concurrent dispatch cannot slip past the
+// ceiling and a failed delivery still consumes its slot — over-counting is
+// the safe direction for a loop guard.
+func reserveWebhookPost(app core.App, ruleID string, now time.Time) error {
+	s := runStateFor(app)
+	s.webhookMu.Lock()
+	defer s.webhookMu.Unlock()
 
 	cutoff := now.Add(-time.Hour)
-	kept := make([]time.Time, 0, len(webhookPostLedger.posts[ruleID]))
-	for _, at := range webhookPostLedger.posts[ruleID] {
+	kept := make([]time.Time, 0, len(s.webhookPosts[ruleID]))
+	for _, at := range s.webhookPosts[ruleID] {
 		if at.After(cutoff) {
 			kept = append(kept, at)
 		}
 	}
 	if len(kept) >= maxWebhookPostsPerRulePerHour {
-		webhookPostLedger.posts[ruleID] = kept
+		s.webhookPosts[ruleID] = kept
 		return fmt.Errorf(
 			"rule is over its ceiling of %d webhook posts per hour",
 			maxWebhookPostsPerRulePerHour,
 		)
 	}
-	webhookPostLedger.posts[ruleID] = append(kept, now)
+	s.webhookPosts[ruleID] = append(kept, now)
 	return nil
 }

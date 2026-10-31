@@ -13,9 +13,10 @@
 // whoever holds it instead.
 //
 // By default it is unconfigured and every call returns ErrNotConfigured. A
-// standalone deployment points it at its own implementation with SetResolver; a
-// SUPERVISING composition installs one with SetRegistrar, which CLAIMS the seam
-// so the deployment's own wiring cannot later reclaim it.
+// standalone deployment points an app at its own implementation with
+// SetResolver; a SUPERVISING composition installs one on an app with
+// SetRegistrar, which CLAIMS that app's seam so the deployment's own wiring
+// cannot later reclaim it. Each call acts on one app only.
 //
 // Nothing here names a feature package: this is a capability, like mailer and
 // syscfg beside it.
@@ -24,7 +25,9 @@ package maildomains
 import (
 	"context"
 	"errors"
+	"github.com/pocketbase/pocketbase/core"
 	"sync"
+	"tinycld.org/core/appstate"
 )
 
 // ErrNotConfigured is returned by the zero registrar. Callers surface it as
@@ -78,7 +81,7 @@ type Registrar interface {
 
 // Verifier is an OPTIONAL registrar capability: ask the provider to re-check
 // the domain's DKIM and Return-Path records now, and return the fresh state.
-// Callers type-assert Current() for it, so a registrar that cannot verify on
+// Callers type-assert Current(app) for it, so a registrar that cannot verify on
 // demand (or a transport that does not forward it) keeps compiling.
 //
 // providerDomainID follows GetDomain's contract: 0 forces a by-name lookup.
@@ -96,17 +99,33 @@ type Remover interface {
 	RemoveDomain(ctx context.Context, domain string, providerDomainID int64) error
 }
 
-var (
+// seam is one app's registrar, its claim, and the server-token source its
+// senders ask. It lives on the app: two apps in one process may hold
+// different provider accounts, and one app's account token must never
+// enroll another app's domain or sign another app's send.
+type seam struct {
 	mu      sync.RWMutex
-	current Registrar = unconfigured{}
+	current Registrar
 	// claimed records that a SUPERVISING composition installed the registrar.
 	//
 	// Tracked explicitly rather than inferred from current != unconfigured{},
 	// for the reason syscfg documents: a supervisor whose config failed to
 	// load still owns this operation, and the correct degraded state is "no
 	// domain provisioning", never "the deployment uses its own credentials".
-	claimed bool
-)
+	claimed     bool
+	tokenSource func(context.Context) (string, error)
+}
+
+var seamKey = appstate.NewKey[*seam]("maildomains.seam")
+
+func seamFor(app core.App) *seam {
+	return seamKey.GetOrInit(app, func() *seam {
+		return &seam{current: unconfigured{}, tokenSource: noTokenSource}
+	})
+}
+
+// noTokenSource is the default server-token source: it knows nothing.
+func noTokenSource(context.Context) (string, error) { return "", ErrNotConfigured }
 
 // unconfigured is the zero registrar: it performs nothing. It stands in before
 // any Set* call so a read during boot returns an error rather than panicking.
@@ -119,65 +138,54 @@ func (unconfigured) GetDomain(context.Context, string, int64) (*DomainRecords, e
 	return nil, ErrNotConfigured
 }
 
-// SetResolver points the seam at this deployment's own registrar — the
+// SetResolver points app's seam at the deployment's own registrar — the
 // standalone shape, where the deployment legitimately holds its own account
 // token.
 //
-// Ignored once a supervising composition has claimed the seam. Core's wiring
+// Ignored once a supervising composition has claimed app's seam. Core's wiring
 // runs after a supervisor's, so without this the deployment would silently
 // reclaim an operation its operator owns.
-func SetResolver(r Registrar) {
+func SetResolver(app core.App, r Registrar) {
 	if r == nil {
 		return
 	}
-	mu.RLock()
-	taken := claimed
-	mu.RUnlock()
-	if taken {
+	s := seamFor(app)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.claimed {
 		return
 	}
-	mu.Lock()
-	current = r
-	mu.Unlock()
+	s.current = r
 }
 
-// SetRegistrar installs the process-wide registrar and CLAIMS the seam. A
-// supervising composition calls this BEFORE any package registers, so every
+// SetRegistrar installs app's registrar and CLAIMS app's seam. A supervising
+// composition calls this BEFORE any package registers on app, so every
 // consumer's first call already routes through it.
 //
 // A nil registrar is ignored rather than installed: it would turn every call
 // into a nil dereference, and a caller passing nil has a bug, not an intent.
-func SetRegistrar(r Registrar) {
+func SetRegistrar(app core.App, r Registrar) {
 	if r == nil {
 		return
 	}
-	mu.Lock()
-	current, claimed = r, true
-	mu.Unlock()
+	s := seamFor(app)
+	s.mu.Lock()
+	s.current, s.claimed = r, true
+	s.mu.Unlock()
 }
 
-// Current returns the installed registrar. Never nil.
-func Current() Registrar {
-	mu.RLock()
-	defer mu.RUnlock()
-	return current
+// Current returns app's registrar. Never nil.
+func Current(app core.App) Registrar {
+	s := seamFor(app)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.current
 }
 
-// IsClaimed reports whether a supervising composition installed the registrar.
-func IsClaimed() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return claimed
-}
-
-// ResetForTesting restores the zero state: no registrar, no claim. Tests that
-// install one must call it (t.Cleanup) so the claim does not leak into the
-// next test and make SetResolver inert there.
-func ResetForTesting() {
-	mu.Lock()
-	current, claimed = unconfigured{}, false
-	mu.Unlock()
-	tokenMu.Lock()
-	tokenSource = func(context.Context) (string, error) { return "", ErrNotConfigured }
-	tokenMu.Unlock()
+// IsClaimed reports whether a supervising composition installed app's registrar.
+func IsClaimed(app core.App) bool {
+	s := seamFor(app)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claimed
 }

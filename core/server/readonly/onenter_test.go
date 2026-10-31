@@ -5,18 +5,16 @@ import (
 )
 
 func TestOnEnterRunsBeforeEnterReturns(t *testing.T) {
-	resetOnEnterForTest()
-	t.Cleanup(resetOnEnterForTest)
-	t.Cleanup(Leave)
+	app := bareApp(t)
 
 	ran := false
-	OnEnter(func() {
-		if !Active() {
+	OnEnter(app, func() {
+		if !Active(app) {
 			t.Error("the hook ran before the mode was active")
 		}
 		ran = true
 	})
-	Enter()
+	Enter(app)
 	if !ran {
 		t.Fatal("the hook did not run before Enter returned")
 	}

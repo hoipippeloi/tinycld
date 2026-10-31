@@ -127,7 +127,7 @@ func (p *plugin) createCommand() *cobra.Command {
 				// note: system migrations are always applied as part of the bootstrap process
 				var list = core.MigrationsList{}
 				list.Copy(core.SystemMigrations)
-				list.Copy(core.AppMigrations)
+				list.Copy(core.AppMigrationsOf(p.app)) // fork: the app's own JS migrations too (core/migrations_app_tinycld.go)
 
 				runner := core.NewMigrationsRunner(p.app, list)
 

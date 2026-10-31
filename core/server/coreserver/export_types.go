@@ -71,7 +71,7 @@ func ExportTypes(app *pocketbase.PocketBase, opts ExportTypesOptions) error {
 	}
 
 	// jsvm.MustRegister loads the JS migrations from MigrationsDir into
-	// core.AppMigrations so RunAppMigrations can apply them. Without
+	// the app's own migrations list so RunAppMigrations can apply them. Without
 	// this the runner sees an empty list and produces a system-only
 	// schema. HooksDir is left at the jsvm default — the schema export
 	// doesn't run hooks, but jsvm's hook scanner is tolerant of a

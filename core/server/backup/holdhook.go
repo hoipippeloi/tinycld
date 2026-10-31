@@ -2,12 +2,12 @@ package backup
 
 import (
 	"errors"
-	"sync"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/backup/hold"
 )
 
@@ -15,10 +15,11 @@ import (
 // looked up or replaced rather than accidentally duplicated.
 const DrainJobID = "backup-hold-drain"
 
-// boundApps tracks which app instances already have the delete-hold handler
-// bound, so a caller invoking BindDeleteHold more than once (e.g. RegisterBackupBoot
-// running twice against the same app in a test) does not stack a second handler.
-var boundApps sync.Map // core.App -> struct{}
+// holdBoundKey marks an app that already has the delete-hold handler bound,
+// so a caller invoking BindDeleteHold more than once (e.g. RegisterBackupBoot
+// running twice against the same app in a test) does not stack a second
+// handler. It lives on the app, so the process keeps no app alive.
+var holdBoundKey = appstate.NewKey[bool]("backup.deleteHoldBound")
 
 // BindDeleteHold makes every storage delete honour a backup's delete hold. A
 // delete under a valid hold is journaled instead of run; DrainHeldDeletes runs
@@ -26,7 +27,9 @@ var boundApps sync.Map // core.App -> struct{}
 // the first app.NewFilesystem() call it should cover — the filesystem attaches
 // the underlying hook only when a handler already exists at creation time.
 func BindDeleteHold(app core.App) {
-	if _, loaded := boundApps.LoadOrStore(app, struct{}{}); loaded {
+	first := false
+	holdBoundKey.GetOrInit(app, func() bool { first = true; return true })
+	if !first {
 		return
 	}
 	core.OnFilesystemDelete(app).BindFunc(func(e *core.FilesystemDeleteEvent) error {

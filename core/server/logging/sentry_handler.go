@@ -19,10 +19,10 @@ var sentryLevel = map[slog.Level]sentry.Level{
 //
 // User attribution is inherited, not plumbed: the per-request middleware in
 // coreserver/sentry.go already puts a hub carrying sentry.User{ID: …} on the
-// request context, so a *Context log call picks it up automatically. Calls
-// without a ctx (tickers, startup, background goroutines) fall back to the
-// current hub and produce an unattributed event — which is correct, because
-// there genuinely is no user in those paths.
+// request context, so a *Context log call picks it up automatically. A ctx
+// that carries only an app (a background job) reports to that app's hub, and
+// a call with no ctx falls back to the process hub. Those events are
+// unattributed, which is correct: there genuinely is no user in those paths.
 type sentryHandler struct {
 	minLevel slog.Level
 	attrs    []slog.Attr
@@ -39,10 +39,7 @@ func (h *sentryHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *sentryHandler) Handle(ctx context.Context, r slog.Record) error {
-	hub := sentry.GetHubFromContext(ctx)
-	if hub == nil {
-		hub = sentry.CurrentHub()
-	}
+	hub := HubFromContext(ctx)
 
 	extra := make(map[string]any, len(h.attrs)+r.NumAttrs())
 	for _, a := range h.attrs {

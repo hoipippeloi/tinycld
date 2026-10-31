@@ -54,6 +54,8 @@ func (app *BaseApp) registerNotifyWatcherHooks() {
 	app.OnTerminate().Bind(&hook.Handler[*TerminateEvent]{
 		Id: systemHookIdNotifyWatcher,
 		Func: func(e *TerminateEvent) error {
+			defer forgetNotifyGuard(app, e) // fork: drop the app's notify guard after its terminate (notify_watcher_tinycld.go)
+
 			if notifyWatcher != nil {
 				_ = notifyWatcher.Close()
 			}

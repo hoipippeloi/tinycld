@@ -6,8 +6,7 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 
-	"tinycld.org/core/autoupgrade"
-	"tinycld.org/core/backup"
+	"tinycld.org/core/logging"
 	"tinycld.org/core/quota"
 	"tinycld.org/core/rlstest"
 )
@@ -83,20 +82,16 @@ var hostHookCounts = map[string]int{
 	"OnRecordValidate":                    6,
 	"OnServe":                             37,
 	"OnSettingsReload":                    1,
-	"OnTerminate":                         11, // the start of the terminate's shared deadline (shutdown.Register, shared: the first shared registration that waits binds it, readonly.Register in RegisterSharedEarly); readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document; the background runners of notify (mention notifications), coreserver (invite email + notification; boot notices and the auto-upgrade checks reuse it), audit (audit rows) and search (search sources), all shared, via RegisterSharedCore; the package-operation stop and watcher-restart veto (host-only, rebuildJobsFor)
+	"OnTerminate":                         12, // the start of the terminate's shared deadline (shutdown.Register, shared: the first shared registration that waits binds it, readonly.Register in RegisterSharedEarly); readonly.Register ending tail waits (shared, via RegisterSharedEarly); realtime storing every collaborative document; the background runners of notify (mention notifications), coreserver (invite email + notification; boot notices and the auto-upgrade checks reuse it), audit (audit rows) and search (search sources), all shared, via RegisterSharedCore; drainhooks dropping the app from the process drain (shared, via realtime's drain hook); the package-operation stop and watcher-restart veto (host-only, rebuildJobsFor)
 }
 
 func TestRegisterBindsTheRecordedHandlerCounts(t *testing.T) {
 	// Register falls back to quota.RegisteredSources() (a process global other
 	// tests may have populated) when Options.QuotaSources is empty.
 	quota.ResetSourcesForTesting()
-	// Register installs the REAL restart function, which ends the process. Left
-	// in place it would kill the test binary the next time any test in this
-	// package reached a restore's phase 6.
-	t.Cleanup(backup.ResetForTesting)
-	// Register installs a self-rebuilding build's auto-upgrade Delegate, a
-	// process global; left in place it answers every later test's status route.
-	t.Cleanup(func() { autoupgrade.SetDelegate(nil) })
+	// Register names its app the process's default log owner; later tests
+	// must not write their records into this test's terminated app.
+	t.Cleanup(func() { logging.SetDefaultApp(nil) })
 
 	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
 	Register(app, Options{

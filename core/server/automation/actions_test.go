@@ -129,7 +129,7 @@ func TestRecordOpCreateWithContext(t *testing.T) {
 	// thing_labels has no bound hook in this defs set (core:apply-label-style
 	// write with nothing declared to trigger on it) — marking a sentinel here
 	// would leak the sync.Map entry forever since nothing will ever consume it.
-	if _, ok := takeEngineWrite(made.Id); ok {
+	if _, ok := takeEngineWrite(app, made.Id); ok {
 		t.Fatal("create into a collection with no trigger must not leave a sentinel")
 	}
 }
@@ -143,7 +143,7 @@ func TestRecordOpUpdateTriggerRecord(t *testing.T) {
 	if fresh.GetString("status") != "filed" {
 		t.Fatal("update did not apply")
 	}
-	w, ok := takeEngineWrite(rec.Id)
+	w, ok := takeEngineWrite(app, rec.Id)
 	if !ok || w.Depth != 1 || w.RuleID != rule.Id {
 		t.Fatalf("provenance: %+v %v", w, ok)
 	}
@@ -177,7 +177,7 @@ func TestTriggerRecordWriteAuthorization(t *testing.T) {
 		if fresh.GetString("status") == "filed" {
 			t.Fatal("the refused update must not have been written")
 		}
-		if _, ok := takeEngineWrite(rec.Id); ok {
+		if _, ok := takeEngineWrite(app, rec.Id); ok {
 			t.Fatal("a refused write must not strand a provenance sentinel")
 		}
 	})
@@ -269,7 +269,7 @@ func TestFailedSaveLeavesNoSentinel(t *testing.T) {
 	if err := ExecuteAction(app, defs, "things:set-status", map[string]any{"status": "filed"}, rule, openTrigger, rec, 0); err == nil {
 		t.Fatal("save must fail: required field unset")
 	}
-	if _, ok := takeEngineWrite(rec.Id); ok {
+	if _, ok := takeEngineWrite(app, rec.Id); ok {
 		t.Fatal("a failed save must not strand a sentinel on the record id")
 	}
 }

@@ -49,12 +49,13 @@ func TestExemptFromMaintenance(t *testing.T) {
 // body of {"status":"restoring"} is what the CLI polls on, and a blocked request
 // must never reach the next handler.
 func TestMaintenanceMiddlewareBlocksAndExempts(t *testing.T) {
-	resetRestoreState(t)
+	app := bareApp(t)
 	mw := MaintenanceMiddleware()
 	call := func(method, path string) (int, string, bool) {
 		rec := httptest.NewRecorder()
 		reached := false
 		re := &core.RequestEvent{}
+		re.App = app
 		re.Request = httptest.NewRequest(method, path, nil)
 		re.Response = rec
 		// A real hook chain, so re.Next() means what it means in the router: the
@@ -76,7 +77,7 @@ func TestMaintenanceMiddlewareBlocksAndExempts(t *testing.T) {
 		t.Fatal("a write must be served when no restore is in flight")
 	}
 
-	restoring.Store(true)
+	setRestoring(app, true)
 
 	if _, _, reached := call(http.MethodGet, "/api/collections/backups/records"); !reached {
 		t.Fatal("the ledger list must stay reachable while restoring")

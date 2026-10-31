@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"errors"
+	"github.com/pocketbase/pocketbase/core"
 	"io"
 	"log/slog"
 	"sync"
@@ -46,11 +47,19 @@ func (h *stubHandle) Close() error {
 // every call's room id and lets tests block/unblock individual saves
 // via the gate channel.
 type fastCoord struct {
+	app      core.App
 	c        *SaveCoordinator
 	calls    *[]string
 	callsMu  *sync.Mutex
 	gate     chan struct{} // optional: if non-nil, flush blocks on receive
 	failOnce *atomic.Bool  // optional: when true, the next flush returns an error then resets
+}
+
+// coordApp is a bare app for a coordinator's rooms: nothing here needs its
+// database, only its read-only mode.
+func coordApp(t *testing.T) core.App {
+	t.Helper()
+	return core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
 }
 
 func newFastCoord(t *testing.T) *fastCoord {
@@ -77,12 +86,13 @@ func newFastCoord(t *testing.T) *fastCoord {
 		mu.Unlock()
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	app := coordApp(t)
+	c := NewSaveCoordinator(app, flush)
 	c.debounceEvery = 50 * time.Millisecond
 	c.ceilingEvery = 250 * time.Millisecond
 	c.teardownTimeout = 2 * time.Second
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return &fastCoord{c: c, calls: &calls, callsMu: &mu, gate: gate, failOnce: &failOnce}
+	return &fastCoord{app: app, c: c, calls: &calls, callsMu: &mu, gate: gate, failOnce: &failOnce}
 }
 
 func (fc *fastCoord) callCount() int {
@@ -96,12 +106,13 @@ func (fc *fastCoord) callCount() int {
 // WAL tests that need to assert on flush ordering vs. truncate timing.
 func newFastCoordWithFlush(t *testing.T, flush FlushFn) *fastCoord {
 	t.Helper()
-	c := NewSaveCoordinator(flush)
+	app := coordApp(t)
+	c := NewSaveCoordinator(app, flush)
 	c.debounceEvery = 50 * time.Millisecond
 	c.ceilingEvery = 250 * time.Millisecond
 	c.teardownTimeout = 2 * time.Second
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
-	return &fastCoord{c: c}
+	return &fastCoord{app: app, c: c}
 }
 
 // TestSaveCoordinatorDebounceCoalesces: many updates within the
@@ -178,7 +189,7 @@ func TestSaveCoordinatorInFlightCoalescing(t *testing.T) {
 		}
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.debounceEvery = 30 * time.Millisecond
 	c.ceilingEvery = 200 * time.Millisecond
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -220,7 +231,7 @@ func TestSaveCoordinatorFailureRetries(t *testing.T) {
 		}
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.debounceEvery = 30 * time.Millisecond
 	c.ceilingEvery = 1 * time.Hour // keep ceiling out of this test
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -255,7 +266,7 @@ func TestSaveCoordinatorGivesUpAfterMaxAttempts(t *testing.T) {
 	var captured giveUpDetail
 	var mu sync.Mutex
 
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.debounceEvery = 10 * time.Millisecond
 	c.ceilingEvery = 1 * time.Hour
 	c.maxAttempts = 3
@@ -324,7 +335,7 @@ func TestSaveCoordinatorRetryRecoversBeforeGivingUp(t *testing.T) {
 	}
 
 	var giveUps atomic.Int32
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.debounceEvery = 10 * time.Millisecond
 	c.ceilingEvery = 1 * time.Hour
 	c.maxAttempts = 3
@@ -363,7 +374,7 @@ func TestSaveCoordinatorTeardownFinalSave(t *testing.T) {
 		close(doneSignal)
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.debounceEvery = 5 * time.Second // long; teardown should win
 	c.ceilingEvery = 5 * time.Second
 	c.teardownTimeout = 2 * time.Second
@@ -396,7 +407,7 @@ func TestSaveCoordinatorTeardownNoOpsCleanRoom(t *testing.T) {
 		calls.Add(1)
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	c.OnRoomCreate("clean-room", &stubHandle{}, nil)
 	c.OnRoomEmpty("clean-room")
@@ -414,7 +425,7 @@ func TestSaveCoordinatorIgnoresUpdateForUnknownRoom(t *testing.T) {
 		calls.Add(1)
 		return nil
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	c.OnDocUpdate("never-created")
 	time.Sleep(150 * time.Millisecond)
@@ -452,7 +463,7 @@ func TestFlushNowPropagatesError(t *testing.T) {
 	flush := func(_ context.Context, _ string, _ DocHandle) error {
 		return errors.New("synthetic flush failure")
 	}
-	c := NewSaveCoordinator(flush)
+	c := NewSaveCoordinator(coordApp(t), flush)
 	c.SetLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	c.OnRoomCreate("flaky-room", &stubHandle{}, nil)
 	if err := c.FlushNow("flaky-room"); err == nil {

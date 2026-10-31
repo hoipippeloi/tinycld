@@ -11,8 +11,6 @@ import (
 )
 
 func TestSIGUSR2Enters(t *testing.T) {
-	Leave()
-	t.Cleanup(Leave)
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
@@ -23,7 +21,7 @@ func TestSIGUSR2Enters(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for !Active() {
+	for !Active(app) {
 		if time.Now().After(deadline) {
 			t.Fatal("SIGUSR2 did not enter read-only mode")
 		}

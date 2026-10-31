@@ -3,10 +3,12 @@ package pkgbuild
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -195,7 +197,7 @@ func RunCmdStreamingEnvContext(ctx context.Context, onLine func(line string), di
 			buf.WriteString(line)
 			buf.WriteByte('\n')
 			if onLine != nil {
-				onLine(line)
+				callOnLine(onLine, line)
 			}
 		}
 	}()
@@ -309,4 +311,16 @@ func copyFileMode(src, dst string, info os.FileInfo) error {
 		return err
 	}
 	return out.Close()
+}
+
+// callOnLine runs a caller's line callback. A panic in it is logged and the
+// scan goes on: the scanner must keep draining the pipe, or the subprocess
+// blocks on its next write and the build never ends.
+func callOnLine(onLine func(string), line string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("command output callback panicked", "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+		}
+	}()
+	onLine(line)
 }

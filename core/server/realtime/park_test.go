@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	ycrdt "github.com/skyterra/y-crdt"
 
 	"tinycld.org/core/readonly"
@@ -159,14 +160,13 @@ func TestJanitorCompactsOversizeState(t *testing.T) {
 	rt := newStubRuntime()
 	kind := "park-compact"
 	fp := &fixedFingerprint{val: "fp"}
-	RegisterRoomKindWith(kind, RoomKindOptions{
+	b := NewBroker()
+	b.RegisterRoomKindWith(kind, RoomKindOptions{
 		Authorize:       allowAllAuth,
 		RuntimeProvider: rt,
 		Checkpoints:     store,
 		Fingerprint:     fp.fn,
 	})
-	t.Cleanup(func() { unregisterRoomKindForTest(kind) })
-	b := NewBroker()
 	t.Cleanup(b.Close)
 	c := &Client{joinedAt: time.Now()}
 	b.join(kind, "r1", c)
@@ -189,14 +189,16 @@ func TestJanitorSkipsWhileReadOnly(t *testing.T) {
 	f := newOpenFixture(t, "park-readonly", store)
 	room, c := f.open("r1")
 	room.remove(c)
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	attachBrokerForTest(app, f.broker)
 
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(app)
+	t.Cleanup(func() { readonly.Leave(app) })
 	f.broker.evictIdle(time.Now().Add(ParkIdle + time.Second))
 	if f.broker.parkedCount() != 1 {
 		t.Fatal("evicted while read-only")
 	}
-	readonly.Leave()
+	readonly.Leave(app)
 	f.broker.evictIdle(time.Now().Add(ParkIdle + time.Second))
 	if f.broker.parkedCount() != 0 {
 		t.Fatal("not evicted after Leave")
@@ -207,14 +209,13 @@ func TestSuspendFlushesThenCheckpointsOpenAndParkedRooms(t *testing.T) {
 	store := NewMemoryCheckpointStore()
 	f := newOpenFixture(t, "park-suspend", store)
 	var flushes, savesAtFlush atomic.Int32
-	opts, _ := LookupOptionsForTest(f.kind)
+	opts, _ := f.broker.optionsFor(f.kind)
 	opts.FlushDirty = func(context.Context) error {
 		flushes.Add(1)
 		savesAtFlush.Store(int32(len(store.rows)))
 		return nil
 	}
-	unregisterRoomKindForTest(f.kind)
-	RegisterRoomKindWith(f.kind, opts)
+	setKindForTest(f.broker, f.kind, opts)
 
 	open, _ := f.open("open")
 	parkedRoom, c := f.open("parked")
@@ -242,10 +243,9 @@ func TestSuspendFlushesThenCheckpointsOpenAndParkedRooms(t *testing.T) {
 func TestSuspendAfterFailedFlushStillCheckpoints(t *testing.T) {
 	store := NewMemoryCheckpointStore()
 	f := newOpenFixture(t, "park-suspend-fail", store)
-	opts, _ := LookupOptionsForTest(f.kind)
+	opts, _ := f.broker.optionsFor(f.kind)
 	opts.FlushDirty = func(context.Context) error { return errors.New("exporter broke") }
-	unregisterRoomKindForTest(f.kind)
-	RegisterRoomKindWith(f.kind, opts)
+	setKindForTest(f.broker, f.kind, opts)
 
 	room, _ := f.open("r1")
 	f.broker.Suspend(context.Background(), "test")

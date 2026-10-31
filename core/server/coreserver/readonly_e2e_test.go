@@ -31,12 +31,12 @@ type sseEvent struct {
 // A real listener is needed because the stream must stay open across several
 // other requests; tests.ApiScenario serves one request into a recorder.
 func TestReadOnlyE2E(t *testing.T) {
-	t.Cleanup(readonly.Leave)
 
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { readonly.Leave(app) })
 	defer app.Cleanup()
 	registerSharedMiddleware(app)
 
@@ -68,7 +68,7 @@ func TestReadOnlyE2E(t *testing.T) {
 		t.Fatalf("PB_CONNECT data %q: %v", connect.data, err)
 	}
 
-	readonly.Enter()
+	readonly.Enter(app)
 
 	sub, err := json.Marshal(map[string]any{"clientId": connectData.ClientID, "subscriptions": []string{"notes"}})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestReadOnlyE2E(t *testing.T) {
 		t.Fatalf("list during pause: totalItems %d, want 0", list.TotalItems)
 	}
 
-	readonly.Leave()
+	readonly.Leave(app)
 
 	res, body = doRequest(t, srv, http.MethodPost, "/api/collections/notes/records", `{"body":"x"}`)
 	if res.StatusCode != http.StatusOK {
@@ -149,12 +149,12 @@ func TestReadOnlyE2E(t *testing.T) {
 // must be refused the same as an /api/ write: the middleware is bound on the
 // shared mux, so it sees every path, not only /api/.
 func TestReadOnlyRefusesDAVWriteThroughRealServer(t *testing.T) {
-	t.Cleanup(readonly.Leave)
 
 	app, err := tests.NewTestApp()
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { readonly.Leave(app) })
 	defer app.Cleanup()
 	registerSharedMiddleware(app)
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {
@@ -167,7 +167,7 @@ func TestReadOnlyRefusesDAVWriteThroughRealServer(t *testing.T) {
 	srv := serveOnListener(t, app)
 	defer srv.Close()
 
-	readonly.Enter()
+	readonly.Enter(app)
 
 	req, err := http.NewRequest(http.MethodPut, srv.URL+"/caldav/cal/x.ics", strings.NewReader("BEGIN:VCALENDAR"))
 	if err != nil {
@@ -185,7 +185,7 @@ func TestReadOnlyRefusesDAVWriteThroughRealServer(t *testing.T) {
 		t.Fatalf("DAV PUT during pause: Retry-After %q, want 2", got)
 	}
 
-	readonly.Leave()
+	readonly.Leave(app)
 	req, err = http.NewRequest(http.MethodPut, srv.URL+"/caldav/cal/x.ics", strings.NewReader("BEGIN:VCALENDAR"))
 	if err != nil {
 		t.Fatal(err)

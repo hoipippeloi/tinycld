@@ -14,8 +14,8 @@ import (
 	"github.com/pocketbase/pocketbase/tools/types"
 )
 
-// ApplyPendingRestore runs before the database is opened, so it derives every
-// path from the data dir alone. Three states:
+// ApplyPendingRestore runs before app's database is opened, so it derives every
+// path from app's data dir alone. Three states:
 //
 //   - armed present, swapped absent: first boot after a restore staged its
 //     data — move pb_data aside, move pending in, write swapped.
@@ -26,13 +26,14 @@ import (
 //
 // Every step is a rename, so a crash between two of them leaves a state the
 // next boot recognises and completes.
-func ApplyPendingRestore(dataDir string) error {
+func ApplyPendingRestore(app core.App) error {
+	dataDir := app.DataDir()
 	if raw, err := os.ReadFile(swappedPathOf(dataDir)); err == nil {
 		var a armed
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return fmt.Errorf("backup: swapped marker unreadable: %w", err)
 		}
-		return rollBack(dataDir, a)
+		return rollBack(app, a)
 	}
 	raw, err := os.ReadFile(armedPathOf(dataDir))
 	if errors.Is(err, os.ErrNotExist) {
@@ -65,7 +66,7 @@ func ApplyPendingRestore(dataDir string) error {
 		}
 		return os.Remove(armedPathOf(dataDir))
 	}
-	return swapIn(dataDir, a)
+	return swapIn(app, a)
 }
 
 // swapIn moves pb_data aside as a whole, so auxiliary.db, the -wal and -shm
@@ -73,7 +74,8 @@ func ApplyPendingRestore(dataDir string) error {
 // the two members an archive carries. The restored pb_data therefore starts
 // without auxiliary.db — PocketBase recreates it, and keeping the old one would
 // pair a logs database with a database it knows nothing about.
-func swapIn(dataDir string, a armed) error {
+func swapIn(app core.App, a armed) error {
+	dataDir := app.DataDir()
 	prev := filepath.Join(restoreDirOf(dataDir), "previous", a.ID)
 	if err := os.MkdirAll(filepath.Dir(prev), 0o700); err != nil {
 		return err
@@ -122,7 +124,7 @@ func swapIn(dataDir string, a armed) error {
 	if err := os.Remove(armedPathOf(dataDir)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	restoring.Store(true)
+	setRestoring(app, true)
 	return nil
 }
 
@@ -144,7 +146,8 @@ const rollbackReason = "the restored data did not boot; the previous data was pu
 // BEFORE the swapped marker goes, so a crash in between brings this function
 // back rather than losing the news; the finalizer keys on the job id and writes
 // one row per rollback.
-func rollBack(dataDir string, a armed) error {
+func rollBack(app core.App, a armed) error {
+	dataDir := app.DataDir()
 	prev := filepath.Join(restoreDirOf(dataDir), "previous", a.ID)
 	_, prevErr := os.Stat(prev)
 	// previous/<id> gone means the two renames below ALREADY ran and the
@@ -187,7 +190,7 @@ func rollBack(dataDir string, a armed) error {
 	}
 	// This process serves the data the organization had before the restore, so
 	// it is not in maintenance mode.
-	restoring.Store(false)
+	setRestoring(app, false)
 	return os.Remove(swappedPathOf(dataDir))
 }
 
@@ -366,6 +369,6 @@ func finishFinalize(app core.App, a armed) error {
 		log.Error("could not clear the restore marker; the next boot will retry the finalize",
 			"id", a.ID, "err", err)
 	}
-	restoring.Store(false)
+	setRestoring(app, false)
 	return nil
 }

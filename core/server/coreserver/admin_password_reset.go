@@ -15,7 +15,7 @@ import (
 // adminResetLimiter bounds reset emails per admin. Each one mails a live
 // credential, so a script with an admin session must not turn it into a
 // mail cannon.
-var adminResetLimiter = ratelimit.New(20, time.Hour)
+var adminResetLimiter = ratelimit.NewPerApp("admin.password_reset", 20, time.Hour)
 
 type adminPasswordResetRequest struct {
 	// Email is where the link goes; empty means the member's own email.
@@ -71,7 +71,7 @@ func handleAdminPasswordReset(app core.App, re *core.RequestEvent) error {
 	if err != nil || addr.Address == "" {
 		return re.BadRequestError("Enter a valid email address", err)
 	}
-	if !adminResetLimiter.AllowOrLog(caller.Id, "admin.password_reset") {
+	if !adminResetLimiter.For(app).AllowOrLog(caller.Id, "admin.password_reset") {
 		return re.Error(http.StatusTooManyRequests, "Too many reset emails. Try again later.", nil)
 	}
 

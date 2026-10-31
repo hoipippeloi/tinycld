@@ -29,6 +29,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
+	"tinycld.org/core/appstate"
 	"tinycld.org/core/logging"
 	"tinycld.org/core/shutdown"
 )
@@ -47,6 +48,9 @@ var stallWarnInterval = 10 * time.Second
 // Jobs runs one package's background work for one app.
 type Jobs struct {
 	log *slog.Logger
+
+	// app is the app the jobs work for; a job's panic is logged against it.
+	app core.App
 
 	// ctx ends when the app terminates, so a running job stops before its
 	// next write and a render in progress is cancelled.
@@ -86,9 +90,12 @@ func For(app core.App, pkg string) *Jobs {
 // handler runs before the chain's finalizer, which closes the database, so
 // every job has finished before the close.
 func bind(app core.App, pkg string) *Jobs {
-	ctx, cancel := context.WithCancel(context.Background())
+	// The app rides on ctx so a record a job logs with it lands in this
+	// app's _logs table and Sentry hub, not another app's in the process.
+	ctx, cancel := context.WithCancel(logging.WithApp(context.Background(), app))
 	jobs := &Jobs{
 		log:     logging.ForPackage(pkg),
+		app:     app,
 		ctx:     ctx,
 		cancel:  cancel,
 		running: map[uint64]string{},
@@ -111,7 +118,7 @@ func (j *Jobs) Run(name string, fn func(ctx context.Context)) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.stopped {
-		j.log.Warn("background job dropped: the app is terminating", "job", name)
+		j.log.WarnContext(j.ctx, "background job dropped: the app is terminating", "job", name)
 		return false
 	}
 	id := j.nextID
@@ -127,8 +134,8 @@ func (j *Jobs) exec(id uint64, name string, fn func(ctx context.Context)) {
 	defer j.finished(id)
 	defer func() {
 		if r := recover(); r != nil {
-			j.log.Error("background job panicked",
-				"job", name, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+			j.log.ErrorContext(logging.WithApp(context.Background(), j.app), "background job panicked",
+				"app", appstate.ID(j.app), "job", name, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
 		}
 	}()
 	fn(j.ctx)
@@ -171,11 +178,11 @@ func (j *Jobs) stop(deadline context.Context) {
 			if closed(done) {
 				return
 			}
-			j.log.Error("closing the app under background jobs that did not stop by the terminate's deadline",
+			j.log.ErrorContext(j.ctx, "closing the app under background jobs that did not stop by the terminate's deadline",
 				"jobs", j.runningNames(), "cause", context.Cause(deadline))
 			return
 		case <-ticker.C:
-			j.log.Warn("terminate is waiting for background jobs that have not stopped",
+			j.log.WarnContext(j.ctx, "terminate is waiting for background jobs that have not stopped",
 				"jobs", j.runningNames())
 		}
 	}

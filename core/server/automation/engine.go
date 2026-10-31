@@ -56,7 +56,7 @@ type Engine struct {
 	// actions counts action goroutines still running, including those the
 	// per-action timeout gave up on. The terminate waits for them.
 	actions sync.WaitGroup
-	// waitWritable is readonly.WaitInactive; a test swaps it before starting
+	// waitWritable waits for app's read-only mode to end; a test swaps it before starting
 	// a worker to learn that the worker has reached the wait.
 	waitWritable func(context.Context) error
 }
@@ -67,7 +67,7 @@ func NewEngine(app core.App, defs *Defs) *Engine {
 		app: app, defs: defs,
 		queue: make(chan event, dispatchQueueLen), done: make(chan struct{}),
 		ctx: ctx, cancel: cancel,
-		waitWritable: readonly.WaitInactive,
+		waitWritable: func(ctx context.Context) error { return readonly.WaitInactive(ctx, app) },
 	}
 }
 
@@ -126,7 +126,7 @@ func (e *Engine) Start() {
 		// drain it here — otherwise it lingers and misattributes provenance
 		// (depth/source rule) to whatever later legitimate save of the same
 		// rule row happens to land next.
-		takeEngineWrite(ev.Record.Id)
+		takeEngineWrite(e.app, ev.Record.Id)
 		e.reloadScheduleFor(ev.Record)
 		return ev.Next()
 	}
@@ -137,7 +137,7 @@ func (e *Engine) Start() {
 		// enabled=true), so routing through reloadScheduleFor's field check
 		// would re-Add instead of Remove. The row is gone either way — just
 		// drop the job unconditionally.
-		takeEngineWrite(ev.Record.Id)
+		takeEngineWrite(e.app, ev.Record.Id)
 		e.app.Cron().Remove(scheduleJobID(ev.Record.Id))
 		return ev.Next()
 	})
@@ -176,7 +176,7 @@ func (e *Engine) recordHookHandler(col, op string) func(*core.RecordEvent) error
 	return func(ev *core.RecordEvent) error {
 		depth := 0
 		source := ""
-		if w, ok := takeEngineWrite(ev.Record.Id); ok {
+		if w, ok := takeEngineWrite(e.app, ev.Record.Id); ok {
 			depth = w.Depth + 1
 			source = w.RuleID
 		}

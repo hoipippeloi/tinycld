@@ -154,6 +154,27 @@ available in production.
 - Keep mutations in React hooks (not in stores) — they need reactive data from `useLiveQuery` and TanStack Query's `isPending`/`isError` tracking. Compose stores + mutation hooks in a slim `useFeature()` hook when a component needs both.
 - Do NOT use React Context for new shared UI state — use a Zustand store instead.
 
+## Per-app state (one process may run many apps)
+
+A process can run several apps. State that belongs to one app lives on that
+app, never in a package-level variable.
+
+- Put per-app state in the app store with `appstate.NewKey[T]("<pkg>.<field>")`.
+  `GetOrInit`'s init runs under the store lock: it must not touch the same
+  app's store (that includes `appstate.ID`).
+- A function that reads per-app state takes `app core.App`. Do not carry the
+  app in a `context.Context` to avoid the parameter; log routing
+  (`logging.WithApp`) is the one exception.
+- Limiters and maps that live outside the store key by
+  `appstate.Scoped(app, key)`, or use `ratelimit.NewPerApp`.
+- A package-level variable may hold only code-level data that is the same for
+  every app. A repeated registration from a second app is idempotent: no
+  panic, no duplicate.
+- Run per-app goroutines through `background.For(app, pkg).Run`. A bare
+  goroutine starts with `defer background.Recover(app, pkg, name)`.
+- Prove a new per-app value with a two-app test (`multiapptest.NewApps`,
+  or two `rlstest.NewMigratedApp` apps).
+
 ## Logging
 
 **Client → `log` from `@tinycld/core/lib/logger`.** Every call becomes a Sentry

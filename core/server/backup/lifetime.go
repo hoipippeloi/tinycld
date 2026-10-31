@@ -8,7 +8,7 @@ import (
 
 	"github.com/pocketbase/pocketbase/core"
 
-	"tinycld.org/core/backup/format"
+	"tinycld.org/core/appstate"
 )
 
 // ErrStopping refuses a run on an app that is shutting down. It matches ErrBusy
@@ -63,25 +63,48 @@ func (s *runSet) done() {
 	}
 }
 
+// lifetime is the context every transfer of one app derives from. Arm makes a
+// fresh one; StopAll cancels it, which ends that app's transfers and no other
+// app's.
+type lifetime struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+var lifetimeKey = appstate.NewKey[*lifetime]("backup.lifetime")
+
+func newLifetime() *lifetime {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &lifetime{ctx: ctx, cancel: cancel}
+}
+
+func lifetimeOf(app core.App) *lifetime {
+	return lifetimeKey.GetOrInit(app, newLifetime)
+}
+
+// TransferContext is the context a transfer for app derives from: it ends
+// when StopAll stops app's runs. A transfer that outlives the request that
+// started it (a PUT target, a ranged source) takes it as its parent, so a
+// graceful stop releases the interlock instead of leaving it held by a
+// goroutine that is going away.
+func TransferContext(app core.App) context.Context { return lifetimeOf(app).ctx }
+
 // StopAll is what an app's terminate hook calls before the app closes. It
-// refuses every later run on app, cancels every transfer in flight, and waits
-// until each of app's runs has finished its terminal work — the ledger row, the
-// announcement and the callback — or ctx ends.
+// refuses every later run on app, cancels every transfer of app in flight,
+// and waits until each of app's runs has finished its terminal work — the
+// ledger row, the announcement and the callback — or ctx ends.
 //
 // The wait is what keeps a run's terminal work off a closed database: a
 // cancelled run still writes through app on its way out. The error says how
 // many runs were still going when ctx ended; those runs are left to the panic
 // guard around their terminal work.
-//
-// The cancel is process-wide, as every transfer is bound to the process (see
-// SetShutdown); the wait is for app's own runs.
 func StopAll(ctx context.Context, app core.App) error {
 	s := runsOf(app)
 	s.mu.Lock()
 	s.stopping = true
 	if s.active == 0 {
 		s.mu.Unlock()
-		format.CancelAll()
+		lifetimeOf(app).cancel()
 		return nil
 	}
 	if s.idle == nil {
@@ -90,7 +113,7 @@ func StopAll(ctx context.Context, app core.App) error {
 	idle := s.idle
 	s.mu.Unlock()
 
-	format.CancelAll()
+	lifetimeOf(app).cancel()
 	select {
 	case <-idle:
 		return nil
@@ -102,16 +125,16 @@ func StopAll(ctx context.Context, app core.App) error {
 	}
 }
 
-// Arm gives app a fresh lifetime for its runs: a shutdown context every
-// transfer and announcement derives from, and a run set that accepts runs.
-// It is the one place both are set, and it undoes StopAll, so it belongs on the
-// app's bootstrap — the point from which the app can run backups at all, and
-// the point a failed restart returns to.
+// Arm gives app a fresh lifetime for its runs: a context every transfer and
+// announcement derives from, and a run set that accepts runs. It is the one
+// place both are set, and it undoes StopAll, so it belongs on the app's
+// bootstrap — the point from which the app can run backups at all, and the
+// point a failed restart returns to.
 //
 // Transfers still running on an earlier lifetime are not re-bound; StopAll has
 // already waited for them by the time a stopped app is bootstrapped again.
 func Arm(app core.App) {
-	format.SetShutdown(context.Background())
+	lifetimeKey.Set(app, newLifetime())
 	s := runsOf(app)
 	s.mu.Lock()
 	defer s.mu.Unlock()

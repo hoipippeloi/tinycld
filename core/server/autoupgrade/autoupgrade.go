@@ -5,12 +5,17 @@
 // installs its own Delegate and controls the cadence. Core does not know which.
 //
 // Like syscfg, it imports nothing from coreserver, so any package can read it.
+// The Delegate belongs to the app: each app in a process forwards its own
+// owner's choice.
 package autoupgrade
 
 import (
 	"context"
-	"sync"
 	"time"
+
+	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/appstate"
 )
 
 const (
@@ -42,23 +47,14 @@ type Starter interface {
 	Start(ctx context.Context)
 }
 
-var (
-	mu      sync.RWMutex
-	current Delegate
-)
+var delegateKey = appstate.NewKey[Delegate]("autoupgrade.delegate")
 
-func SetDelegate(d Delegate) {
-	mu.Lock()
-	defer mu.Unlock()
-	current = d
-}
+// SetDelegate installs app's Delegate; the last caller for an app wins. nil
+// removes it.
+func SetDelegate(app core.App, d Delegate) { delegateKey.Set(app, d) }
 
-// Current returns the installed Delegate, or nil when this build has none.
-func Current() Delegate {
-	mu.RLock()
-	defer mu.RUnlock()
-	return current
-}
+// Current returns app's Delegate, or nil when this build installed none.
+func Current(app core.App) Delegate { return delegateKey.Get(app) }
 
 func Unavailable(reason string) Status {
 	return Status{Available: false, Reason: reason}

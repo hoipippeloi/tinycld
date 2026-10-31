@@ -88,6 +88,35 @@ func TestDeliveryLimiter_MetersPerSource(t *testing.T) {
 	}
 }
 
+// A verified-but-runaway sender on one app must not spend another app's
+// ceiling for the same source name.
+func TestDeliveryLimiter_IsPerApp(t *testing.T) {
+	resetRegistry(t)
+	a, b := newDeliveriesTestApp(t), newDeliveriesTestApp(t)
+
+	secret := "s3cret"
+	src, calls, _ := countingSource(secret, nil)
+	Register("acme", *src)
+	for deliveryLimiter.For(a).Allow("acme") {
+	}
+
+	body := []byte(`{"hello":"other app"}`)
+	re := newDeliveryRequestEvent(b, body, map[string]string{
+		defaultSignatureHeader: signBody(secret, body),
+		"X-Acme-Delivery":      "dlv-two-apps",
+	})
+	source, ok := lookup("acme")
+	if !ok {
+		t.Fatal("acme not registered")
+	}
+	if err := handleDelivery(re, "acme", source); err != nil {
+		t.Fatalf("app B's delivery was refused by app A's ceiling: %v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("Handle ran %d times, want 1", *calls)
+	}
+}
+
 // --- Handler-level integration tests -------------------------------------
 //
 // verifySignature and the rate limiter are unit-tested above, but nothing

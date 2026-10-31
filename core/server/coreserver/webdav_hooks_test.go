@@ -34,13 +34,10 @@ func testWebDAVSource() webdav.Source {
 	}
 }
 
-// bootHooks writes a .pb.ts, boots jsvm with core's bindings, and returns the
-// TSHooks the source's FileSystem would carry.
-func bootHooks(t *testing.T, hookSource string) webdav.TSHooks {
+// bootHooksApp writes a .pb.ts, boots jsvm with core's bindings on a new app,
+// and returns the app and the TSHooks the source's FileSystem would carry.
+func bootHooksApp(t *testing.T, hookSource string) (*pocketbase.PocketBase, webdav.TSHooks) {
 	t.Helper()
-
-	resetHookPointsForTesting()
-	resetLoaderBindersForTesting()
 
 	hooksDir := t.TempDir()
 	if hookSource != "" {
@@ -49,13 +46,13 @@ func bootHooks(t *testing.T, hookSource string) webdav.TSHooks {
 		}
 	}
 
-	// This is what webdav.Register does when handed the host bindings.
-	hooks := webdav.RegisterTSHooks(WebDAVHostBindings(), testWebDAVSource())
-
 	testApp, _ := tests.NewTestApp()
 	t.Cleanup(testApp.Cleanup)
-
 	pbApp := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: testApp.DataDir()})
+
+	// This is what webdav.Register does when handed the host bindings.
+	hooks := webdav.RegisterTSHooks(WebDAVHostBindings(pbApp), testWebDAVSource())
+
 	err := jsvm.Register(pbApp, jsvm.Config{
 		HooksDir:      hooksDir,
 		MigrationsDir: t.TempDir(),
@@ -70,6 +67,13 @@ func bootHooks(t *testing.T, hookSource string) webdav.TSHooks {
 		t.Fatal(err)
 	}
 
+	return pbApp, hooks
+}
+
+// bootHooks is bootHooksApp for a test that needs only the hooks.
+func bootHooks(t *testing.T, hookSource string) webdav.TSHooks {
+	t.Helper()
+	_, hooks := bootHooksApp(t, hookSource)
 	return hooks
 }
 
@@ -268,8 +272,9 @@ func TestWebDAVHookAcceptsAllHandlerForms(t *testing.T) {
 // A typo in a hook name must fail loudly at load rather than silently never
 // firing — a hook that quietly does nothing is the worst outcome here.
 func TestWebDAVHookRejectsUnknownName(t *testing.T) {
-	resetHookPointsForTesting()
-	resetLoaderBindersForTesting()
+	testApp, _ := tests.NewTestApp()
+	t.Cleanup(testApp.Cleanup)
+	pbApp := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: testApp.DataDir()})
 
 	hooksDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(hooksDir, "typo.pb.ts"), []byte(`
@@ -278,11 +283,7 @@ func TestWebDAVHookRejectsUnknownName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	webdav.RegisterTSHooks(WebDAVHostBindings(), testWebDAVSource())
-
-	testApp, _ := tests.NewTestApp()
-	t.Cleanup(testApp.Cleanup)
-	pbApp := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: testApp.DataDir()})
+	webdav.RegisterTSHooks(WebDAVHostBindings(pbApp), testWebDAVSource())
 
 	// The hook loader panics on a throwing hook file; recover so the test can
 	// assert on the message rather than dying.
@@ -312,8 +313,9 @@ func TestWebDAVHookRejectsUnknownName(t *testing.T) {
 // original order) left the valid handler registered on a hook file that
 // errored, i.e. partial registration.
 func TestWebDAVHookTypoRegistersNothing(t *testing.T) {
-	resetHookPointsForTesting()
-	resetLoaderBindersForTesting()
+	testApp, _ := tests.NewTestApp()
+	t.Cleanup(testApp.Cleanup)
+	pbApp := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: testApp.DataDir()})
 
 	hooksDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(hooksDir, "typo.pb.ts"), []byte(`
@@ -322,11 +324,7 @@ func TestWebDAVHookTypoRegistersNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks := webdav.RegisterTSHooks(WebDAVHostBindings(), testWebDAVSource())
-
-	testApp, _ := tests.NewTestApp()
-	t.Cleanup(testApp.Cleanup)
-	pbApp := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: testApp.DataDir()})
+	hooks := webdav.RegisterTSHooks(WebDAVHostBindings(pbApp), testWebDAVSource())
 
 	func() {
 		defer func() {
@@ -352,14 +350,14 @@ func TestWebDAVHookTypoRegistersNothing(t *testing.T) {
 // Two packages serving trees must not share handlers: points are namespaced by
 // slug, so registering for "cogs" leaves another source's points untouched.
 func TestWebDAVHookPointsAreNamespacedBySlug(t *testing.T) {
-	driveHooks := bootHooks(t, `
+	app, driveHooks := bootHooksApp(t, `
         webdavHook({ beforeWrite(e) {} })
     `)
 
 	other := testWebDAVSource()
 	other.Slug = "photos"
 	other.Prefix = "/photos"
-	otherHooks := webdav.RegisterTSHooks(WebDAVHostBindings(), other)
+	otherHooks := webdav.RegisterTSHooks(WebDAVHostBindings(app), other)
 
 	if !driveHooks.BeforeWrite.Enabled() {
 		t.Fatal("cogs's beforeWrite must be enabled")

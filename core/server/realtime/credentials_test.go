@@ -65,13 +65,8 @@ func TestConnectAuthenticatesBySubprotocol(t *testing.T) {
 	}
 	t.Cleanup(app.Cleanup)
 	drainhooks.ResetForTest()
-	resetLifecycleForTest()
-	t.Cleanup(func() {
-		drainhooks.ResetForTest()
-		resetLifecycleForTest()
-	})
-	resetRegistry()
-	RegisterRoomKindWith("test", RoomKindOptions{Authorize: allowAllAuth})
+	t.Cleanup(drainhooks.ResetForTest)
+	RegisterRoomKindWith(app, "test", RoomKindOptions{Authorize: allowAllAuth})
 	Register(app, Options{})
 	router, err := apis.NewRouter(app)
 	if err != nil {

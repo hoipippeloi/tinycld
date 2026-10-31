@@ -18,13 +18,12 @@ func (s stubRegistrar) GetDomain(context.Context, string, int64) (*DomainRecords
 // The zero state resolves nothing: a deployment that wired nothing up must
 // get a clear "not configured", never a nil panic.
 func TestUnconfiguredReturnsErrNotConfigured(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	app := newApp(t)
 
-	if _, err := Current().AddDomain(context.Background(), "acme.com"); !errors.Is(err, ErrNotConfigured) {
+	if _, err := Current(app).AddDomain(context.Background(), "acme.com"); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("AddDomain err = %v, want ErrNotConfigured", err)
 	}
-	if _, err := Current().GetDomain(context.Background(), "acme.com", 0); !errors.Is(err, ErrNotConfigured) {
+	if _, err := Current(app).GetDomain(context.Background(), "acme.com", 0); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("GetDomain err = %v, want ErrNotConfigured", err)
 	}
 }
@@ -32,18 +31,17 @@ func TestUnconfiguredReturnsErrNotConfigured(t *testing.T) {
 // SetResolver is the standalone path: the deployment points the seam at its
 // own implementation.
 func TestSetResolverInstalls(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	app := newApp(t)
 
-	SetResolver(stubRegistrar{name: "own"})
-	rec, err := Current().GetDomain(context.Background(), "acme.com", 0)
+	SetResolver(app, stubRegistrar{name: "own"})
+	rec, err := Current(app).GetDomain(context.Background(), "acme.com", 0)
 	if err != nil {
 		t.Fatalf("GetDomain: %v", err)
 	}
 	if rec.Domain != "own" {
 		t.Fatalf("Domain = %q, want %q", rec.Domain, "own")
 	}
-	if IsClaimed() {
+	if IsClaimed(app) {
 		t.Error("SetResolver must not claim the seam")
 	}
 }
@@ -52,16 +50,15 @@ func TestSetResolverInstalls(t *testing.T) {
 // composition claims the seam, core's own wiring must not be able to point it
 // back at the deployment's own credentials.
 func TestSetRegistrarClaimsAndBlocksResolver(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	app := newApp(t)
 
-	SetRegistrar(stubRegistrar{name: "supervisor"})
-	if !IsClaimed() {
+	SetRegistrar(app, stubRegistrar{name: "supervisor"})
+	if !IsClaimed(app) {
 		t.Fatal("SetRegistrar must claim the seam")
 	}
 
-	SetResolver(stubRegistrar{name: "own"})
-	rec, err := Current().GetDomain(context.Background(), "acme.com", 0)
+	SetResolver(app, stubRegistrar{name: "own"})
+	rec, err := Current(app).GetDomain(context.Background(), "acme.com", 0)
 	if err != nil {
 		t.Fatalf("GetDomain: %v", err)
 	}
@@ -73,12 +70,11 @@ func TestSetRegistrarClaimsAndBlocksResolver(t *testing.T) {
 // A nil registrar is a caller bug, not an intent to disable the seam.
 // Installing it would turn every call into a nil dereference.
 func TestNilRegistrarIgnored(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	app := newApp(t)
 
-	SetRegistrar(stubRegistrar{name: "good"})
-	SetRegistrar(nil)
-	rec, err := Current().GetDomain(context.Background(), "acme.com", 0)
+	SetRegistrar(app, stubRegistrar{name: "good"})
+	SetRegistrar(app, nil)
+	rec, err := Current(app).GetDomain(context.Background(), "acme.com", 0)
 	if err != nil {
 		t.Fatalf("GetDomain: %v", err)
 	}

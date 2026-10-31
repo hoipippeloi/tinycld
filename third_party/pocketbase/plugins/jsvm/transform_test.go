@@ -371,13 +371,8 @@ func TestES2020Feature_EndToEnd(t *testing.T) {
 // passes if the transpile seam lives in filesContent (feeding registerMigrations),
 // not on p.compile. If the hook test passes but this fails, the seam is misplaced.
 //
-// Not parallel: the jsvm `migrate` binding registers into the process-global
-// core.AppMigrations list, so we snapshot/restore it to avoid leaking the
-// migration (and its captured VM) into other tests' RunAllMigrations calls.
+// Not parallel: it runs RunAllMigrations on a test app, like the other jsvm tests.
 func TestTSMigration_EndToEnd(t *testing.T) {
-	savedMigrations := core.AppMigrations
-	defer func() { core.AppMigrations = savedMigrations }()
-
 	testApp, _ := tests.NewTestApp()
 	defer testApp.Cleanup()
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/mailer"
 )
 
@@ -21,7 +22,7 @@ func captureEmails(t *testing.T) *[]*mailer.Message {
 	t.Helper()
 	sent := &[]*mailer.Message{}
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, msg *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, msg *mailer.Message) error {
 		*sent = append(*sent, msg)
 		return nil
 	}
@@ -155,15 +156,16 @@ func TestReserveEmailSend(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Cleanup(ResetRunStateForTest)
+			app := newLedgerApp(t)
 			now := time.Now()
-			emailSendLedger.Lock()
+			s := runStateFor(app)
+			s.emailMu.Lock()
 			for i := 0; i < tc.prior; i++ {
-				emailSendLedger.sends["rule-a"] = append(emailSendLedger.sends["rule-a"], now.Add(-tc.age))
+				s.emailSends["rule-a"] = append(s.emailSends["rule-a"], now.Add(-tc.age))
 			}
-			emailSendLedger.Unlock()
+			s.emailMu.Unlock()
 
-			err := reserveEmailSend("rule-a", now)
+			err := reserveEmailSend(app, "rule-a", now)
 			if tc.wantBlock && err == nil {
 				t.Error("expected the send to be blocked, got nil")
 			}
@@ -180,7 +182,7 @@ func TestReserveEmailSend(t *testing.T) {
 func TestReserveEmailSend_FailedSendsStillConsumeBudget(t *testing.T) {
 	app, rule := runsApp(t)
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, _ *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, _ *mailer.Message) error {
 		return fmt.Errorf("provider refused")
 	}
 	t.Cleanup(func() { sendEmailNow = original })
@@ -203,7 +205,7 @@ func TestReserveEmailSend_FailedSendsStillConsumeBudget(t *testing.T) {
 
 // One ledger, many workers: the reservation must hand out exactly the cap.
 func TestReserveEmailSend_ConcurrentReservationsRespectTheCap(t *testing.T) {
-	t.Cleanup(ResetRunStateForTest)
+	app := newLedgerApp(t)
 	now := time.Now()
 
 	var wg sync.WaitGroup
@@ -212,7 +214,7 @@ func TestReserveEmailSend_ConcurrentReservationsRespectTheCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if reserveEmailSend("rule-a", now) == nil {
+			if reserveEmailSend(app, "rule-a", now) == nil {
 				allowed.Add(1)
 			}
 		}()
@@ -270,7 +272,7 @@ func TestActionSendEmail_NoRuleIsNotMetered(t *testing.T) {
 func TestActionSendEmail_SurfacesSendFailures(t *testing.T) {
 	app, rule := runsApp(t)
 	original := sendEmailNow
-	sendEmailNow = func(_ context.Context, _ *mailer.Message) error {
+	sendEmailNow = func(_ context.Context, _ core.App, _ *mailer.Message) error {
 		return fmt.Errorf("provider refused")
 	}
 	t.Cleanup(func() { sendEmailNow = original })

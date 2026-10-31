@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/background"
 	"tinycld.org/core/readonly"
 )
 
@@ -44,6 +45,8 @@ type afterFunc func(d time.Duration, f func()) *time.Timer
 // and looked up by emitProgress/emitStepProgress, which only have the job —
 // threading app + the record through every one of their ~15 call sites
 // would be far more invasive than a small per-job registry.
+// The registry is process-wide and keyed by job id; installjob.New makes ids
+// unique in the process, so savers of different apps never collide.
 type installLogProgressSaver struct {
 	app    core.App
 	record *core.Record
@@ -222,8 +225,10 @@ func (s *installLogProgressSaver) scheduleTrailingSave() {
 // onTrailingTimer is the timer callback: it flushes whatever is pending. If
 // the save is skipped because read-only mode is still on, flush re-arms the
 // timer itself so the state keeps retrying on the throttle schedule until
-// writes resume — see flush.
+// writes resume — see flush. It runs on the timer's own goroutine, so a
+// panic in the save is recovered here.
 func (s *installLogProgressSaver) onTrailingTimer() {
+	defer background.Recover(s.app, "core", "install progress save")
 	s.mu.Lock()
 	if s.finalized {
 		s.mu.Unlock()
@@ -247,7 +252,7 @@ func (s *installLogProgressSaver) flush() {
 	if s == nil || s.record == nil {
 		return
 	}
-	if readonly.Active() {
+	if readonly.Active(s.app) {
 		s.mu.Lock()
 		if !s.finalized {
 			s.pending = true
@@ -300,7 +305,7 @@ func (s *installLogProgressSaver) save() {
 		s.saveAgain = false
 		s.saveMu.Unlock()
 
-		if readonly.Active() {
+		if readonly.Active(s.app) {
 			s.mu.Lock()
 			if !s.finalized {
 				s.pending = true

@@ -123,8 +123,8 @@ func TestVerifyReportsAMissingCollection(t *testing.T) {
 }
 
 func TestMaintenanceMiddlewareServesWhileIdle(t *testing.T) {
-	resetRestoreState(t)
-	rec, re := requestEvent("/api/collections/users/records")
+	app := bareApp(t)
+	rec, re := requestEvent(app, "/api/collections/users/records")
 	if err := MaintenanceMiddleware()(re); err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +134,9 @@ func TestMaintenanceMiddlewareServesWhileIdle(t *testing.T) {
 }
 
 func TestMaintenanceMiddlewareRefusesWhileRestoring(t *testing.T) {
-	resetRestoreState(t)
-	restoring.Store(true)
-	rec, re := requestEvent("/api/collections/users/records")
+	app := bareApp(t)
+	setRestoring(app, true)
+	rec, re := requestEvent(app, "/api/collections/users/records")
 	if err := MaintenanceMiddleware()(re); err != nil {
 		t.Fatal(err)
 	}
@@ -153,9 +153,9 @@ func TestMaintenanceMiddlewareRefusesWhileRestoring(t *testing.T) {
 }
 
 func TestMaintenanceMiddlewareKeepsHealthReachable(t *testing.T) {
-	resetRestoreState(t)
-	restoring.Store(true)
-	rec, re := requestEvent("/api/health")
+	app := bareApp(t)
+	setRestoring(app, true)
+	rec, re := requestEvent(app, "/api/health")
 	if err := MaintenanceMiddleware()(re); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,6 @@ func TestMaintenanceMiddlewareKeepsHealthReachable(t *testing.T) {
 }
 
 func TestFinalizeRestoreWithoutASwap(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	if err := FinalizeRestore(app); err != nil {
 		t.Fatal(err)
@@ -180,10 +179,9 @@ func TestFinalizeRestoreWithoutASwap(t *testing.T) {
 }
 
 func TestFinalizeRestoreRecordsTheRestoredArchive(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
-	restoring.Store(true)
+	setRestoring(app, true)
 
 	prev := previousDir(app, "r1")
 	if err := os.MkdirAll(prev, 0o700); err != nil {
@@ -239,7 +237,7 @@ func TestFinalizeRestoreRecordsTheRestoredArchive(t *testing.T) {
 	if _, err := os.Stat(swappedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("the swapped marker was not cleared")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("maintenance mode must end once the restore is finalized")
 	}
 
@@ -292,10 +290,9 @@ func TestFinalizeRestoreRecordsTheRestoredArchive(t *testing.T) {
 // production's order: the archive is written by the backup, and the rows the
 // restore adds land afterwards.
 func TestVerifyReportsOKAfterAFinalizedRestore(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
-	restoring.Store(true)
+	setRestoring(app, true)
 
 	manifest := liveManifest(t, app, KindManual)
 	// One file, to match what newTestApp's storage holds; the count itself is not
@@ -346,9 +343,10 @@ func TestVerifyReportsOKAfterAFinalizedRestore(t *testing.T) {
 // requestEvent builds a RequestEvent with no next handler: Next() is then a
 // no-op that writes nothing, so an empty response body means the middleware
 // passed the request on rather than answering it.
-func requestEvent(path string) (*httptest.ResponseRecorder, *core.RequestEvent) {
+func requestEvent(app core.App, path string) (*httptest.ResponseRecorder, *core.RequestEvent) {
 	rec := httptest.NewRecorder()
 	re := &core.RequestEvent{}
+	re.App = app
 	re.Request = httptest.NewRequest(http.MethodGet, path, nil)
 	re.Response = rec
 	return rec, re
@@ -361,8 +359,7 @@ func requestEvent(path string) (*httptest.ResponseRecorder, *core.RequestEvent) 
 func TestApplyPendingRestoreCompletesARealRestore(t *testing.T) {
 	data, id := archiveFor(t)
 	app := newTestApp(t)
-	resetRestoreState(t)
-	SetRestart(func() bool { return true })
+	SetRestart(app, func() bool { return true })
 
 	jobID, err := Restore(app, RestoreRequest{Source: readCloser{bytes.NewReader(data)}, Identity: id, Force: true})
 	if err != nil {
@@ -375,7 +372,8 @@ func TestApplyPendingRestoreCompletesARealRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ApplyPendingRestore(dataDir); err != nil {
+	boot := bootAt(dataDir)
+	if err := ApplyPendingRestore(boot); err != nil {
 		t.Fatal(err)
 	}
 	// The archive's own storage file is what the restored data dir now carries.
@@ -399,7 +397,7 @@ func TestApplyPendingRestoreCompletesARealRestore(t *testing.T) {
 	if a.ID != jobID || a.Manifest.Core == "" {
 		t.Fatalf("the marker the finalizer reads is incomplete: %+v", a)
 	}
-	if !Restoring() {
+	if !Restoring(boot) {
 		t.Fatal("the swapped-in process serves 503 until it finalizes")
 	}
 }
@@ -408,10 +406,9 @@ func TestApplyPendingRestoreCompletesARealRestore(t *testing.T) {
 // next boot sees the marker again and must not insert a second succeeded row or
 // notify a second time.
 func TestFinalizeRestoreIsIdempotent(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
-	restoring.Store(true)
+	setRestoring(app, true)
 
 	marker, err := json.Marshal(armed{
 		ID:       "r1",
@@ -436,7 +433,7 @@ func TestFinalizeRestoreIsIdempotent(t *testing.T) {
 	}
 	// The marker is back, as a crash before its removal would leave it.
 	write()
-	restoring.Store(true)
+	setRestoring(app, true)
 	if err := FinalizeRestore(app); err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +455,7 @@ func TestFinalizeRestoreIsIdempotent(t *testing.T) {
 	if _, err := os.Stat(swappedPath(app)); !os.IsNotExist(err) {
 		t.Fatal("the second pass left the marker behind")
 	}
-	if Restoring() {
+	if Restoring(app) {
 		t.Fatal("the second pass must still end maintenance mode")
 	}
 }
@@ -466,7 +463,6 @@ func TestFinalizeRestoreIsIdempotent(t *testing.T) {
 // A restore of a DIFFERENT archive after an earlier one must still be recorded:
 // idempotence keys on the job id, not on "any succeeded restore exists".
 func TestFinalizeRestoreRecordsASecondRestore(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
 
@@ -481,7 +477,7 @@ func TestFinalizeRestoreRecordsASecondRestore(t *testing.T) {
 		if err := os.WriteFile(swappedPath(app), raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		restoring.Store(true)
+		setRestoring(app, true)
 		if err := FinalizeRestore(app); err != nil {
 			t.Fatal(err)
 		}
@@ -498,7 +494,6 @@ func TestFinalizeRestoreRecordsASecondRestore(t *testing.T) {
 // The serve-time finalizer is the first point at which a database exists, so it
 // is what turns a rollback marker into something an operator can see.
 func TestFinalizeRestoreReportsARollback(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
 
@@ -562,7 +557,6 @@ func TestFinalizeRestoreReportsARollback(t *testing.T) {
 // The marker's removal is the last step, so a crash after the insert brings it
 // back. A second pass must not write a second row.
 func TestFinalizeRestoreReportsARollbackOnlyOnce(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
 	write := func() {
@@ -651,7 +645,6 @@ func TestVerifyBoundsTheCollectionsARestoreWritesInto(t *testing.T) {
 // The bound has to hold end to end, not just in the helper: a real finalized
 // restore whose audit log came back SHORT must not report ok.
 func TestVerifyReportsAShortfallInASelfWrittenCollection(t *testing.T) {
-	resetRestoreState(t)
 	app := newTestApp(t)
 	makeUser(t, app, "owner@example.com", "owner")
 
@@ -672,7 +665,7 @@ func TestVerifyReportsAShortfallInASelfWrittenCollection(t *testing.T) {
 	if err := os.WriteFile(swappedPath(app), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	restoring.Store(true)
+	setRestoring(app, true)
 	if err := FinalizeRestore(app); err != nil {
 		t.Fatal(err)
 	}

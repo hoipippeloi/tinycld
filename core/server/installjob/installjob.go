@@ -1,13 +1,13 @@
-// Package installjob owns the process-wide "one package operation at a time"
-// interlock and the job it tracks.
+// Package installjob owns the "one package operation at a time" interlock of
+// each app and the job it tracks.
 //
 // It exists as its own package because MORE THAN ONE composition serves the
 // package-install API: the deployment that rebuilds itself in process, and one
 // whose deploys ride a supervisor's control socket. Both must see the SAME
-// running job — the interlock is what stops two operations mutating one data
-// dir at once — and Go package-level state cannot be shared across packages.
-// Left in either composition's own package, the other would get a second,
-// empty registry and the interlock would silently do nothing.
+// running job for an app — the interlock is what stops two operations mutating
+// one data dir at once. The interlock lives on the app, so every package that
+// reaches it through this one sees the same slot, and two apps in one process
+// never see each other's.
 //
 // The mutex is deliberately NOT exported. Callers claim, read, or release
 // through the functions here, so there is no way to hold the lock across a
@@ -15,9 +15,16 @@
 package installjob
 
 import (
+	"crypto/rand"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/pocketbase/pocketbase/core"
+
+	"tinycld.org/core/appstate"
 )
 
 // Event is one server-sent event on a job's progress stream.
@@ -73,25 +80,40 @@ type Job struct {
 
 	mu        sync.Mutex
 	listeners []chan Event
+	// owner is the interlock Claim gave this job, so Release clears that
+	// app's slot and no other.
+	owner atomic.Pointer[interlock]
 }
 
 // ---------- the interlock ----------
 
-var (
+// interlock is one app's single-flight slot.
+type interlock struct {
 	mu      sync.Mutex
 	current *Job
-	// held is set once this process has asked to be replaced and keeps
+	// held is set once the app's process has asked to be replaced and keeps
 	// running until it is stopped. From then on the interlock never clears:
 	// any new job would work on data and a build that the next process
 	// already owns.
 	held bool
-)
+}
 
-// New mints a job with a timestamp-derived id and an open Done channel. It does
-// NOT claim the interlock — pass it to Claim.
+var interlockKey = appstate.NewKey[*interlock]("installjob.interlock")
+
+func interlockOf(app core.App) *interlock {
+	return interlockKey.GetOrInit(app, func() *interlock { return &interlock{} })
+}
+
+// New mints a job with an open Done channel. It does NOT claim the interlock
+// — pass it to Claim.
+//
+// The id is a timestamp plus a random suffix. Several apps in one process
+// can each start an operation in the same millisecond, and the install
+// progress savers are keyed by job id, so a timestamp alone would let one
+// app's progress land on another app's log row.
 func New(action, slug, npmPkg string) *Job {
 	return &Job{
-		ID:     fmt.Sprintf("job_%d", time.Now().UnixMilli()),
+		ID:     fmt.Sprintf("job_%d_%s", time.Now().UnixMilli(), strings.ToLower(rand.Text()[:8])),
 		Action: action,
 		Slug:   slug,
 		NpmPkg: npmPkg,
@@ -100,63 +122,63 @@ func New(action, slug, npmPkg string) *Job {
 	}
 }
 
-// Claim installs job as the running one, or reports the job already running.
-// The check and the set happen under one lock, so two callers racing cannot
-// both believe they won.
-func Claim(job *Job) (busy *Job, ok bool) {
-	mu.Lock()
-	defer mu.Unlock()
-	if current != nil {
-		return current, false
+// Claim installs job as app's running one, or reports the job already
+// running. The check and the set happen under one lock, so two callers racing
+// cannot both believe they won.
+func Claim(app core.App, job *Job) (busy *Job, ok bool) {
+	il := interlockOf(app)
+	il.mu.Lock()
+	defer il.mu.Unlock()
+	if il.current != nil {
+		return il.current, false
 	}
-	current = job
+	il.current = job
+	job.owner.Store(il)
 	return nil, true
 }
 
-// Current reports the running job, or nil.
-func Current() *Job {
-	mu.Lock()
-	defer mu.Unlock()
-	return current
+// Current reports app's running job, or nil.
+func Current(app core.App) *Job {
+	il := interlockOf(app)
+	il.mu.Lock()
+	defer il.mu.Unlock()
+	return il.current
 }
 
-// Running reports whether any job holds the interlock.
-func Running() bool {
-	mu.Lock()
-	defer mu.Unlock()
-	return current != nil
+// Running reports whether any job holds app's interlock.
+func Running(app core.App) bool {
+	return Current(app) != nil
 }
 
-// Release clears the interlock. Safe to call on a job that no longer holds it
-// (a late unwind after a restart), which is why it compares before clearing.
+// Release clears the interlock job was claimed on. Safe to call on a job that
+// no longer holds it (a late unwind after a restart), or never did, which is
+// why it compares before clearing.
 func Release(job *Job) {
-	mu.Lock()
-	defer mu.Unlock()
-	if current == job && !held {
-		current = nil
+	il := job.owner.Load()
+	if il == nil {
+		return
+	}
+	il.mu.Lock()
+	defer il.mu.Unlock()
+	if il.current == job && !il.held {
+		il.current = nil
 	}
 }
 
-// HoldForReplacement keeps the interlock claimed for the rest of the process,
-// so Claim refuses every later job. The caller is normally the job that holds
-// it; when nothing does, a placeholder job takes the slot, so a busy answer
-// still has a job to describe.
-func HoldForReplacement() {
-	mu.Lock()
-	defer mu.Unlock()
-	held = true
-	if current == nil {
-		current = New("restart", "", "")
+// HoldForReplacement keeps app's interlock claimed for the rest of the
+// process, so Claim refuses every later job on app. The caller is normally the
+// job that holds it; when nothing does, a placeholder job takes the slot, so a
+// busy answer still has a job to describe.
+func HoldForReplacement(app core.App) {
+	il := interlockOf(app)
+	il.mu.Lock()
+	defer il.mu.Unlock()
+	il.held = true
+	if il.current == nil {
+		placeholder := New("restart", "", "")
+		placeholder.owner.Store(il)
+		il.current = placeholder
 	}
-}
-
-// ResetForTesting clears the interlock and HoldForReplacement's hold. Tests
-// only: a held interlock is meant to last until the process ends.
-func ResetForTesting() {
-	mu.Lock()
-	defer mu.Unlock()
-	held = false
-	current = nil
 }
 
 // Info is the shape the API returns for a busy interlock.

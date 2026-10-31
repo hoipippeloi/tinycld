@@ -205,7 +205,7 @@ func TestRunRecordsFailure(t *testing.T) {
 		t.Fatalf("temp dir not clean: %v", entries)
 	}
 	// The interlock must be free again after a failed run.
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("interlock still held after a failed run")
 	}
 }
@@ -213,7 +213,7 @@ func TestRunRecordsFailure(t *testing.T) {
 func TestRunRefusesWhileJobRunning(t *testing.T) {
 	app := newTestApp(t)
 	other := installjob.New("install", "x", "x")
-	if _, ok := installjob.Claim(other); !ok {
+	if _, ok := installjob.Claim(app, other); !ok {
 		t.Fatal("claim")
 	}
 	t.Cleanup(func() { installjob.Release(other) })
@@ -231,9 +231,7 @@ func TestRunRefusesWhileJobRunning(t *testing.T) {
 func TestDailyLimitAppliesToManualOnly(t *testing.T) {
 	app := newTestApp(t)
 	owner := makeUser(t, app, "owner@example.com", "owner")
-	t.Cleanup(resetDailyLimitForTesting)
-	resetDailyLimitForTesting()
-	SetDailyLimit(func(core.App) int { return 1 })
+	SetDailyLimit(app, func(core.App) int { return 1 })
 	id, _ := age.GenerateX25519Identity()
 	if _, err := Run(app, Request{Kind: KindManual, Recipient: id.Recipient(), Sink: &closeBuffer{}, Initiator: owner.Id}); err != nil {
 		t.Fatal(err)
@@ -248,11 +246,10 @@ func TestDailyLimitAppliesToManualOnly(t *testing.T) {
 }
 
 func TestSetDailyLimitClaimsOnce(t *testing.T) {
-	t.Cleanup(resetDailyLimitForTesting)
-	resetDailyLimitForTesting()
-	SetDailyLimit(func(core.App) int { return 3 })
-	SetDailyLimit(func(core.App) int { return 99 })
-	if got := dailyLimit(nil); got != 3 {
+	app := bareApp(t)
+	SetDailyLimit(app, func(core.App) int { return 3 })
+	SetDailyLimit(app, func(core.App) int { return 99 })
+	if got := dailyLimit(app); got != 3 {
 		t.Fatalf("limit %d, want the first claim (3)", got)
 	}
 }
@@ -526,7 +523,7 @@ func TestRunRecordsAPanicAsFailure(t *testing.T) {
 	if bad, _ := app.FindRecordsByFilter("notifications", "type = 'core.backup.failed'", "", 0, 0); len(bad) != 1 {
 		t.Fatalf("want 1 failure notification, got %d", len(bad))
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock must be released after a panic")
 	}
 }
@@ -609,13 +606,11 @@ func TestRunFailingInBuildManifestStoresNoManifest(t *testing.T) {
 
 func TestErrBusyDoesNotBurnAManualSlot(t *testing.T) {
 	app := newTestApp(t)
-	t.Cleanup(resetDailyLimitForTesting)
-	resetDailyLimitForTesting()
-	SetDailyLimit(func(core.App) int { return 1 })
+	SetDailyLimit(app, func(core.App) int { return 1 })
 	id, _ := age.GenerateX25519Identity()
 
 	other := installjob.New("install", "x", "x")
-	if _, ok := installjob.Claim(other); !ok {
+	if _, ok := installjob.Claim(app, other); !ok {
 		t.Fatal("claim")
 	}
 	if _, err := Run(app, Request{Kind: KindManual, Recipient: id.Recipient(), Sink: &closeBuffer{}}); !errors.Is(err, ErrBusy) {
@@ -743,7 +738,7 @@ func TestRunGivesUpOnAStalledTargetAndReleasesTheInterlock(t *testing.T) {
 	if !errors.Is(err, format.ErrStalled) {
 		t.Fatalf("want ErrStalled, got %v", err)
 	}
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("a stalled run must release the interlock")
 	}
 	row, rerr := app.FindRecordById("backups", rowID)
@@ -929,7 +924,7 @@ func (r *blockingRepo) List(context.Context) ([]repo.SnapshotInfo, error) { retu
 // storage delete while it is renewed.
 func assertReleased(t *testing.T, app core.App, rowID string) {
 	t.Helper()
-	if installjob.Running() {
+	if installjob.Running(app) {
 		t.Fatal("the interlock is still claimed")
 	}
 	if _, held, err := hold.Read(app.DataDir()); err != nil || held {
@@ -965,8 +960,6 @@ func TestRunGivesUpOnAStalledRepositoryPut(t *testing.T) {
 // tick and checks the deadline itself, so there is no wall-clock margin to
 // lose to scheduling jitter.
 func TestRunKeepsAProgressingRepositoryPutAlive(t *testing.T) {
-	t.Cleanup(resetDailyLimitForTesting)
-	resetDailyLimitForTesting()
 
 	var mt *format.ManualStallTimerForTesting
 	restore := format.InstallManualStallTimerForTesting(func(created *format.ManualStallTimerForTesting) { mt = created })
@@ -1012,10 +1005,9 @@ func TestRunKeepsAProgressingRepositoryPutAlive(t *testing.T) {
 
 // A graceful stop must reach a repository Put, not only an archive transfer.
 func TestCancelAllEndsARepositoryPutInFlight(t *testing.T) {
-	t.Cleanup(ResetForTesting)
-	SetShutdown(context.Background())
 
 	app := newTestApp(t)
+	Arm(app)
 	r := newBlockingRepo("put")
 	type result struct {
 		id  string
@@ -1027,7 +1019,7 @@ func TestCancelAllEndsARepositoryPutInFlight(t *testing.T) {
 		done <- result{id, err}
 	}()
 	<-r.entered
-	CancelAll()
+	lifetimeOf(app).cancel()
 	select {
 	case res := <-done:
 		if res.err == nil {

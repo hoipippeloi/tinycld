@@ -8,7 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/background"
 	"tinycld.org/core/editcheckpoint"
+	"tinycld.org/core/logging"
 )
 
 // idleCheckpointAfter is how long a room with edits waits without a new
@@ -111,20 +114,25 @@ func (r *Room) fireIdleCheckpoint() {
 	if editors.Empty() {
 		return
 	}
-	fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonIdle)
+	fireEditCheckpoint(r.broker.app, r.key.id, editors, editcheckpoint.ReasonIdle)
 }
 
-func fireEditCheckpoint(id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTeardownTimeout)
+// fireEditCheckpoint hands a checkpoint to the listener of the app whose room
+// reached it. It runs on a timer goroutine or a goroutine of its own, so it
+// stops a panic in the listener here, and names the app on the ctx so the
+// listener's records reach that app.
+func fireEditCheckpoint(app core.App, id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
+	defer background.Recover(app, "realtime", "edit checkpoint")
+	ctx, cancel := context.WithTimeout(logging.WithApp(context.Background(), app), DefaultTeardownTimeout)
 	defer cancel()
-	editcheckpoint.Fire(ctx, id, editors, reason)
+	editcheckpoint.Fire(ctx, app, id, editors, reason)
 }
 
-// TakeEditors returns and clears the editors of every open room for id,
-// across the kinds that keep checkpoints. A manual version takes them so
+// TakeEditors returns and clears the editors of every open room for id in
+// app, across the kinds that keep checkpoints. A manual version takes them so
 // the next automatic one names only later editors.
-func TakeEditors(id string) editcheckpoint.Editors {
-	return sharedBroker().TakeEditors(id)
+func TakeEditors(app core.App, id string) editcheckpoint.Editors {
+	return BrokerFor(app).TakeEditors(id)
 }
 
 func (b *Broker) TakeEditors(id string) editcheckpoint.Editors {
@@ -162,11 +170,11 @@ func unique(values []string) []string {
 	return out
 }
 
-// HoldEditors keeps editors for the next TakeEditors of id: a checkpoint
-// listener that makes no version (for example, automatic versions are off)
-// hands them back, so the next version still names them.
-func HoldEditors(id string, editors editcheckpoint.Editors) {
-	sharedBroker().HoldEditors(id, editors)
+// HoldEditors keeps editors for the next TakeEditors of id in app: a
+// checkpoint listener that makes no version (for example, automatic versions
+// are off) hands them back, so the next version still names them.
+func HoldEditors(app core.App, id string, editors editcheckpoint.Editors) {
+	BrokerFor(app).HoldEditors(id, editors)
 }
 
 func (b *Broker) HoldEditors(id string, editors editcheckpoint.Editors) {

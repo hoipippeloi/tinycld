@@ -2,9 +2,12 @@ package backup
 
 import (
 	"errors"
+	"runtime"
 	"testing"
 	"time"
+	"weak"
 
+	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 
 	"tinycld.org/core/backup/hold"
@@ -59,5 +62,22 @@ func TestExpiredHoldDoesNotBlockDeletes(t *testing.T) {
 	}
 	if _, err := fs.Attributes("col1/rec1/hello.txt"); !errors.Is(err, filesystem.ErrNotFound) {
 		t.Fatal("an expired hold still blocked the delete")
+	}
+}
+
+// BindDeleteHold keeps nothing in the process. An app the process has let go
+// must be collectable, or a process that opens and closes many apps keeps
+// every one it ever bound alive.
+func TestBindDeleteHoldDoesNotKeepTheAppAlive(t *testing.T) {
+	ref := func() weak.Pointer[core.BaseApp] {
+		app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+		BindDeleteHold(app)
+		return weak.Make(app)
+	}()
+	for i := 0; i < 3 && ref.Value() != nil; i++ {
+		runtime.GC()
+	}
+	if ref.Value() != nil {
+		t.Fatal("an app passed to BindDeleteHold stays reachable after the process lets it go")
 	}
 }

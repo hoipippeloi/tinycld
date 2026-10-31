@@ -1,8 +1,8 @@
 // Package mailer provides the shared outbound email stack for all packages —
 // a provider registry (Postmark, self-hosted SMTP) selected by configuration,
 // so any package can send transactional email without depending on the mail
-// feature package. Configuration is read from the system_settings collection
-// via ConfigResolver (the mail.* keys), per-send, so /admin edits apply live.
+// feature package. Configuration is read per send through core's syscfg seam
+// for the app the send belongs to (the mail.* keys), so /admin edits apply live.
 //
 // Delivery gating: PocketBase processes started with --dev (dev/test/seed) log
 // emails to stdout instead of delivering. In production, delivery is on unless
@@ -13,12 +13,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pocketbase/pocketbase/core"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"tinycld.org/core/maildomains"
+	"tinycld.org/core/syscfg"
 )
 
 // Recipient is an email address with an optional display name.
@@ -176,7 +179,7 @@ type FullSender interface {
 
 // --- Configuration ---
 
-// Config keys read from the system_settings collection (via ConfigResolver).
+// Config keys read from the system_settings collection (via the app's syscfg seam).
 // They live in the shared `mail.*` namespace so the core transactional mailer
 // and the mail feature package read one set of credentials.
 const (
@@ -193,39 +196,27 @@ const (
 
 const defaultFromAddress = "noreply@tinycld.org"
 
-// ConfigResolver is the seam through which the mailer reads its configuration.
-// coreserver populates it at startup to read from the in-memory SystemConfig
-// (backed by the system_settings collection). The default returns "" so the
-// package still builds and works standalone (tests, the bootstrap binary) —
-// with no token configured it logs instead of delivering.
-//
-// Reads happen per-send (no caching), so an /admin edit to a mail.* setting
-// takes effect on the next send without a restart — matching how the mail
-// feature package and Sentry/VAPID consume system config.
-var ConfigResolver = func(string) string { return "" }
-
-// ServerTokenResolver supplies the Postmark server token a send uses. The
-// default reads the configured setting. coreserver points it at the
-// maildomains seam, which derives the token from the account token when no
-// server token is configured, so a deployment that pasted only its account
-// token still sends.
-var ServerTokenResolver = func(context.Context) (string, error) {
-	return ConfigResolver(keyPostmarkToken), nil
-}
-
 // tokenResolveTimeout bounds the first derivation's Postmark calls; later
 // calls are answered from the resolver's cache.
 const tokenResolveTimeout = 15 * time.Second
 
-func postmarkServerToken() string {
+// postmarkServerToken is the server token app sends with. It asks app's
+// maildomains token source, which derives the token from the account token
+// when no server token is configured; an app whose composition installed no
+// source (a bare test app, the bootstrap binary) still sends with a
+// configured server token.
+func postmarkServerToken(app core.App) string {
 	ctx, cancel := context.WithTimeout(context.Background(), tokenResolveTimeout)
 	defer cancel()
-	token, err := ServerTokenResolver(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[mailer] no postmark server token: %v — mail will be logged, not delivered\n", err)
-		return ""
+	token, err := maildomains.ServerToken(ctx, app)
+	if err == nil {
+		return token
 	}
-	return token
+	if configured := syscfg.Get(app, keyPostmarkToken); configured != "" {
+		return configured
+	}
+	fmt.Fprintf(os.Stderr, "[mailer] no postmark server token: %v — mail will be logged, not delivered\n", err)
+	return ""
 }
 
 // devAutoLog is true when this process was started with --dev (dev/test/seed).
@@ -234,64 +225,65 @@ func postmarkServerToken() string {
 // Captured once at init since it's a fixed process property.
 var devAutoLog = slices.Contains(os.Args, "--dev")
 
-// deliveryEnabled reports whether outbound delivery is on. Delivery is off in
-// --dev processes (auto-log) and when mail.delivery_enabled is explicitly
-// "false". Otherwise it is on (the production default).
-func deliveryEnabled() bool {
+// deliveryEnabled reports whether app's outbound delivery is on. Delivery is
+// off in --dev processes (auto-log) and when mail.delivery_enabled is
+// explicitly "false". Otherwise it is on (the production default).
+func deliveryEnabled(app core.App) bool {
 	if devAutoLog {
 		return false
 	}
-	return !strings.EqualFold(ConfigResolver(keyDeliveryEnabled), "false")
+	return !strings.EqualFold(syscfg.Get(app, keyDeliveryEnabled), "false")
 }
 
-// fromAddress returns the configured default From, or the package default.
-func fromAddress() string {
-	if v := ConfigResolver(keyFromAddress); v != "" {
+// fromAddress returns app's configured default From, or the package default.
+func fromAddress(app core.App) string {
+	if v := syscfg.Get(app, keyFromAddress); v != "" {
 		return v
 	}
 	return defaultFromAddress
 }
 
-// buildSender constructs the configured outbound sender from current config,
-// or nil when nothing is configured (e.g. postmark selected but no token).
-// Built per-call so config changes apply immediately.
-func buildSender() Sender {
-	switch strings.ToLower(ConfigResolver(keyProvider)) {
+// buildSender constructs app's configured outbound sender from current
+// config, or nil when nothing is configured (e.g. postmark selected but no
+// token). Built per call so config changes apply immediately.
+func buildSender(app core.App) Sender {
+	switch strings.ToLower(syscfg.Get(app, keyProvider)) {
 	case "smtp":
-		return NewSMTPSender(SMTPConfig{PublicHostname: ConfigResolver(keySMTPPublicHost)})
+		return NewSMTPSender(app, SMTPConfig{PublicHostname: syscfg.Get(app, keySMTPPublicHost)})
 	case "", "postmark":
-		token := postmarkServerToken()
+		token := postmarkServerToken(app)
 		if token == "" {
 			return nil
 		}
-		return NewPostmarkSender(token, ConfigResolver(keyPostmarkAccount), fromAddress())
+		return NewPostmarkSender(app, token, syscfg.Get(app, keyPostmarkAccount), fromAddress(app))
 	default:
 		// An unrecognized provider would silently degrade to log-only, which
 		// looks to an operator like mail is configured when it isn't. Surface it.
 		fmt.Fprintf(os.Stderr, "[mailer] unknown %s=%q — mail will be logged, not delivered\n",
-			keyProvider, ConfigResolver(keyProvider))
+			keyProvider, syscfg.Get(app, keyProvider))
 		return nil
 	}
 }
 
-// DefaultSender returns the Sender to use for a send. When delivery is disabled
-// (dev/test or mail.delivery_enabled=false) or no provider is configured, it
-// returns the log-only LogSender (which also writes TINYCLD_EMAIL_LOG for e2e).
-func DefaultSender() Sender {
-	if !deliveryEnabled() {
+// DefaultSender returns the Sender for a send on behalf of app. When delivery
+// is disabled (dev/test or mail.delivery_enabled=false) or no provider is
+// configured, it returns the log-only LogSender (which also writes
+// TINYCLD_EMAIL_LOG for e2e).
+func DefaultSender(app core.App) Sender {
+	if !deliveryEnabled(app) {
 		return &LogSender{}
 	}
-	if s := buildSender(); s != nil {
+	if s := buildSender(app); s != nil {
 		return s
 	}
 	return &LogSender{}
 }
 
-// CanDeliver reports whether a real outbound provider is configured AND
-// delivery is enabled — i.e. whether DefaultSender().Send would actually
+// CanDeliver reports whether app has a real outbound provider configured AND
+// delivery enabled — i.e. whether DefaultSender(app).Send would actually
 // deliver rather than log.
-func CanDeliver() bool {
-	return deliveryEnabled() && buildSender() != nil
+func CanDeliver(app core.App) bool {
+	return deliveryEnabled(app) && buildSender(app) != nil
 }
 
 // NoopSender silently discards messages.

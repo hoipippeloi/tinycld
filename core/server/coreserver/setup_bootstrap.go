@@ -18,6 +18,9 @@ import (
 	"tinycld.org/core/usernames"
 )
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
 var setupState = newSetupGuard(time.Now, announceSetupCode)
 
 // announceSetupCode prints the code on its own line and inside the link, so

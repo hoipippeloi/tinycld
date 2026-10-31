@@ -373,7 +373,7 @@ func TestReconcileDefersWhenJobInFlight(t *testing.T) {
 	// Simulate a genuinely in-flight install (cannot happen on a fresh boot, but
 	// the guard must hold). Restore the global afterwards so other tests are clean.
 	inflight := installjob.New("install", "", "")
-	if _, ok := installjob.Claim(inflight); !ok {
+	if _, ok := installjob.Claim(app, inflight); !ok {
 		t.Fatal("claim must win against an idle interlock")
 	}
 	t.Cleanup(func() { installjob.Release(inflight) })

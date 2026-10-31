@@ -13,8 +13,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
 
-	"tinycld.org/core/mailer"
 	"tinycld.org/core/readonly/readonlytest"
+	"tinycld.org/core/syscfg"
 )
 
 // The invite email, the invite notification and the boot notices run after
@@ -85,22 +85,15 @@ func postInvite(t *testing.T, app *tests.TestApp, owner *core.Record, username s
 	scenario.Test(t)
 }
 
-// usePostmarkStandIn points the mailer at srv in place of Postmark.
-func usePostmarkStandIn(t *testing.T, srv *httptest.Server) {
+// usePostmarkStandIn points app's mailer at srv in place of Postmark.
+func usePostmarkStandIn(t *testing.T, app core.App, srv *httptest.Server) {
 	t.Helper()
 	settings := map[string]string{
 		"mail.provider":              "postmark",
 		"mail.postmark_server_token": "test-server-token",
 		"mail.postmark_api_url":      srv.URL,
 	}
-	prevConfig, prevToken := mailer.ConfigResolver, mailer.ServerTokenResolver
-	mailer.ConfigResolver = func(key string) string { return settings[key] }
-	mailer.ServerTokenResolver = func(context.Context) (string, error) {
-		return settings["mail.postmark_server_token"], nil
-	}
-	t.Cleanup(func() {
-		mailer.ConfigResolver, mailer.ServerTokenResolver = prevConfig, prevToken
-	})
+	syscfg.SetResolver(app, func(key string) string { return settings[key] })
 }
 
 // The email's send honours the job's ctx, so the terminate ends it at once;
@@ -129,7 +122,7 @@ func TestInvite_TerminateWaitsForTheExistingMemberEmail(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	t.Cleanup(letGo)
-	usePostmarkStandIn(t, srv)
+	usePostmarkStandIn(t, app, srv)
 
 	registerInviteEndpointCore(app)
 	postInvite(t, app, owner, member.GetString("username"))

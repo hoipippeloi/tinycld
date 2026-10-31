@@ -49,7 +49,7 @@ type PostmarkDomains interface {
 type PostmarkRegistrar struct {
 	// accountToken is read PER CALL, not captured at construction. At the
 	// production call site (coreserver.wireMailDomains) construction happens
-	// synchronously inside RegisterSystemConfig, before systemConfig.load(app)
+	// synchronously inside RegisterSystemConfig, before SystemSettings(app).load(app)
 	// has run in the later OnServe hook — so a value captured once here would
 	// be permanently "" and every call would return ErrNotConfigured forever,
 	// even after the settings row loads. Reading it lazily on each call is the

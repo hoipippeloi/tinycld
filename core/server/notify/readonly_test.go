@@ -13,8 +13,8 @@ import (
 func TestCommentMention_WaitsForReadOnlyToEnd(t *testing.T) {
 	f := seedMentionFixture(t)
 	mention := mkMention(t, f.app, f, "notepads_comments")
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 
 	probe, waiting := readonlytest.WaitProbe(t)
 	done := make(chan struct{})
@@ -33,7 +33,7 @@ func TestCommentMention_WaitsForReadOnlyToEnd(t *testing.T) {
 		t.Fatal("a mention notification was written while read-only")
 	}
 
-	readonly.Leave()
+	readonly.Leave(f.app)
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
@@ -48,8 +48,8 @@ func TestCommentMention_DroppedAndLoggedWhenReadOnlyOutlastsTheWait(t *testing.T
 	f := seedMentionFixture(t)
 	mention := mkMention(t, f.app, f, "notepads_comments")
 	logs := readonlytest.CaptureLogs(t)
-	readonly.Enter()
-	t.Cleanup(readonly.Leave)
+	readonly.Enter(f.app)
+	t.Cleanup(func() { readonly.Leave(f.app) })
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

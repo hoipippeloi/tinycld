@@ -12,7 +12,6 @@ import (
 func scheduleApp(t *testing.T) (core.App, *Engine, *core.Record) {
 	t.Helper()
 	t.Cleanup(ResetRegistriesForTest)
-	t.Cleanup(ResetRunStateForTest)
 	app := rlstest.NewMigratedApp(t, rlstest.MigrationsDir(t, "../pb_migrations"))
 	defs := &Defs{Packages: []PackageDefs{{
 		Slug:     "core",

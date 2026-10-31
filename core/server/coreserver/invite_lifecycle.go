@@ -103,7 +103,7 @@ func sendContext(ctx context.Context, app core.App, toName, toEmail, subject, ht
 		HTML:    htmlBody,
 		Text:    textBody,
 	}
-	if err := mailer.DefaultSender().Send(ctx, msg); err != nil {
+	if err := mailer.DefaultSender(app).Send(ctx, msg); err != nil {
 		srvLog.Error("invite lifecycle: failed to send email",
 			"to", toEmail, "subject", subject, "err", err)
 		return fmt.Errorf("coreserver: send %q to %s: %w", subject, toEmail, err)

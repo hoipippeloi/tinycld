@@ -22,7 +22,8 @@ var errSMTPShuttingDown = &smtp.SMTPError{
 // ServeSMTP serves server on ln with the graceful stop StartSMTP gives its
 // own listeners, binds that stop to app's terminate, and returns it. It is
 // for an SMTP service whose listener and server the caller builds itself;
-// the caller must not call server.Close or server.Shutdown.
+// the caller must not call server.Close or server.Shutdown. service names the
+// service ServeSubmissionConn or ServeMXConn reaches the server through.
 //
 // It replaces server.Backend with a wrapper the stop sees through, and
 // server.LMTP must be false: the wrapper does not forward LMTPSession. label
@@ -33,9 +34,10 @@ var errSMTPShuttingDown = &smtp.SMTPError{
 // message the session has read in full runs to the end, with its connection
 // open for the reply, so the client does not send again a message that was
 // stored.
-func ServeSMTP(app core.App, server *smtp.Server, ln net.Listener, label string) func() {
+func ServeSMTP(app core.App, service Service, server *smtp.Server, ln net.Listener, label string) func() {
 	d := newSMTPDrain(server, label)
-	d.serve(d.listen(ln), label, ln.Addr().String(), server.Serve)
+	e := startEntry(app, service, d, label, server.Serve)
+	d.serve(ln, label, ln.Addr().String(), e.acceptFrom(nil))
 	return d.bind(app)
 }
 

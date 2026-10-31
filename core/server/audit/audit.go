@@ -143,7 +143,7 @@ func logWhenWritable(app core.App, collectionName, recordID string, write func()
 	started := background.For(app, jobsPkg).Run("audit row", func(jobCtx context.Context) {
 		ctx, cancel := context.WithTimeout(jobCtx, readonly.TailWait)
 		defer cancel()
-		writeWhenWritable(ctx, collectionName, recordID, write)
+		writeWhenWritable(ctx, app, collectionName, recordID, write)
 	})
 	if !started {
 		// Error, as in writeWhenWritable: a missing audit row is a
@@ -154,8 +154,8 @@ func logWhenWritable(app core.App, collectionName, recordID string, write func()
 
 // writeWhenWritable logs a dropped row at Error, not Warn: a missing audit
 // row is a compliance gap, not a lost courtesy.
-func writeWhenWritable(ctx context.Context, collectionName, recordID string, write func()) {
-	err := readonly.WhenWritable(ctx, func() error {
+func writeWhenWritable(ctx context.Context, app core.App, collectionName, recordID string, write func()) {
+	err := readonly.WhenWritable(ctx, app, func() error {
 		write()
 		return nil
 	})

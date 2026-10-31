@@ -235,7 +235,7 @@ const inviteNotifyDroppedMsg = "invite notification dropped: the server stayed r
 // runner: TailWait, or the app's terminate). ctx also ends the pushes. The
 // emails need no wait: sending one writes nothing to the database.
 func notifyInvitedWhenWritable(ctx context.Context, app core.App, userID, role string) {
-	err := readonly.WhenWritable(ctx, func() error {
+	err := readonly.WhenWritable(ctx, app, func() error {
 		// DeliverToUserContext logs its own failure, and a failed delivery
 		// is not a read-only drop.
 		_ = notify.DeliverToUserContext(ctx, app, notify.NotifyParams{

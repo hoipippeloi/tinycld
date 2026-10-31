@@ -147,8 +147,9 @@ func TestWriteItem_JoinWaitsForTheWrite(t *testing.T) {
 // A JoinItemForTest client leaves when a write closes the room, and its
 // own leave afterwards is harmless.
 func TestJoinItemForTest_LeavesWhenAWriteClosesTheRoom(t *testing.T) {
-	leave := JoinItemForTest("write-test-shared", "item-shared")
-	if err := WriteItem("item-shared", func() error { return nil }); err != nil {
+	app := newRealtimeApp(t)
+	leave := JoinItemForTest(app, "write-test-shared", "item-shared")
+	if err := WriteItem(app, "item-shared", func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	leave()

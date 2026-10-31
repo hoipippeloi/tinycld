@@ -15,6 +15,10 @@
 // The map is never evicted beyond the sliding window's own pruning, so a very
 // long-lived process seeing very many distinct IPs grows it slowly. Bounded in
 // practice by the fact that an entry is a key plus a short timestamp slice.
+//
+// A package keeps its limiter with NewPerApp, not New: the counts then live
+// on each app, so two apps in one process never share a budget, and an app's
+// counts are freed with the app.
 package ratelimit
 
 import (

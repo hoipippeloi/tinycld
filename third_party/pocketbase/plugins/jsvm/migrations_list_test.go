@@ -57,18 +57,11 @@ func TestMigrationsList_LoadsPrivatelyWithoutTouchingGlobal(t *testing.T) {
 	}
 }
 
-// A nil MigrationsList must keep the stock behavior: register into
-// core.AppMigrations.
-func TestMigrationsList_NilRegistersIntoGlobal(t *testing.T) {
-	// Restore the global afterwards. A JS migration left in it runs on its
-	// one loader VM from every later NewTestApp, and the parallel tests would
-	// then drive that VM from several goroutines at once and panic.
-	original := core.AppMigrations
-	core.AppMigrations = core.MigrationsList{}
-	t.Cleanup(func() { core.AppMigrations = original })
-
+// A nil MigrationsList registers into the app's own list, never into the
+// process-global core.AppMigrations.
+func TestMigrationsList_NilRegistersIntoTheAppsOwnList(t *testing.T) {
 	dir := t.TempDir()
-	const name = "1700000002_global.js"
+	const name = "1700000002_own.js"
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(`migrate((app) => {})`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +69,17 @@ func TestMigrationsList_NilRegistersIntoGlobal(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
-	before := len(core.AppMigrations.Items())
+	globalBefore := len(core.AppMigrations.Items())
 	if err := Register(app, Config{
 		MigrationsDir: dir,
 		HooksDir:      filepath.Join(dir, ".no-hooks"),
 	}); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	if got := len(core.AppMigrations.Items()); got != before+1 {
-		t.Errorf("core.AppMigrations went %d -> %d, want +1 (nil list must use the global)", before, got)
+	if got := len(core.OwnAppMigrations(app).Items()); got != 1 {
+		t.Errorf("the app's own list holds %d migrations, want 1", got)
+	}
+	if got := len(core.AppMigrations.Items()); got != globalBefore {
+		t.Errorf("core.AppMigrations went %d -> %d; a nil list must not touch it", globalBefore, got)
 	}
 }

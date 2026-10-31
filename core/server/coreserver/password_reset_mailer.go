@@ -22,7 +22,7 @@ import (
 // e.Meta["token"]; we build a link to /reset-password/<token>, which the client
 // route app/reset-password/[token].tsx consumes via confirmPasswordReset.
 //
-// The send always goes through mailer.DefaultSender() (like invites): it
+// The send always goes through mailer.DefaultSender(app) (like invites): it
 // delivers via the configured provider when delivery is enabled, and otherwise
 // logs (dev/test, or no provider configured), so we never depend on PB's
 // native SMTP. We return without calling e.Next() to suppress PB's own send.

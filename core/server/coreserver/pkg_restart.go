@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pocketbase/pocketbase/core"
 	"tinycld.org/core/installjob"
 	"tinycld.org/core/listeners"
 	"tinycld.org/core/readonly"
@@ -26,6 +27,10 @@ func restartMarkerPath() string {
 	return filepath.Join(resolveStateDir(), ".restart-requested")
 }
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
+//
 // exitProcess is os.Exit behind a seam, so a test can watch an unsupervised
 // restart without ending the test binary.
 var exitProcess = os.Exit
@@ -39,7 +44,7 @@ var exitProcess = os.Exit
 // ack it exits 75 as well. cold asks the supervisor to stop this
 // process before it starts the next one, for a restart whose new process must
 // not run beside this one. In dev mode nothing restarts, and it returns false.
-func requestRestart(cold bool) (underway bool) {
+func requestRestart(app core.App, cold bool) (underway bool) {
 	if isDevelopment() {
 		srvLog.Info("restart requested (dev mode — restart manually)")
 		return false
@@ -58,8 +63,8 @@ func requestRestart(cold bool) (underway bool) {
 		// and a build the next process already owns. Both hold until the
 		// process ends; on the exit-75 fallback below that is at once.
 		beingReplaced.Store(true)
-		readonly.Enter()
-		installjob.HoldForReplacement()
+		readonly.Enter(app)
+		installjob.HoldForReplacement(app)
 		if askSupervisorToRestart(cold) {
 			return true
 		}

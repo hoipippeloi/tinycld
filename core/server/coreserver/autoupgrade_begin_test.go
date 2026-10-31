@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/pocketbase/pocketbase"
 	"tinycld.org/core/installjob"
 )
 
@@ -32,13 +33,14 @@ func TestCreateInstallLogRecordsTriggerAndChanges(t *testing.T) {
 }
 
 func TestBeginVersionChangeRefusesWhileBusy(t *testing.T) {
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
 	busy := installjob.New("install", "x", "")
-	if _, ok := installjob.Claim(busy); !ok {
+	if _, ok := installjob.Claim(app, busy); !ok {
 		t.Fatal("could not claim")
 	}
 	t.Cleanup(func() { installjob.Release(busy) })
 
-	_, err := beginVersionChange(nil, []installjob.VersionChange{{Slug: "mail", TargetVersion: "0.6.0"}}, "auto")
+	_, err := beginVersionChange(app, []installjob.VersionChange{{Slug: "mail", TargetVersion: "0.6.0"}}, "auto")
 	if !errors.Is(err, errJobBusy) {
 		t.Fatalf("err = %v, want errJobBusy", err)
 	}
