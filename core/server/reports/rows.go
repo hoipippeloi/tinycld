@@ -112,6 +112,7 @@ func (c *compiler) rows(s *stmt) (*rowsCTE, error) {
 			c.currencyOf[cp.col.ID] = name
 		}
 	}
+	r.pivotKey()
 	return r, nil
 }
 

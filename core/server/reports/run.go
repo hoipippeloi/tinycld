@@ -154,6 +154,8 @@ type runner struct {
 	expand *expansion
 	res    *Result
 	topics map[string]bool
+	// pivotValues are the pivot's columns, from its first pass.
+	pivotValues []any
 }
 
 // Run runs a report for its reader. The statements read only rows the
@@ -225,7 +227,7 @@ func (rn *runner) run() error {
 		return err
 	}
 	var details []map[string]any
-	if len(rn.c.p.groups) == 0 || len(rn.expand.keys) > 0 || rn.expand.all {
+	if rn.c.p.pivot == nil && (len(rn.c.p.groups) == 0 || len(rn.expand.keys) > 0 || rn.expand.all) {
 		details, err = rn.detailPass()
 		if err != nil {
 			return err
@@ -308,7 +310,11 @@ func (rn *runner) groupPass() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctes, body, err := c.groupStatement(s, r, rn.expand)
+	pivot, err := rn.pivotPass()
+	if err != nil {
+		return nil, err
+	}
+	ctes, body, err := c.groupStatement(s, r, rn.expand, pivot)
 	if err != nil {
 		return nil, err
 	}
@@ -338,7 +344,7 @@ func notASortKey(at string) error {
 
 // groupStatement is the UNION ALL of every level's rows (the children of
 // expanded groups only).
-func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion) ([]string, string, error) {
+func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot []any) ([]string, string, error) {
 	var ctes, legs []string
 	c.levelTypes = map[string]FieldType{}
 	for n := 0; n <= len(c.p.groups); n++ {
@@ -355,6 +361,11 @@ func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion) ([]str
 			cells = append(cells, fmt.Sprintf("%s AS v%d", e.sql, idx))
 			c.levelTypes[cp.col.ID] = e.typ
 		}
+		pivotCells, err := c.pivotCells(lv, pivot)
+		if err != nil {
+			return nil, "", err
+		}
+		cells = append(cells, pivotCells...)
 		ctes = append(ctes, lv.render(cells)...)
 		leg := fmt.Sprintf("SELECT * FROM o%d", n)
 		if n >= 2 {
@@ -568,7 +579,7 @@ func sameKey(a, b []any) bool { return keyString(a) == keyString(b) }
 
 // compileDry compiles every statement of a plan without a database, so a
 // formula, a filter or a layout that cannot compile fails Validate, not a
-// run. Params are unset.
+// run. Params are unset and the pivot has one value.
 func compileDry(p *plan) error {
 	c := newCompiler(p, nil, nil, nil)
 	s := newStmt(nil, nil)
@@ -579,6 +590,10 @@ func compileDry(p *plan) error {
 	if _, _, err := c.detailSelect(r); err != nil {
 		return err
 	}
-	_, _, err = c.groupStatement(s, r, &expansion{})
+	var pivot []any
+	if p.pivot != nil {
+		pivot = []any{nil}
+	}
+	_, _, err = c.groupStatement(s, r, &expansion{}, pivot)
 	return err
 }

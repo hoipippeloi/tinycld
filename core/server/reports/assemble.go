@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// columns describes the result's columns.
+// columns describes the result's columns, pivot cell columns last.
 func (rn *runner) columns() []ResultColumn {
 	c := rn.c
 	out := make([]ResultColumn, 0, len(c.p.cols))
@@ -32,6 +32,18 @@ func (rn *runner) columns() []ResultColumn {
 		}
 		rn.currencyOfColumn(cp, &rc)
 		out = append(out, rc)
+	}
+	if pv := c.p.pivot; pv != nil {
+		cell := pv.cell
+		for j, key := range rn.pivotValues {
+			rc := ResultColumn{
+				ID: fmt.Sprintf("%s.p%d", cell.col.ID, j), Label: rn.pivotLabel(key),
+				Type: c.levelTypes[cell.col.ID], Aggregate: cell.col.Aggregate, Format: cell.col.Format,
+				Pivot: &PivotColumn{Cell: cell.col.ID, Key: key},
+			}
+			rn.currencyOfColumn(cell, &rc)
+			out = append(out, rc)
+		}
 	}
 	return out
 }
@@ -210,7 +222,7 @@ func (rn *runner) detail(t *tree, row map[string]any, section string, depth int)
 	rn.push(Row{ID: id, Kind: KindDetail, Depth: depth, Label: rn.firstLabel(rn.c.p.cols, row), Section: section, Cells: rn.cells(row)})
 }
 
-// cells maps a statement row's v<idx> values to column ids, with each
+// cells maps a statement row's v<idx> and pv<j> values to column ids, with each
 // money column's currency. Only rows of the group statement carry __level;
 // their cells have the type of the column's aggregate, not of a detail row.
 func (rn *runner) cells(row map[string]any) map[string]any {
@@ -224,6 +236,13 @@ func (rn *runner) cells(row map[string]any) map[string]any {
 		out[cp.col.ID] = rn.cellValue(cp, row[name], grouped)
 		if ck, ok := rn.c.currencyOf[cp.col.ID]; ok {
 			out[cp.col.ID+"@currency"] = row[ck]
+		}
+	}
+	if pv := rn.c.p.pivot; pv != nil {
+		for j := range rn.pivotValues {
+			if v, ok := row[fmt.Sprintf("pv%d", j)]; ok {
+				out[fmt.Sprintf("%s.p%d", pv.cell.col.ID, j)] = v
+			}
 		}
 	}
 	return out
