@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"tinycld.org/core/editcheckpoint"
 	"tinycld.org/core/logging"
 )
 
@@ -53,6 +54,9 @@ type Room struct {
 	// tests: "parked", "checkpoint", "seed" or "relay".
 	openedFrom string
 	members    map[*Client]struct{}
+	// edits tracks who edited since the last version checkpoint, for a kind
+	// with EditCheckpoints.
+	edits editTracker
 }
 
 func newRoom(b *Broker, key roomKey, opts RoomKindOptions, parked *parkedDoc) *Room {
@@ -275,8 +279,23 @@ func (r *Room) remove(c *Client) {
 	close(c.send)
 	r.mu.Unlock()
 	if empty {
+		// Taken before OnEmpty so no idle timer fires into the teardown.
+		var editors editcheckpoint.Editors
+		if r.opts.EditCheckpoints {
+			editors = r.edits.take()
+		}
 		if r.opts.OnEmpty != nil {
 			r.opts.OnEmpty(r.key.id)
+		}
+		// After OnEmpty: its final save has written the file the version
+		// copies. In its own goroutine, so a slow version save does not hold
+		// the room key and keep a reloading client from rejoining.
+		// Not during a drain: the database closes after the rooms, and the
+		// edits themselves are already saved.
+		// A room closed by an outside write hands its editors to that
+		// write: a checkpoint now would race it and could copy the new file.
+		if !editors.Empty() && !draining.Load() && !r.broker.holdEditorsIfFenced(r.key.id, editors) {
+			go fireEditCheckpoint(r.key.id, editors, editcheckpoint.ReasonRoomEmpty)
 		}
 		if r.serverDoc != nil {
 			r.releaseDoc()
@@ -442,6 +461,9 @@ func (r *Room) route(from *Client, frame []byte) {
 		}
 		if r.opts.OnDocUpdateContent != nil {
 			r.opts.OnDocUpdateContent(r.key.id, from, payload)
+		}
+		if r.opts.EditCheckpoints {
+			r.noteEditForCheckpoint(from)
 		}
 	case MsgAwarenessUpdate:
 		r.fanOut(from, frame)

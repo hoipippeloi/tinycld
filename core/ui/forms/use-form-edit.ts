@@ -11,6 +11,7 @@ import {
     buildSchema,
     type ChecklistItem,
     computedKeysOf,
+    type HostSchemas,
     mergeValues,
     prepareValues,
     type SplitValues,
@@ -77,7 +78,9 @@ export function useFormEdit(
      * absent the table shows "Loading rows…" and totals over it keep their
      * stored values.
      */
-    tables: Record<string, TableRow[]> = {}
+    tables: Record<string, TableRow[]> = {},
+    /** The host UI's component schemas (`FormHostUi.schemas`), used by every validation here. */
+    schemas: HostSchemas = {}
 ) {
     const { forms, defaultForm, isReady } = useFormsOfHost(host.key)
     const named = (record[host.formColumn] as string) || ''
@@ -89,8 +92,8 @@ export function useFormEdit(
     const fallback = named && isReady && !found ? named : undefined
     const values = definition ? mergeValues(host, definition, record, rows, tables) : {}
     const initialSchema = definition
-        ? buildSchema(definition, host, evaluate(definition, values, context))
-        : buildSchema(EMPTY_DEFINITION, host, EMPTY_STATE)
+        ? buildSchema(definition, host, evaluate(definition, values, context), schemas)
+        : buildSchema(EMPTY_DEFINITION, host, EMPTY_STATE, schemas)
     const { schemaRef, resolver } = useSchemaRefResolver(initialSchema)
     const form = useForm<FormValues>({
         resolver,
@@ -113,7 +116,12 @@ export function useFormEdit(
     const patch = async (): Promise<PatchResult | null> => {
         if (!definition) return null
         const current = prepareValues(definition, host, form.getValues())
-        schemaRef.current = buildSchema(definition, host, evaluate(definition, current, context))
+        schemaRef.current = buildSchema(
+            definition,
+            host,
+            evaluate(definition, current, context),
+            schemas
+        )
         const dirtyKeys = definition.fields
             .map(f => f.key)
             .filter(key => form.getFieldState(key).isDirty)

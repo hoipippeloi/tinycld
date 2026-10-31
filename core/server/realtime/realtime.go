@@ -34,6 +34,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"tinycld.org/core/editcheckpoint"
 )
 
 // MessageType identifies the kind of payload a frame carries. The broker
@@ -109,6 +110,9 @@ type Broker struct {
 	// fenced holds the ids a WriteItem is replacing. A join for a fenced id
 	// waits, so its room seeds from the file the write leaves.
 	fenced map[string]int
+	// heldEditors are the editors of rooms a WriteItem closed, kept for the
+	// write (TakeEditors) instead of fired as a room-empty checkpoint.
+	heldEditors map[string]editcheckpoint.Editors
 
 	janitorOnce sync.Once
 	stop        chan struct{}
@@ -135,13 +139,14 @@ type roomKey struct {
 // NewBroker returns a freshly initialized Broker.
 func NewBroker() *Broker {
 	return &Broker{
-		rooms:  map[roomKey]*Room{},
-		parked: map[roomKey]*parkedDoc{},
-		fenced: map[string]int{},
-		stop:   make(chan struct{}),
-		gate:   newExitGate(),
-		conns:  map[*Client]*liveConn{},
-		coords: map[*SaveCoordinator]struct{}{},
+		rooms:       map[roomKey]*Room{},
+		parked:      map[roomKey]*parkedDoc{},
+		fenced:      map[string]int{},
+		heldEditors: map[string]editcheckpoint.Editors{},
+		stop:        make(chan struct{}),
+		gate:        newExitGate(),
+		conns:       map[*Client]*liveConn{},
+		coords:      map[*SaveCoordinator]struct{}{},
 	}
 }
 
