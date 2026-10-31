@@ -27,6 +27,10 @@ func restartMarkerPath() string {
 	return filepath.Join(resolveStateDir(), ".restart-requested")
 }
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
+//
 // exitProcess is os.Exit behind a seam, so a test can watch an unsupervised
 // restart without ending the test binary.
 var exitProcess = os.Exit

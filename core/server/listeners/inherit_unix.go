@@ -23,6 +23,9 @@ const EnvFDNames = "TINYCLD_LISTEN_FDNAMES"
 // firstInheritedFD is the first fd a child inherits past stdin/stdout/stderr.
 const firstInheritedFD = 3
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
 var (
 	parseOnce sync.Once
 

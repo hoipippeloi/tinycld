@@ -37,6 +37,10 @@ func (c *controlChannel) send(m supervise.Msg) error {
 // handles. It is a variable so a test need not wait the full time.
 var restartAckTimeout = 10 * time.Second
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
+//
 // beingReplaced is set once a supervised process has asked for its
 // replacement. It stays set: the process only waits to be drained.
 var beingReplaced atomic.Bool

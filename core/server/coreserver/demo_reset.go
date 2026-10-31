@@ -22,6 +22,10 @@ const (
 	demoResetTimeout         = 15 * time.Minute
 )
 
+// Standalone only: this acts on the whole process. An embedder that runs
+// several apps in one process does not call the standalone entry point, so
+// it never reaches this.
+//
 // resetMu prevents overlapping runs if a previous reset is still in flight
 // when the next tick fires. The reset re-runs every package's seed, which
 // can take a couple minutes on a populated workspace, so a missed firing is
