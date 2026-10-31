@@ -20,17 +20,13 @@ func bindValuePath(src *Source, path Path, at string, kind pathKind) (*pathPlan,
 func paramOf(c *compiler, id, at string) (paramValue, error) {
 	v, ok := c.params[id]
 	if !ok {
-		return paramValue{}, &SpecError{Status: 422, Problems: map[string]validation.Error{
-			at: validation.NewError("unknown_param", fmt.Sprintf("the report has no param %q", id)),
-		}}
+		return paramValue{}, unknownRef(at, "unknown_param", fmt.Sprintf("the report has no param %q", id))
 	}
 	return v, nil
 }
 
-func unknownColumn(at, id string) error {
-	return &SpecError{Status: 422, Problems: map[string]validation.Error{
-		at: validation.NewError("unknown_column", fmt.Sprintf("the report has no column %q", id)),
-	}}
+func unknownColumn(at, id string) *SpecError {
+	return unknownRef(at, "unknown_column", fmt.Sprintf("the report has no column %q", id))
 }
 
 // enter guards a formula column against reading itself.

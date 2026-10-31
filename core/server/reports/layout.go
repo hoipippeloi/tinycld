@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-
-	validation "github.com/pocketbase/ozzo-validation/v4"
 )
 
 // layoutLegs are the group statement's computed rows: one select per
@@ -197,9 +195,7 @@ func (lc *layoutCtx) row(item *LayoutItem, at string) (expr, error) {
 func (lc *layoutCtx) subtotal(id, at string) (expr, error) {
 	item, ok := lc.items[id]
 	if !ok {
-		return expr{}, &SpecError{Status: 422, Problems: map[string]validation.Error{
-			at: validation.NewError("unknown_subtotal", fmt.Sprintf("the layout has no section or earlier row %q", id)),
-		}}
+		return expr{}, unknownRef(at, "unknown_subtotal", fmt.Sprintf("the layout has no section or earlier row %q", id))
 	}
 	if item.Row != "" {
 		return lc.row(item, at)

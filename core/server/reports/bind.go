@@ -113,11 +113,7 @@ func (b *binder) bad(at, message string) {
 	}
 }
 
-func (b *binder) missing(at, code, message string) {
-	if _, seen := b.unknown[at]; !seen {
-		b.unknown[at] = validation.NewError(code, message)
-	}
-}
+func (b *binder) missing(at, code, message string) { b.merge(unknownRef(at, code, message)) }
 
 func (b *binder) err() *SpecError {
 	if len(b.unknown) > 0 {
@@ -494,7 +490,7 @@ func sameNests(a, b []hopPlan) bool {
 func (b *binder) column(p *plan, id, at string) *colPlan {
 	cp := p.byID[id]
 	if cp == nil {
-		b.missing(at, "unknown_column", fmt.Sprintf("the report has no column %q", id))
+		b.merge(unknownColumn(at, id))
 	}
 	return cp
 }

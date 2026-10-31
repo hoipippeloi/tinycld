@@ -8,6 +8,15 @@ import (
 	"testing"
 )
 
+// Every unknown reference is one shape: a 422 naming the part and a code.
+func TestUnknownRefIsA422AtThePart(t *testing.T) {
+	err := unknownRef("sort.0.col", "unknown_column", `the report has no column "b"`)
+	requireSpecError(t, err, 422, "sort.0.col", `no column "b"`)
+	if code := err.Problems["sort.0.col"].Code(); code != "unknown_column" || len(err.Problems) != 1 {
+		t.Fatalf("problems = %v", err.Problems)
+	}
+}
+
 func withZooRegistry(t *testing.T) {
 	t.Helper()
 	ResetForTesting()

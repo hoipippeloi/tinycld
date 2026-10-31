@@ -156,6 +156,12 @@ func invalid(at, message string) *SpecError {
 	return &SpecError{Status: 400, Problems: map[string]validation.Error{at: validation.NewError("invalid", message)}}
 }
 
+// unknownRef is the 422 for a spec part that names a source, link, field,
+// column, param or layout item that does not exist; code says which.
+func unknownRef(at, code, message string) *SpecError {
+	return &SpecError{Status: 422, Problems: map[string]validation.Error{at: validation.NewError(code, message)}}
+}
+
 // Load reads a stored or posted spec: it upgrades an older version to
 // CurrentVersion, decodes it strictly (an unknown key is an error), and
 // replaces every aliased key with its current key. A later bind step checks
