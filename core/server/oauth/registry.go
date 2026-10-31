@@ -212,9 +212,21 @@ func PackageScopes(slug string) []string {
 	return out
 }
 
+// coreRouteFamilies are the /api/<name>/ namespaces core itself serves. A
+// package's endpoints must live under /api/<slug>/, so a package whose slug
+// equals one of these could classify a core route for API tokens by accident
+// (a package named "reports" would own POST /api/reports/run). Add a name here
+// when core gains a route family; this is the only list.
+var coreRouteFamilies = map[string]bool{
+	"reports": true,
+}
+
 func validatePackage(p Package) error {
 	if !slugPattern.MatchString(p.Slug) {
 		return fmt.Errorf("package slug %q is not a valid slug", p.Slug)
+	}
+	if coreRouteFamilies[p.Slug] {
+		return fmt.Errorf("package slug %q is a core route family: /api/%s/ belongs to core", p.Slug, p.Slug)
 	}
 	if len(p.Scopes) == 0 {
 		return fmt.Errorf("package %q registers no scopes", p.Slug)

@@ -78,11 +78,11 @@ func TestRoundHalfAway(t *testing.T) {
 		want     float64
 	}{{0.5, 0, 1}, {-0.5, 0, -1}, {2.5, 0, 3}, {-2.5, 0, -3}, {1832.6666666666667, 2, 1832.67}}
 	for _, c := range cases {
-		if got := roundHalfAway(c.x, c.decimals); got != c.want {
+		if got := RoundHalfAway(c.x, c.decimals); got != c.want {
 			t.Errorf("round(%v,%d) = %v, want %v", c.x, c.decimals, got, c.want)
 		}
 	}
-	if got := roundHalfAway(-0.2, 0); 1/got < 0 {
+	if got := RoundHalfAway(-0.2, 0); 1/got < 0 {
 		t.Errorf("negative zero returned")
 	}
 }
@@ -93,7 +93,7 @@ func TestRoundHalfAway_NonFiniteIsZero(t *testing.T) {
 		decimals int
 	}{{math.Inf(1), 0}, {math.Inf(-1), 2}, {math.NaN(), 0}, {1e307, 6}, {-1e307, 6}}
 	for _, c := range cases {
-		if got := roundHalfAway(c.x, c.decimals); got != 0 {
+		if got := RoundHalfAway(c.x, c.decimals); got != 0 {
 			t.Errorf("round(%v,%d) = %v, want 0", c.x, c.decimals, got)
 		}
 	}
