@@ -244,7 +244,7 @@ async function waitForOpStatus(
         }
         if (!res.ok()) return null
         try {
-            return await res.json()
+            return (await res.json()) as Awaited<ReturnType<typeof readStatusOnce>>
         } catch {
             return null
         }
