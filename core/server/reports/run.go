@@ -215,6 +215,11 @@ func (rn *runner) loadNotices(info *LoadInfo) {
 func (rn *runner) notice(n Notice) { rn.res.Notices = append(rn.res.Notices, n) }
 
 func (rn *runner) run() error {
+	// A grouped report is capped, never paged, so options.limit does not
+	// apply to it either.
+	if len(rn.c.p.groups) > 0 && rn.opts.Cursor != "" {
+		return invalid("options.cursor", "a grouped report is not paged")
+	}
 	groupRows, err := rn.groupPass()
 	if err != nil {
 		return err
@@ -436,7 +441,7 @@ func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
 		}
 		name := fmt.Sprintf("s%d", i)
 		sel = append(sel, e.sql+" AS "+name)
-		order = append(order, sortKey{name: name, desc: s.desc})
+		order = append(order, sortKey{name: name, desc: s.desc, col: s.col.col.ID, typ: e.typ})
 		frame.order = append(frame.order, "("+e.sql+" IS NULL)", e.sql+dirOf(s.desc))
 	}
 	frame.order = append(frame.order, "w.__id")
@@ -464,6 +469,10 @@ func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
 type sortKey struct {
 	name string
 	desc bool
+	// col and typ name the report column and its type; they fingerprint a
+	// page cursor. The id key has neither.
+	col string
+	typ FieldType
 }
 
 // orderBy sorts detail rows with NULLs last in either direction.
