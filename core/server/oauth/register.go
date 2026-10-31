@@ -1,7 +1,6 @@
 package oauth
 
 import (
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -10,8 +9,9 @@ import (
 // Called from coreserver.RegisterSharedCore, so a standalone deployment and an
 // org on a managed deployment get exactly the same endpoints — such an org
 // must be able to authorize a CLI or a Zapier connection just like a
-// self-hosted box.
-func Register(app *pocketbase.PocketBase) {
+// self-hosted box. It takes any core.App, so another package's test can put
+// its routes behind the real grant middleware.
+func Register(app core.App) {
 	bindGrantEnforcement(app)
 
 	app.OnServe().BindFunc(func(e *core.ServeEvent) error {

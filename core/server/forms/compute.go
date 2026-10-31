@@ -39,11 +39,11 @@ func rowsOf(v any) []map[string]any {
 	return rows
 }
 
-// roundHalfAway rounds half away from zero at the given decimals. Never -0.
+// RoundHalfAway rounds half away from zero at the given decimals. Never -0.
 // A value that is not finite, or overflows when scaled, becomes 0: every
 // computed value passes through here, and JSON cannot hold Inf or NaN (a
 // record whose JSON column fails to marshal is stored as null).
-func roundHalfAway(x float64, decimals int) float64 {
+func RoundHalfAway(x float64, decimals int) float64 {
 	if math.IsNaN(x) || math.IsInf(x, 0) {
 		return 0
 	}
@@ -111,7 +111,7 @@ func evalOp(op string, arg any, scope map[string]any) float64 {
 		if len(args) > 1 {
 			d = int(num(args[1]))
 		}
-		return roundHalfAway(at(0), d)
+		return RoundHalfAway(at(0), d)
 	case "min", "max":
 		if len(args) == 0 {
 			return 0
@@ -208,7 +208,7 @@ func fillRow(cols []Column, row any) any {
 	}
 	for _, key := range order {
 		c := byKey[key]
-		out[key] = roundHalfAway(evalCompute(c.Expression, out), c.Decimals)
+		out[key] = RoundHalfAway(evalCompute(c.Expression, out), c.Decimals)
 	}
 	return out
 }
@@ -272,7 +272,7 @@ func applyComputed(def *Definition, host *Host, values map[string]any) (map[stri
 			skipped[key] = true
 			continue
 		}
-		out[key] = roundHalfAway(evalCompute(nodes[key].expr, out), nodes[key].decimals)
+		out[key] = RoundHalfAway(evalCompute(nodes[key].expr, out), nodes[key].decimals)
 	}
 	return out, skipped
 }
