@@ -1,6 +1,7 @@
 import type { FormDefinition, FormField, FormPage } from '@tinycld/core/lib/forms/definition'
 import type { CollabDoc, FieldMode, FormHostUi } from '@tinycld/core/lib/forms/host-ui'
 import type { EvalContext, FormState, FormValues } from '@tinycld/core/lib/forms/logic'
+import type { HostSchemas } from '@tinycld/core/lib/forms/values'
 import type { FormHost } from '@tinycld/core/lib/packages/derive-form-hosts'
 import { Button, ButtonText } from '@tinycld/core/ui/button'
 import { FormErrorSummary } from '@tinycld/core/ui/form'
@@ -16,6 +17,9 @@ import { useFormState } from './use-form-state'
 import { type LayoutRect, type MeasureRect, useMeasuredRect } from './use-measure-rect'
 import type { FormSchema } from './use-schema-ref-resolver'
 import { WizardSteps } from './WizardSteps'
+
+/** A stable empty object, so the schema memo does not rebuild when the host has no schemas. */
+const NO_SCHEMAS: HostSchemas = {}
 
 export type FormLayoutKind = 'wizard' | 'sections' | 'design'
 
@@ -525,7 +529,8 @@ export function FormRenderer(props: FormRendererProps) {
         host,
         form.control,
         context,
-        isEditable ? form.setValue : undefined
+        isEditable ? form.setValue : undefined,
+        props.ui?.schemas ?? NO_SCHEMAS
     )
     // The resolver reads this ref, so required-if rules validate against the live state.
     if (schemaRef) schemaRef.current = schema
