@@ -303,3 +303,23 @@ func TestCheckpointListenerCtxNamesTheApp(t *testing.T) {
 		t.Fatalf("listener ctx names app %v, want the room's app", got)
 	}
 }
+
+// A checkpoint that makes no version (automatic versions off) hands its
+// editors back; the next version taken with TakeEditors names them.
+func TestHoldEditorsKeepsThemForTheNextTake(t *testing.T) {
+	broker := NewBroker()
+	t.Cleanup(broker.Close)
+	broker.HoldEditors("held-room", editcheckpoint.Editors{UserIDs: []string{"alice"}, ShareNames: []string{"Anon Otter"}})
+	broker.HoldEditors("held-room", editcheckpoint.Editors{UserIDs: []string{"alice", "bob"}})
+
+	got := broker.TakeEditors("held-room")
+	if len(got.UserIDs) != 2 || got.UserIDs[0] != "alice" || got.UserIDs[1] != "bob" {
+		t.Fatalf("UserIDs = %v, want [alice bob] (deduplicated)", got.UserIDs)
+	}
+	if len(got.ShareNames) != 1 || got.ShareNames[0] != "Anon Otter" {
+		t.Fatalf("ShareNames = %v", got.ShareNames)
+	}
+	if again := broker.TakeEditors("held-room"); !again.Empty() {
+		t.Fatalf("second take = %+v, want empty", again)
+	}
+}

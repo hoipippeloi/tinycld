@@ -10,6 +10,7 @@ import { useFormsOfHost } from '@tinycld/core/lib/forms/use-forms-of-host'
 import {
     buildSchema,
     emptyTablesOf,
+    type HostSchemas,
     prepareValues,
     type SplitValues,
     splitValues,
@@ -38,7 +39,9 @@ export function useFormCreate(
     initialFormId: string | undefined,
     context: EvalContext,
     /** Values the caller already has (a title typed in a composer); they win over the defaults. */
-    initialValues: FormValues = {}
+    initialValues: FormValues = {},
+    /** The host UI's component schemas (`FormHostUi.schemas`), used by every validation here. */
+    schemas: HostSchemas = {}
 ) {
     const { forms, defaultForm, isReady } = useFormsOfHost(host.key)
     // Which type the dialog shows: local UI state until the record exists.
@@ -46,8 +49,8 @@ export function useFormCreate(
     const row = forms.find(f => f.id === (formId || defaultForm?.id))
     const definition: FormDefinition | undefined = row?.definition
     const initialSchema = definition
-        ? buildSchema(definition, host, evaluate(definition, {}, context))
-        : buildSchema(EMPTY_DEFINITION, host, EMPTY_STATE)
+        ? buildSchema(definition, host, evaluate(definition, {}, context), schemas)
+        : buildSchema(EMPTY_DEFINITION, host, EMPTY_STATE, schemas)
     const { schemaRef, resolver } = useSchemaRefResolver(initialSchema)
     // A ref, so an unstable object literal from the caller never re-seeds the form.
     const initial = useRef(initialValues)
@@ -93,7 +96,8 @@ export function useFormCreate(
         schemaRef.current = buildSchema(
             definition,
             host,
-            evaluate(definition, prepareValues(definition, host, form.getValues()), context)
+            evaluate(definition, prepareValues(definition, host, form.getValues()), context),
+            schemas
         )
         let out: SplitValues | null = null
         await form.handleSubmit(values => {

@@ -1,9 +1,11 @@
 // @vitest-environment happy-dom
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema } from '../../../lib/forms/definition'
-import { defaultDefinitionFor } from '../../../lib/forms/host'
+import { defaultDefinitionFor, hostDefSchema } from '../../../lib/forms/host'
+import type { HostSchemas } from '../../../lib/forms/values'
 import { useFormEdit } from '../use-form-edit'
 
 const host = {
@@ -36,13 +38,51 @@ const bug = {
     }),
 }
 
+const gadgetHostDef = hostDefSchema.parse({
+    key: 'gizmos:gadget',
+    label: 'Gadget',
+    collection: 'gizmos_gadgets',
+    formColumn: 'form',
+    fieldsColumn: 'fields',
+    columns: ['title', 'amount', 'label'],
+    builtin: [
+        { key: 'title', label: 'Title', kind: 'text', storage: 'column', required: true },
+        {
+            key: 'amount',
+            label: 'Amount',
+            kind: 'custom',
+            storage: 'column',
+            component: 'AmountField',
+        },
+        { key: 'label', label: 'Label', kind: 'text', storage: 'column', component: 'AmountField' },
+    ],
+})
+const gadget = {
+    ...gadgetHostDef,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => ({ components: {} }),
+}
+const gadgetForm = {
+    id: 'g-form',
+    host: gadget.key,
+    name: 'Gadget',
+    slug: 'gadget',
+    is_default: true,
+    archived: false,
+    order: 0,
+    definition: defaultDefinitionFor(gadgetHostDef),
+}
+
 const loading = vi.hoisted(() => ({ value: false }))
 
 vi.mock('../../../lib/forms/use-forms-of-host', () => ({
-    useFormsOfHost: () =>
-        loading.value
-            ? { forms: [], defaultForm: undefined, isReady: false }
-            : { forms: [bug], defaultForm: bug, isReady: true },
+    useFormsOfHost: (hostKey: string) => {
+        if (loading.value) return { forms: [], defaultForm: undefined, isReady: false }
+        if (hostKey === gadgetForm.host)
+            return { forms: [gadgetForm], defaultForm: gadgetForm, isReady: true }
+        return { forms: [bug], defaultForm: bug, isReady: true }
+    },
 }))
 
 const ctx = { today: '2026-01-10', userId: 'me' }
@@ -180,6 +220,24 @@ describe('useFormEdit', () => {
             next = await result.current.patch()
         })
         expect(next?.columns).toEqual({ name: 'c' })
+    })
+    it('refuses a patch with the message of the component schema', async () => {
+        const schemas: HostSchemas = { AmountField: z.number().min(0, 'Use 0 or more') }
+        const gadgetRecord = { id: 'g1', amount: 2 }
+        const { result } = renderHook(() => useFormEdit(gadget, gadgetRecord, ctx, {}, {}, schemas))
+        act(() => result.current.form.setValue('amount', -1, { shouldDirty: true }))
+        let refused: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            refused = await result.current.patch()
+        })
+        expect(refused).toBeNull()
+        expect(result.current.form.getFieldState('amount').error?.message).toBe('Use 0 or more')
+        act(() => result.current.form.setValue('amount', 3, { shouldDirty: true }))
+        let accepted: Awaited<ReturnType<typeof result.current.patch>> | undefined
+        await act(async () => {
+            accepted = await result.current.patch()
+        })
+        expect(accepted?.columns).toEqual({ amount: 3 })
     })
     it('patch returns empty buckets when nothing changed', async () => {
         const { result } = renderHook(() => useFormEdit(host, record, ctx))

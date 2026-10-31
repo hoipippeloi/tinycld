@@ -898,6 +898,7 @@ runtime. The registries that exist:
 | how to move ownership a flat FK rewrite cannot settle on offboarding | `offboard.RegisterHandler` |
 | which collections to audit-log | `audit.RegisterCollection` |
 | which view collections stay live, and the collections their SQL reads | `changesignal.RegisterView` |
+| which of its collections reports may read, with their fields and links (see "Report sources" below) | `reports.RegisterSource` |
 | a package membership table that carries group grants | `groups.RegisterGrantTable` |
 | join and leave events for group membership, sent after the change commits. Every listener runs, in registration order. Errors are logged, not retried; one listener's error does not stop the others. Boot sends no events, so a package reconciles its own state at boot. The event carries the app that saved the change; the registry is process global, so a listener works through `e.App`, not an app it captured | `groups.OnMembershipChange` |
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
@@ -1049,6 +1050,135 @@ if err := changesignal.CheckViews(app); err != nil {
 when its bytecode opens a table, or an index of a table, that the
 registration does not cover. It also fails when the view or a source is
 registered by an id or by a spelling other than the collection's name.
+
+### Report sources
+
+Core's report engine (`tinycld.org/core/reports`) runs reports over every
+package's data. A report starts from a source and follows the source's
+links. It reads only the collections, fields and links that a source
+registers. Register sources from the package's `Register(app)`:
+
+```go
+reports.RegisterSource(reports.Source{
+    Key:        "zoo.feedings", // "<slug>.<name>", stable
+    Collection: "zoo_feedings",
+    Label:      "Feedings",
+    Fields: []reports.Field{
+        {Key: "cost", Label: "Cost", Type: reports.Money, Aggregates: reports.SumAll, Currency: "currency"},
+        {Key: "currency", Label: "Currency", Type: reports.Text},
+        {Key: "fed", Label: "Fed", Type: reports.Date, Aggregates: reports.MinMax},
+    },
+    Links: []reports.Link{
+        {Key: "animal", Label: "Animal", Target: "zoo.animals", Cardinality: reports.ToOne, Field: "animal"},
+    },
+    FiscalStartMonth: func(app core.App) int { return 1 },
+})
+```
+
+- Every link declares its cardinality. A to-one link names its single
+  relation `Field` on this source. A to-many link names its `BackField`: the
+  single relation on the target that points back at this source.
+- Field types are `Text`, `Number`, `Money` (integer cents), `Date`,
+  `DateTime`, `Bool`, `Select` (with `Options` for the labels) and
+  `Relation`. A money field names a `Currency` text field of the same source,
+  or the source sets `Source.Currency`, a function that gives one fixed
+  currency. A money field with neither panics in `RegisterSource`: the
+  engine never adds amounts it cannot tell apart. A field offers the aggregates in `Aggregates` (`SumAll`,
+  `MinMax`, `CountOnly`); with none it can be counted. Every source also
+  offers `id`.
+- To rename or remove a field or a link, keep the old key in `Aliases`
+  (`"old": "new"`). Saved reports then keep working.
+- `FiscalStartMonth` (1 to 12) sets the fiscal year for the source's reports:
+  the fiscal presets, `fiscalYear` and `fiscalPeriod`.
+
+When the server starts, core checks every source against the database:
+
+- The collection and each column exist, with matching types.
+- No column is hidden from the API.
+- Each link follows its relation.
+- The collection's list rule can be built for a reader.
+
+A source that fails is refused: core logs it, and reports cannot use it. A
+source that links to a refused source is refused too. An auth collection's
+`email` column is never a field. Each record's `emailVisibility` decides who
+sees it, and a report cannot apply that. Pin your sources in the package's tests, after its migrations apply:
+
+```go
+if err := reports.CheckSources(app); err != nil {
+    t.Fatal(err)
+}
+```
+
+A report runs as its reader, through `POST /api/reports/run`:
+
+- Every collection it reads, in every join and subquery, is filtered by the
+  reader's own list rule.
+- A linked row the reader cannot see leaves empty cells. Totals across a
+  to-many link leave it out.
+- A superuser-only rule (null) selects nothing. A report never runs as a
+  superuser.
+- A result lists the change-signal topics of every collection it read. A
+  raw-SQL write to a source's collection must call `changesignal.Touch` (see
+  "Change signals and live views" above).
+
+**What a report refuses.** The engine answers 400 with the problem list when
+a spec breaks one of these limits. It answers 422 when the spec names a field
+or link that no source has, and when an amount is too large to total (code
+`amount_too_large`). It answers 408 when a run passes 10 s: filter the report
+or index the column. It answers 499, and logs no error, when the client goes
+away before the run ends.
+
+- A path follows at most 4 links, then the field. A longer path is refused.
+- A to-many link counts once. A formula reads a to-many path only through
+  `exists` or an aggregate column, and `with` does not apply to an `exists`
+  link.
+- A page cursor is tied to the report's sort keys and value types. A cursor
+  from a report that sorts differently, or sent to a grouped report, is
+  refused. Only a detail report has pages: `options.limit` does not apply
+  to a grouped report. A detail page holds 200 rows by default, and at most
+  1,000.
+- A formula holds at most 32 levels and 1,000 nodes. Each formula column it
+  reads counts in full, as the compiler copies it in. The filter has the same
+  limit.
+- A formula that combines amounts of two currency sources is refused
+  ("amounts in different currencies cannot be combined"). This applies to
+  `add`, `sub`, `min`, `max`, `if`, `case` and `coalesce`. Each currency
+  field is a source, and so is each source's fixed `Source.Currency`, even
+  when two sources give the same code. An amount combines with amounts of
+  its own source.
+- `options.expand` lists at most 5,000 group keys.
+- A layout holds at most 200 items.
+- A computed row's formula holds at most 2,000 nodes after the rows it reads
+  are inlined. All computed rows together hold at most 20,000 (counted for
+  every cell column). If a statement hits a cap, reference fewer earlier rows
+  or split the statement.
+- A nested report refuses more than 30,000 parent rows. Filter the report or
+  lower its row limit.
+- The package slug `reports` is refused by the OAuth registry: its
+  `/api/reports/` routes belong to core.
+
+**What a report returns.**
+
+- Group, pivot and nest results stop at 5,000 rows and add a notice, once per
+  run. A `rowCap` or `nestCap` notice gives the rows it kept in `count`. A
+  `pivotCap` notice gives the pivot values it left out in `leftOut`. A layout
+  report never drops its computed rows for the cap, and it ends in those
+  computed rows with no Total row.
+- Money columns group by currency. A column with more than one currency is
+  marked (`mixedCurrency`, `currencyCell`) and the result adds a notice. An
+  amount read through a formula keeps its currency, so its totals group by
+  currency too. A nested (child row) amount names its currency in
+  `currencyCell`, and each child row holds it.
+- A money value mixed with a non-money operand in a formula rounds to whole
+  cents.
+- A formula column that reads a row value outside an aggregate is blank on
+  group, subtotal and total rows, where there is no single row. Wrap the value
+  in an aggregate to total it.
+- A posted `null` or an empty multiple-choice list for a parameter means
+  unset. A filter condition on an unset parameter matches every row. `and`
+  and `or` leave that condition out. A `not`, or an `exists` whose `where` is
+  only such conditions, also matches every row. A parameter with a default
+  takes the default when nothing is posted.
 
 ### Test build tag
 
