@@ -270,3 +270,61 @@ func repeat(v any, n int) []any {
 	}
 	return out
 }
+
+// manySections is a statement with 142 sections, a pivot, and rows rows that
+// each add up 51 of the sections.
+func manySections(rows int) string {
+	var items []string
+	for i := 0; i < 142; i++ {
+		items = append(items, fmt.Sprintf(`{"section":"s%d","title":"S%d","key":"k%d"}`, i, i, i))
+	}
+	items[0] = `{"section":"s0","title":"Lions","key":"lion"}`
+	items[1] = `{"section":"s1","title":"Zebras","key":"zebra"}`
+	for r := 0; r < rows; r++ {
+		args := make([]string, 51)
+		for a := range args {
+			args[a] = fmt.Sprintf(`{"subtotal":"s%d"}`, (r*7+a)%142)
+		}
+		items = append(items, fmt.Sprintf(`{"row":"r%d","label":"R","formula":{"op":"add","args":[%s]}}`, r, strings.Join(args, ",")))
+	}
+	return strings.Replace(layoutOf(strings.Join(items, ",")), `"groups"`, `"pivot":{"path":[{"field":"fed"}],"bucket":"month","cell":"cost"},"groups"`, 1)
+}
+
+func TestLayoutManySectionsRunsFast(t *testing.T) {
+	z := newZoo(t)
+	start := time.Now()
+	res := z.run(t, "ann", manySections(58), Options{}, nil)
+	elapsed := time.Since(start)
+	t.Logf("142 sections, 58 rows, 3-month pivot: %v", elapsed)
+	if elapsed > 5*time.Second {
+		t.Fatalf("took %v", elapsed)
+	}
+	// Row 0 adds sections 0..50, which include the lion and the zebra.
+	var first Row
+	for _, r := range res.Rows {
+		if r.ID == `c:r0:["USD"]` {
+			first = r
+		}
+	}
+	if first.Cells["cost"] != int64(4500) || first.Cells["cost.p0"] != int64(1700) {
+		t.Fatalf("row r0 = %+v", first.Cells)
+	}
+}
+
+func TestLayoutValidateCountsTheWidestPivot(t *testing.T) {
+	z := newZoo(t)
+	_ = z
+	doubling := lions + `,{"row":"r0","label":"R","formula":{"subtotal":"cats"}}`
+	for i := 1; i <= 6; i++ {
+		doubling += fmt.Sprintf(`,{"row":"r%d","label":"R","formula":{"op":"add","args":[{"subtotal":"r%d"},{"subtotal":"r%d"}]}}`, i, i-1, i-1)
+	}
+	with := func(maxColumns int) string {
+		return strings.Replace(layoutOf(doubling), `"groups"`, fmt.Sprintf(`"pivot":{"path":[{"field":"fed"}],"bucket":"month","cell":"cost","maxColumns":%d},"groups"`, maxColumns), 1)
+	}
+	narrow, _, _ := Load([]byte(with(1)))
+	if err := Validate(narrow); err != nil {
+		t.Fatalf("one pivot column: %v", err)
+	}
+	wide, _, _ := Load([]byte(with(100)))
+	requireTooLarge(t, Validate(wide))
+}

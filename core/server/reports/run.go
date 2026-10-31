@@ -271,15 +271,15 @@ func (rn *runner) query(s *stmt, ctes []string, body string) ([]map[string]any, 
 		return nil, err
 	}
 	sql := with + body
-	topics, err := changesignal.TopicsRead(rn.app, sql, s.params)
+	ctx, cancel := context.WithTimeout(rn.ctx, runLimits.timeout)
+	defer cancel()
+	topics, err := changesignal.TopicsRead(ctx, rn.app, sql, s.params)
 	if err != nil {
 		return nil, mapRunError(err)
 	}
 	for _, t := range topics {
 		rn.topics[t] = true
 	}
-	ctx, cancel := context.WithTimeout(rn.ctx, runLimits.timeout)
-	defer cancel()
 	rows, err := rn.app.DB().NewQuery(sql).Bind(s.params).WithContext(ctx).Rows()
 	if err != nil {
 		return nil, mapRunError(err)
@@ -393,10 +393,11 @@ func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot 
 		}
 		legs = append(legs, leg)
 	}
-	computed, err := c.layoutLegs(s, pivot)
+	layoutCTEs, computed, err := c.layoutLegs(s, pivot)
 	if err != nil {
 		return nil, "", err
 	}
+	ctes = append(ctes, layoutCTEs...)
 	// The limit applies to the level rows only: computed rows sort last, so a
 	// limit on the whole statement would drop them first.
 	levels := fmt.Sprintf("SELECT * FROM (%s\nORDER BY __level, __ord LIMIT %s)", strings.Join(legs, "\nUNION ALL\n"), s.bind(limit))
@@ -620,7 +621,9 @@ func compileDry(p *plan) error {
 	}
 	var pivot []any
 	if p.pivot != nil {
-		pivot = []any{nil}
+		// As many cells as Run compiles at the cap, so Validate and Run
+		// refuse the same layouts.
+		pivot = make([]any, p.pivot.max)
 	}
 	_, _, err = c.groupStatement(s, r, &expansion{}, pivot, 1)
 	return err

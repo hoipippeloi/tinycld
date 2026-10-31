@@ -1,6 +1,7 @@
 package changesignal
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pocketbase/dbx"
@@ -14,12 +15,12 @@ import (
 // collection is left out: it sends no signal. A view's own topic is not
 // listed, because SQLite reads the view's base tables, and their topics carry
 // every change the view shows.
-func TopicsRead(app core.App, query string, params dbx.Params) ([]string, error) {
-	pages, err := rootPages(app)
+func TopicsRead(ctx context.Context, app core.App, query string, params dbx.Params) ([]string, error) {
+	pages, err := rootPages(ctx, app)
 	if err != nil {
 		return nil, err
 	}
-	tables, err := tablesRead(app, pages, query, params)
+	tables, err := tablesRead(ctx, app, pages, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("changesignal: %w", err)
 	}

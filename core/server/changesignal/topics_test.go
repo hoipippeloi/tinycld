@@ -1,6 +1,8 @@
 package changesignal
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -16,7 +18,7 @@ func TestTopicsReadNamesEveryCollectionAStatementReads(t *testing.T) {
 		SELECT a.id FROM zoo_animals a
 		WHERE a.id IN (SELECT animal FROM k)
 		AND EXISTS (SELECT 1 FROM zoo_feedings f WHERE f.animal = a.id AND f.grams > 0)`
-	got, err := TopicsRead(app, query, dbx.Params{"keeper": "Ann"})
+	got, err := TopicsRead(context.Background(), app, query, dbx.Params{"keeper": "Ann"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +30,7 @@ func TestTopicsReadNamesEveryCollectionAStatementReads(t *testing.T) {
 
 func TestTopicsReadLeavesOutSystemCollections(t *testing.T) {
 	app := newZooApp(t, time.Second)
-	got, err := TopicsRead(app, "SELECT a.id FROM zoo_animals a, _superusers s WHERE s.id = a.name", nil)
+	got, err := TopicsRead(context.Background(), app, "SELECT a.id FROM zoo_animals a, _superusers s WHERE s.id = a.name", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +41,17 @@ func TestTopicsReadLeavesOutSystemCollections(t *testing.T) {
 
 func TestTopicsReadReportsAStatementThatDoesNotCompile(t *testing.T) {
 	app := newZooApp(t, time.Second)
-	if _, err := TopicsRead(app, "SELECT nope FROM zoo_animals", nil); err == nil {
+	if _, err := TopicsRead(context.Background(), app, "SELECT nope FROM zoo_animals", nil); err == nil {
 		t.Fatal("TopicsRead accepted a statement SQLite cannot compile")
+	}
+}
+
+func TestTopicsReadStopsWhenItsContextIsDone(t *testing.T) {
+	app := newZooApp(t, time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	<-ctx.Done()
+	if _, err := TopicsRead(ctx, app, "SELECT id FROM zoo_animals", nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want DeadlineExceeded", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	validation "github.com/pocketbase/ozzo-validation/v4"
@@ -13,9 +14,9 @@ import (
 // computed row (and currency), whose cells compute the row's formula from
 // the first-level group rows its sections name. A formula reads sections
 // and earlier computed rows by name, never by row position.
-func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
+func (c *compiler) layoutLegs(s *stmt, pivot []any) (ctes, legs []string, err error) {
 	if len(c.p.layout) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	cur := "(SELECT 1) cur"
 	if len(c.currencies) > 0 {
@@ -25,23 +26,32 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 		cur = "(SELECT DISTINCT " + strings.Join(c.currencies, ", ") + " FROM o1 UNION ALL SELECT " + nulls +
 			" WHERE NOT EXISTS (SELECT 1 FROM o1)) cur"
 	}
-	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}, keyParams: map[string]string{}}
+	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}, chunkOf: map[string]int{}, keys: map[string]string{}}
+	for idx, cp := range c.p.cols {
+		if t := c.levelTypes[cp.col.ID]; isNumeric(t) && t != Bool {
+			lc.cellNames = append(lc.cellNames, fmt.Sprintf("v%d", idx))
+		}
+	}
+	for j := range pivot {
+		lc.cellNames = append(lc.cellNames, fmt.Sprintf("pv%d", j))
+	}
+	lc.perChunk = max(1, chunkColumns/max(1, len(lc.cellNames)))
 	sizes := map[string]int{}
 	compiled := 0
-	var legs []string
 	for i, item := range c.p.layout {
 		at := fmt.Sprintf("layout.%d", i)
 		if item.Section != "" {
 			lc.items[item.Section] = item
 			continue
 		}
+		lc.used = nil
 		// A formula that reads an earlier row is compiled with that row
 		// inside it, so its size grows with every reference, and it is
 		// compiled once for every cell.
 		sizes[item.Row] = expandedSize(item.Formula, sizes)
 		compiled += sizes[item.Row] * (len(c.p.cols) + len(pivot))
 		if sizes[item.Row] > maxLayoutNodes || compiled > maxLayoutCompiled {
-			return nil, invalid(at, "the layout's computed rows are too large; reference fewer earlier rows")
+			return nil, nil, invalid(at, "the layout's computed rows are too large; reference fewer earlier rows")
 		}
 		cells := []string{fmt.Sprintf("%d AS __level", len(c.p.groups)+1), s.bind(item.Row) + " AS __row"}
 		for g := range c.p.groups {
@@ -54,7 +64,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 		// is still checked.
 		lc.cell, lc.typ = "", Number
 		if _, err := lc.row(item, at+".formula"); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for idx, cp := range c.p.cols {
 			if !isNumeric(c.levelTypes[cp.col.ID]) || c.levelTypes[cp.col.ID] == Bool {
@@ -64,7 +74,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 			lc.cell, lc.typ = fmt.Sprintf("v%d", idx), c.levelTypes[cp.col.ID]
 			e, err := lc.row(item, at+".formula")
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			cells = append(cells, e.sql+" AS "+lc.cell)
 		}
@@ -72,15 +82,36 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 			lc.cell, lc.typ = fmt.Sprintf("pv%d", j), c.levelTypes[c.p.pivot.cell.col.ID]
 			e, err := lc.row(item, at+".formula")
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			cells = append(cells, e.sql+" AS "+lc.cell)
 		}
 		cells = append(cells, fmt.Sprintf("%d AS __ord", i))
-		legs = append(legs, "SELECT "+strings.Join(cells, ", ")+" FROM "+cur)
+		if len(lc.used) > maxJoinedChunks {
+			return nil, nil, invalid(at, "a computed row reads too many sections")
+		}
+		legs = append(legs, "SELECT "+strings.Join(cells, ", ")+" FROM "+cur+lc.joins())
 		lc.items[item.Row] = item
 	}
-	return legs, nil
+	return lc.chunkCTEs(), legs, nil
+}
+
+// maxJoinedChunks keeps a computed row's select under SQLite's limit of 64
+// tables in a join.
+const maxJoinedChunks = 60
+
+// joins joins the section CTEs the computed row being compiled reads, each
+// to the row's current currency.
+func (lc *layoutCtx) joins() string {
+	var out strings.Builder
+	for _, k := range lc.used {
+		on := []string{"1"}
+		for _, ck := range lc.c.currencies {
+			on = append(on, fmt.Sprintf("ls%d.%s IS cur.%s", k, ck, ck))
+		}
+		fmt.Fprintf(&out, " LEFT JOIN ls%d ON %s", k, strings.Join(on, " AND "))
+	}
+	return out.String()
 }
 
 // layoutCtx compiles a computed row's formula for one cell column: a
@@ -97,9 +128,20 @@ type layoutCtx struct {
 	// typ is the type of that column's cells, which a subtotal keeps so the
 	// money rules apply to a computed row.
 	typ FieldType
-	// keyParams holds the placeholder of each section's key, bound once.
-	keyParams map[string]string
+	// The sections a computed row reads are grouped in chunks, one CTE each
+	// (see chunkCTEs), so a SELECT stays under SQLite's column limit. chunkOf
+	// and keys are by section id; used lists the chunks the computed row
+	// being compiled joins; cellNames are the cell columns of o1 to read.
+	chunks    [][]string
+	chunkOf   map[string]int
+	keys      map[string]string
+	used      []int
+	perChunk  int
+	cellNames []string
 }
+
+// chunkColumns is the most columns a section chunk's CTE holds.
+const chunkColumns = 1000
 
 // maxLayoutNodes caps the size of a computed row's formula after the rows it
 // reads are inlined.
@@ -149,18 +191,44 @@ func (lc *layoutCtx) subtotal(id, at string) (expr, error) {
 	if lc.cell == "" {
 		return expr{sql: "NULL", typ: Number}, nil
 	}
-	// Bound once, so the variable count does not grow with every leaf.
-	param, ok := lc.keyParams[id]
+	chunk, ok := lc.chunkOf[id]
 	if !ok {
-		param = lc.s.bind(sectionKey(item))
-		lc.keyParams[id] = param
+		// A section's cells are read from o1 once, in the CTE of its chunk,
+		// however many cells and computed rows use them.
+		if n := len(lc.chunks); n == 0 || len(lc.chunks[n-1]) >= lc.perChunk {
+			lc.chunks = append(lc.chunks, nil)
+		}
+		chunk = len(lc.chunks) - 1
+		lc.chunks[chunk] = append(lc.chunks[chunk], id)
+		lc.chunkOf[id] = chunk
+		lc.keys[id] = lc.s.bind(sectionKey(item))
 	}
-	conds := []string{"o.k0 IS " + param}
-	for _, ck := range lc.c.currencies {
-		conds = append(conds, "o."+ck+" IS cur."+ck)
+	if !slices.Contains(lc.used, chunk) {
+		lc.used = append(lc.used, chunk)
 	}
 	// An empty section counts as zero.
-	return expr{sql: fmt.Sprintf("COALESCE((SELECT o.%s FROM o1 o WHERE %s), 0)", lc.cell, strings.Join(conds, " AND ")), typ: lc.typ}, nil
+	return expr{sql: fmt.Sprintf("COALESCE(ls%d.%s_%s, 0)", chunk, id, lc.cell), typ: lc.typ}, nil
+}
+
+// chunkCTEs renders one CTE per chunk of sections. Each has one row per
+// currency, with a column for every section and cell it holds: the cell of
+// the o1 row whose key is the section's.
+func (lc *layoutCtx) chunkCTEs() []string {
+	ctes := make([]string, 0, len(lc.chunks))
+	for k, ids := range lc.chunks {
+		cols := slices.Clone(lc.c.currencies)
+		for _, id := range ids {
+			for _, cell := range lc.cellNames {
+				cols = append(cols, fmt.Sprintf("MAX(CASE WHEN k0 IS %s THEN %s END) AS %s_%s", lc.keys[id], cell, id, cell))
+			}
+		}
+		group := ""
+		if len(lc.c.currencies) > 0 {
+			group = " GROUP BY " + strings.Join(lc.c.currencies, ", ")
+		}
+		ctes = append(ctes, fmt.Sprintf("ls%d AS (SELECT %s FROM o1%s)", k, strings.Join(cols, ", "), group))
+	}
+	return ctes
 }
 
 // sectionKey is a section's key as the binder accepted it.

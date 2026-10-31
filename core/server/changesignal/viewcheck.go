@@ -1,6 +1,7 @@
 package changesignal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -21,7 +22,7 @@ func CheckViews(app core.App) error {
 	if len(registered) == 0 {
 		return nil
 	}
-	pages, err := rootPages(app)
+	pages, err := rootPages(context.Background(), app)
 	if err != nil {
 		return err
 	}
@@ -64,7 +65,7 @@ func checkView(app core.App, pages map[int64]string, view string, sources []stri
 			problems = append(problems, fmt.Sprintf("view %q declares %q, which is not the collection name %q", view, source, sourceCol.Name))
 		}
 	}
-	read, err := tablesRead(app, pages, "SELECT * FROM {{"+col.Name+"}}", nil)
+	read, err := tablesRead(context.Background(), app, pages, "SELECT * FROM {{"+col.Name+"}}", nil)
 	if err != nil {
 		return append(problems, fmt.Sprintf("view %q: %v", view, err))
 	}
@@ -77,13 +78,14 @@ func checkView(app core.App, pages map[int64]string, view string, sources []stri
 	return problems
 }
 
-func rootPages(app core.App) (map[int64]string, error) {
+func rootPages(ctx context.Context, app core.App) (map[int64]string, error) {
 	var rows []struct {
 		RootPage int64  `db:"rootpage"`
 		Table    string `db:"tbl_name"`
 	}
 	err := app.DB().
 		NewQuery("SELECT rootpage, tbl_name FROM sqlite_schema WHERE rootpage > 0").
+		WithContext(ctx).
 		All(&rows)
 	if err != nil {
 		return nil, fmt.Errorf("changesignal: read sqlite_schema: %w", err)
@@ -98,13 +100,13 @@ func rootPages(app core.App) (map[int64]string, error) {
 // tablesRead lists, sorted, the tables of the main database that query
 // opens for reading. params binds the query's placeholders; EXPLAIN only
 // compiles the statement, so their values do not change the result.
-func tablesRead(app core.App, pages map[int64]string, query string, params dbx.Params) ([]string, error) {
+func tablesRead(ctx context.Context, app core.App, pages map[int64]string, query string, params dbx.Params) ([]string, error) {
 	var ops []struct {
 		Opcode string `db:"opcode"`
 		P2     int64  `db:"p2"`
 		P3     int64  `db:"p3"`
 	}
-	if err := app.DB().NewQuery("EXPLAIN " + query).Bind(params).All(&ops); err != nil {
+	if err := app.DB().NewQuery("EXPLAIN " + query).Bind(params).WithContext(ctx).All(&ops); err != nil {
 		return nil, fmt.Errorf("explain: %w", err)
 	}
 	seen := map[string]bool{}
