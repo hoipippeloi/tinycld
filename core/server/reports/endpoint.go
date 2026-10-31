@@ -3,9 +3,11 @@ package reports
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"slices"
 
+	validation "github.com/pocketbase/ozzo-validation/v4"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/inflector"
@@ -62,6 +64,9 @@ func handleRun(re *core.RequestEvent) error {
 	if err := dec.Decode(&body); err != nil {
 		return re.BadRequestError("The request is not a report run: "+err.Error(), nil)
 	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return re.BadRequestError("The request is not a report run: it has data after the first object.", nil)
+	}
 	if body.Spec == nil {
 		return re.BadRequestError("The request has no spec.", nil)
 	}
@@ -82,7 +87,9 @@ func handleRun(re *core.RequestEvent) error {
 // ruleHeaders are the headers as a rule's @request.headers reads them:
 // the first value of each, its name in snake case ("X-Token" is x_token).
 // They are built here, not by re.RequestInfo, which would read the body the
-// handler has already decoded.
+// handler has already decoded. A POST carries content_type and
+// content_length headers that a list GET usually lacks, so a rule that reads
+// those two can answer differently here than in a list.
 func ruleHeaders(h http.Header) map[string]string {
 	out := make(map[string]string, len(h))
 	for k, v := range h {
@@ -107,7 +114,9 @@ func runError(re *core.RequestEvent, err error) error {
 	case errors.Is(err, ErrTimeout):
 		return re.Error(http.StatusRequestTimeout, "The report took too long to run.", nil)
 	case errors.Is(err, ErrAmountTooLarge):
-		return re.Error(http.StatusUnprocessableEntity, "An amount is too large to total.", nil)
+		return re.Error(http.StatusUnprocessableEntity, "An amount is too large to total.", map[string]validation.Error{
+			"spec": validation.NewError("amount_too_large", "An amount in the report is too large to total."),
+		})
 	case errors.Is(err, ErrNoReader):
 		return re.ForbiddenError("A report runs as a signed-in user.", nil)
 	}

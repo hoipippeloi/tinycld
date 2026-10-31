@@ -46,6 +46,8 @@ func TestRunEndpoint(t *testing.T) {
 		http.StatusUnprocessableEntity, `"source":{"code":"unknown_source"`)
 	z.post(t, "SQL is not a field", ann, `{"spec":`+feedingsByDay+`,"sql":"DELETE FROM zoo_feedings"}`,
 		http.StatusBadRequest, `unknown field`)
+	z.post(t, "a second object", ann, `{"spec":`+feedingsByDay+`}{"sql":"x"}`, http.StatusBadRequest, `after the first object`)
+	z.post(t, "trailing text", ann, `{"spec":`+feedingsByDay+`} trailing`, http.StatusBadRequest, `after the first object`)
 	z.post(t, "no spec", ann, `{"params":{}}`, http.StatusBadRequest, `no spec`)
 	z.post(t, "a body too large", ann, `{"spec":{"version":1,"columns":[],"x":"`+strings.Repeat("x", maxRunBody)+`"}}`,
 		http.StatusRequestEntityTooLarge, `"status":413`)
@@ -102,13 +104,38 @@ func TestRunEndpointLeaksNoSQL(t *testing.T) {
 			Name: "no " + leak, Method: http.MethodPost, URL: "/api/reports/run",
 			Body: strings.NewReader(runBodyOf(feedingsByDay)), Headers: map[string]string{"Authorization": ann},
 			ExpectedStatus:        http.StatusUnprocessableEntity,
-			ExpectedContent:       []string{`"message":"An amount is too large to total."`},
+			ExpectedContent:       []string{`"message":"An amount is too large to total."`, `"spec":{"code":"amount_too_large"`},
 			NotExpectedContent:    []string{leak},
 			TestAppFactory:        func(testing.TB) *tests.TestApp { return z.app },
 			DisableTestAppCleanup: true,
 		}
 		sc.Test(t)
 	}
+}
+
+// A database failure answers 500 with a fixed message and no SQL text.
+func TestRunEndpointInternalErrorLeaksNoSQL(t *testing.T) {
+	z := newZoo(t)
+	Register(z.app)
+	ann := z.token(t, "ann")
+	// Serve checks every source before it binds the route, so the table goes
+	// after that check: the source is valid, the statement then fails.
+	z.app.OnServe().BindFunc(func(e *core.ServeEvent) error {
+		if _, err := e.App.DB().NewQuery("DROP TABLE IF EXISTS zoo_feedings").Execute(); err != nil {
+			return err
+		}
+		return e.Next()
+	})
+	sc := tests.ApiScenario{
+		Name: "an internal error", Method: http.MethodPost, URL: "/api/reports/run",
+		Body: strings.NewReader(runBodyOf(feedingsByDay)), Headers: map[string]string{"Authorization": ann},
+		ExpectedStatus:        http.StatusInternalServerError,
+		ExpectedContent:       []string{`"message":"The report could not run."`},
+		NotExpectedContent:    []string{"SELECT", "no such table", "zoo_feedings", "sqlite"},
+		TestAppFactory:        func(testing.TB) *tests.TestApp { return z.app },
+		DisableTestAppCleanup: true,
+	}
+	sc.Test(t)
 }
 
 func TestServeRefusesABrokenSourceBeforeAnyRun(t *testing.T) {
