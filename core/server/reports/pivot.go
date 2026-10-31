@@ -1,9 +1,6 @@
 package reports
 
-import (
-	"fmt"
-	"slices"
-)
+import "fmt"
 
 // pivotKey puts the pivot value of each base row in w as pk.
 func (r *rowsCTE) pivotKey() {
@@ -51,19 +48,11 @@ func (rn *runner) pivotPass() ([]any, error) {
 		}
 	}
 	if len(rows) > pv.max {
-		rn.pivotCapNotice(pv.max, int(toInt(rows[0]["__n"]))-pv.max)
+		left := int(toInt(rows[0]["__n"])) - pv.max
+		rn.noticeOnce(Notice{Code: "pivotCap", Message: fmt.Sprintf("The pivot shows its first %d columns; %d more are left out.", pv.max, left), LeftOut: left})
 	}
 	rn.pivotValues = values
 	return values, nil
-}
-
-// pivotCapNotice says how many pivot values the column cap left out, once
-// per run.
-func (rn *runner) pivotCapNotice(shown, left int) {
-	if slices.ContainsFunc(rn.res.Notices, func(n Notice) bool { return n.Code == "pivotCap" }) {
-		return
-	}
-	rn.notice(Notice{Code: "pivotCap", Message: fmt.Sprintf("The pivot shows its first %d columns; %d more are left out.", shown, left), Count: left})
 }
 
 // pivotCells adds one aggregate per pivot value to the level: the cell

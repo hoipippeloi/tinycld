@@ -48,7 +48,7 @@ func TestPivotStopsAtMaxColumnsAndSaysHowManyAreLeftOut(t *testing.T) {
 	if got := pivotIDs(res); !reflect.DeepEqual(got, []string{"cost.p0=2026-01", "cost.p1=2026-02"}) {
 		t.Fatalf("pivot columns = %v", got)
 	}
-	if len(res.Notices) != 1 || res.Notices[0].Code != "pivotCap" || res.Notices[0].Count != 1 {
+	if len(res.Notices) != 1 || res.Notices[0].Code != "pivotCap" || res.Notices[0].LeftOut != 1 || res.Notices[0].Count != 0 {
 		t.Fatalf("notices = %+v", res.Notices)
 	}
 }
@@ -154,7 +154,7 @@ func TestPivotCapNoticeCountsEveryLeftOutValue(t *testing.T) {
 		{"id":"cost","path":[{"field":"cost"}],"aggregate":"sum"}],
 		"groups":[{"id":"g","col":"species"}],
 		"pivot":{"path":[{"field":"fed"}],"bucket":"day","cell":"cost","maxColumns":2}}`, Options{}, nil)
-	if len(res.Notices) != 1 || res.Notices[0].Code != "pivotCap" || res.Notices[0].Count != 5 {
+	if len(res.Notices) != 1 || res.Notices[0].Code != "pivotCap" || res.Notices[0].LeftOut != 5 {
 		t.Fatalf("notices = %+v", res.Notices)
 	}
 }

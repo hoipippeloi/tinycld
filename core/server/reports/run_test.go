@@ -375,6 +375,18 @@ func TestTheRowCapNoticeIsGivenOnce(t *testing.T) {
 	}
 }
 
+// Each cap notice is given once per run, keyed by its code.
+func TestNoticeOnceKeepsTheFirstOfACode(t *testing.T) {
+	rn := &runner{res: &Result{}}
+	rn.noticeOnce(Notice{Code: "rowCap", Count: 1})
+	rn.noticeOnce(Notice{Code: "pivotCap", LeftOut: 2})
+	rn.noticeOnce(Notice{Code: "rowCap", Count: 3})
+	want := []Notice{{Code: "rowCap", Count: 1}, {Code: "pivotCap", LeftOut: 2}}
+	if !reflect.DeepEqual(rn.res.Notices, want) {
+		t.Fatalf("notices = %+v", rn.res.Notices)
+	}
+}
+
 func TestGroupKeysCompareByType(t *testing.T) {
 	z := newZoo(t)
 	if _, err := z.app.DB().NewQuery("UPDATE zoo_animals SET species = '1' WHERE name = 'Zed'").Execute(); err != nil {

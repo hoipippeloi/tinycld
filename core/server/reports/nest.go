@@ -2,7 +2,6 @@ package reports
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 )
 
@@ -101,7 +100,7 @@ func (rn *runner) nestLevel(level int, parents []any) ([]map[string]any, error) 
 	}
 	if len(rows) > runLimits.rowCap {
 		rows = rows[:runLimits.rowCap]
-		rn.nestCapNotice()
+		rn.noticeOnce(Notice{Code: "nestCap", Message: fmt.Sprintf("The report shows the first %d child rows.", runLimits.rowCap), Count: runLimits.rowCap})
 	}
 	return rows, nil
 }
@@ -119,14 +118,6 @@ func (p *plan) nestCurrency(cp *colPlan) currency {
 		return currency{fixed: cp.path.src}
 	}
 	return currency{}
-}
-
-// nestCapNotice says a nest level reached the row cap, once per run.
-func (rn *runner) nestCapNotice() {
-	if slices.ContainsFunc(rn.res.Notices, func(n Notice) bool { return n.Code == "nestCap" }) {
-		return
-	}
-	rn.notice(Notice{Code: "nestCap", Message: fmt.Sprintf("The report shows the first %d child rows.", runLimits.rowCap), Count: runLimits.rowCap})
 }
 
 // nestedRows emits the child rows of one parent, each followed by its own

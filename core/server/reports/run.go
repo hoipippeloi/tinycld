@@ -109,8 +109,10 @@ type Notice struct {
 	Code    string   `json:"code"`
 	Message string   `json:"message"`
 	Columns []string `json:"columns,omitempty"`
-	// Count is the number of rows a rowCap notice kept.
+	// Count is the number of rows a rowCap or nestCap notice kept.
 	Count int `json:"count,omitempty"`
+	// LeftOut is the number of pivot values a pivotCap notice left out.
+	LeftOut int `json:"leftOut,omitempty"`
 	// FromVersion is the spec version an upgraded notice came from.
 	FromVersion int     `json:"fromVersion,omitempty"`
 	Aliases     []Alias `json:"aliases,omitempty"`
@@ -215,6 +217,19 @@ func (rn *runner) loadNotices(info *LoadInfo) {
 }
 
 func (rn *runner) notice(n Notice) { rn.res.Notices = append(rn.res.Notices, n) }
+
+// noticeOnce adds a notice unless the run already has one of its code: a cap
+// says it applied once, however many passes reached it.
+func (rn *runner) noticeOnce(n Notice) {
+	if !slices.ContainsFunc(rn.res.Notices, func(x Notice) bool { return x.Code == n.Code }) {
+		rn.notice(n)
+	}
+}
+
+// rowCapNotice says the row cap applied.
+func rowCapNotice() Notice {
+	return Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap}
+}
 
 func (rn *runner) run() error {
 	// A grouped report is capped, never paged, so options.limit does not
@@ -343,7 +358,7 @@ func (rn *runner) capLevelRows(rows []map[string]any) []map[string]any {
 	if levels <= runLimits.rowCap {
 		return rows
 	}
-	rn.capNotice()
+	rn.noticeOnce(rowCapNotice())
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		if row["__row"] != nil || len(out) < runLimits.rowCap {
@@ -351,15 +366,6 @@ func (rn *runner) capLevelRows(rows []map[string]any) []map[string]any {
 		}
 	}
 	return out
-}
-
-// capNotice says the row cap applied, once per run however many passes
-// reached it.
-func (rn *runner) capNotice() {
-	if slices.ContainsFunc(rn.res.Notices, func(n Notice) bool { return n.Code == "rowCap" }) {
-		return
-	}
-	rn.notice(Notice{Code: "rowCap", Message: fmt.Sprintf("The report shows its first %d rows.", runLimits.rowCap), Count: runLimits.rowCap})
 }
 
 func notASortKey(at string) error {
@@ -453,7 +459,7 @@ func (rn *runner) detailPass() ([]map[string]any, error) {
 			rn.res.Page.Next = cursorOf(order, rows[len(rows)-1])
 		}
 	} else if more {
-		rn.capNotice()
+		rn.noticeOnce(rowCapNotice())
 	}
 	return rows, nil
 }
