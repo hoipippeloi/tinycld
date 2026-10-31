@@ -271,35 +271,73 @@ func repeat(v any, n int) []any {
 	return out
 }
 
-// manySections is a statement with 142 sections, a pivot, and rows rows that
-// each add up 51 of the sections.
-func manySections(rows int) string {
+// manySections is a statement with the given sections, a pivot, and rows
+// rows that each add up 51 of the sections (or all of them, when fewer).
+func manySections(sections, rows int) string {
 	var items []string
-	for i := 0; i < 142; i++ {
+	for i := 0; i < sections; i++ {
 		items = append(items, fmt.Sprintf(`{"section":"s%d","title":"S%d","key":"k%d"}`, i, i, i))
 	}
 	items[0] = `{"section":"s0","title":"Lions","key":"lion"}`
 	items[1] = `{"section":"s1","title":"Zebras","key":"zebra"}`
 	for r := 0; r < rows; r++ {
-		args := make([]string, 51)
+		args := make([]string, min(51, sections))
 		for a := range args {
-			args[a] = fmt.Sprintf(`{"subtotal":"s%d"}`, (r*7+a)%142)
+			args[a] = fmt.Sprintf(`{"subtotal":"s%d"}`, (r*7+a)%sections)
 		}
 		items = append(items, fmt.Sprintf(`{"row":"r%d","label":"R","formula":{"op":"add","args":[%s]}}`, r, strings.Join(args, ",")))
 	}
 	return strings.Replace(layoutOf(strings.Join(items, ",")), `"groups"`, `"pivot":{"path":[{"field":"fed"}],"bucket":"month","cell":"cost"},"groups"`, 1)
 }
 
-func TestLayoutManySectionsRunsFast(t *testing.T) {
-	z := newZoo(t)
-	start := time.Now()
-	res := z.run(t, "ann", manySections(58), Options{}, nil)
-	elapsed := time.Since(start)
-	t.Logf("142 sections, 58 rows, 3-month pivot: %v", elapsed)
-	if elapsed > 5*time.Second {
-		t.Fatalf("took %v", elapsed)
+// layoutStatement compiles a spec's group statement as Validate does, with
+// three pivot values.
+func layoutStatement(t *testing.T, raw string) string {
+	t.Helper()
+	p, specErr := bind(loadSpec(t, raw))
+	if specErr != nil {
+		t.Fatal(specErr)
 	}
-	// Row 0 adds sections 0..50, which include the lion and the zebra.
+	c := newCompiler(p, nil, nil, nil)
+	s := newStmt(nil, nil)
+	r, err := c.rows(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctes, body, err := c.groupStatement(s, r, &expansion{}, make([]any, 3), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(ctes, ",\n") + "\n" + body
+}
+
+// Each section's cells are read from o1 once, in its chunk's CTE, however
+// many computed rows and {subtotal} leaves read them: twice the rows add no
+// read. A statement that re-read the sections per leaf would grow with the
+// leaves and pass the time limit.
+func TestLayoutManySectionsReadsEachSectionOnce(t *testing.T) {
+	withZooRegistry(t)
+	for _, rows := range []int{29, 58} {
+		sql := layoutStatement(t, manySections(142, rows))
+		// 142 sections, each with 4 cells: cost and three pivot cells.
+		if n := strings.Count(sql, "MAX(CASE WHEN k0 IS"); n != 142*4 {
+			t.Fatalf("%d rows: %d section cell reads, want %d", rows, n, 142*4)
+		}
+		if n := strings.Count(sql, "FROM o1 GROUP BY"); n != 1 {
+			t.Fatalf("%d rows: %d section chunks, want 1", rows, n)
+		}
+		// Every leaf reads its section's cell from the chunk.
+		if n := strings.Count(sql, "COALESCE(ls0.s"); n != rows*51*4 {
+			t.Fatalf("%d rows: %d leaf reads, want %d", rows, n, rows*51*4)
+		}
+	}
+}
+
+// The chunk's cells are the sections' subtotals, by column and pivot value.
+func TestLayoutSectionChunkComputesItsRows(t *testing.T) {
+	z := newZoo(t)
+	res := z.run(t, "ann", manySections(10, 3), Options{}, nil)
+	// Row 0 adds sections 0..9, which include the lion and the zebra.
 	var first Row
 	for _, r := range res.Rows {
 		if r.ID == `c:r0:["USD"]` {
