@@ -163,6 +163,29 @@ func TestRunEndpointIsNotOpenToOAuthTokens(t *testing.T) {
 	}
 }
 
+// An OAuth access token, even one holding every scope, meets the real grant
+// middleware, which refuses the run route as a route no scope covers.
+func TestRunEndpointRefusesAnOAuthTokenThroughTheMiddleware(t *testing.T) {
+	z := newZoo(t)
+	oauth.Register(z.app)
+	Register(z.app)
+	client, err := oauth.FindClientByClientID(z.app, "tinycld-cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := oauth.NewGrant(z.app, z.id("ann"), client.Id, oauth.AllScopes(), "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := oauth.MintAccessToken(z.app, z.recs["ann"], grant, oauth.AccessTokenTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	z.post(t, "an OAuth token", "Bearer "+token, runBodyOf(feedingsByDay), http.StatusForbidden, `not available to API tokens`)
+	// The same reader's session token runs the report.
+	z.post(t, "a session token", z.token(t, "ann"), runBodyOf(feedingsByDay), http.StatusOK, `"kind":"total"`)
+}
+
 // levelsHandler keeps the level of every record logged through it.
 type levelsHandler struct{ levels *[]slog.Level }
 
