@@ -43,6 +43,11 @@ var fuzzSources = []fuzzSource{
 // growZoo adds random animals, keepers and feedings for three readers.
 func growZoo(t testing.TB, z *zoo, rng *rand.Rand) {
 	carol := z.user(t, "carol")
+	// zoo_sites lists only members: a guest reader is excluded from it.
+	carol.Set("role", "guest")
+	if err := z.app.Save(carol); err != nil {
+		t.Fatalf("save carol: %v", err)
+	}
 	readers := []string{z.id("ann"), z.id("bob"), carol.Id, ""}
 	sites := []string{z.id("north"), z.id("south"), ""}
 	vaults := []string{""}
