@@ -1,13 +1,19 @@
 package reports
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/router"
 
 	"tinycld.org/core/oauth"
 )
@@ -154,6 +160,46 @@ func TestServeRefusesABrokenSourceBeforeAnyRun(t *testing.T) {
 func TestRunEndpointIsNotOpenToOAuthTokens(t *testing.T) {
 	if got := oauth.ScopeForRoute(http.MethodPost, "/api/reports/run"); len(got) != 0 {
 		t.Fatalf("POST /api/reports/run resolved to scopes %v, want default-deny", got)
+	}
+}
+
+// levelsHandler keeps the level of every record logged through it.
+type levelsHandler struct{ levels *[]slog.Level }
+
+func (h levelsHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h levelsHandler) Handle(_ context.Context, r slog.Record) error {
+	*h.levels = append(*h.levels, r.Level)
+	return nil
+}
+func (h levelsHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h levelsHandler) WithGroup(string) slog.Handler      { return h }
+
+// A client that went away is not a server error: nothing is logged above
+// debug (warn and up reach Sentry) and the answer is not a 500.
+func TestARunTheClientLeftIsNotAServerError(t *testing.T) {
+	var levels []slog.Level
+	saved := log
+	log = slog.New(levelsHandler{&levels})
+	t.Cleanup(func() { log = saved })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, err := range map[string]error{
+		"canceled":           context.Canceled,
+		"driver interrupted": errors.New("interrupted (9)"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			levels = nil
+			re := &core.RequestEvent{}
+			re.Request = httptest.NewRequest(http.MethodPost, "/api/reports/run", nil).WithContext(ctx)
+			re.Response = httptest.NewRecorder()
+			var apiErr *router.ApiError
+			if got := runError(re, err); !errors.As(got, &apiErr) || apiErr.Status >= 500 {
+				t.Fatalf("runError = %v, want a 4xx", got)
+			}
+			if slices.ContainsFunc(levels, func(l slog.Level) bool { return l > slog.LevelDebug }) {
+				t.Fatalf("logged at %v", levels)
+			}
+		})
 	}
 }
 

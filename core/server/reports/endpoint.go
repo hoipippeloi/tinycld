@@ -1,6 +1,7 @@
 package reports
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -100,10 +101,15 @@ func ruleHeaders(h http.Header) map[string]string {
 	return out
 }
 
+// statusClientClosed answers a run whose client went away: nobody reads it,
+// and it is not a server error.
+const statusClientClosed = 499
+
 // runError answers a failed run: 400 with each invalid part of the spec,
 // 422 naming each unknown source, link, field or column (and an amount too
-// large to total), 408 at the time limit. Any other error is logged and
-// answered with a fixed message, so SQL text never reaches the client.
+// large to total), 408 at the time limit, 499 when the client went away. Any
+// other error is logged and answered with a fixed message, so SQL text
+// never reaches the client.
 func runError(re *core.RequestEvent, err error) error {
 	var specErr *SpecError
 	switch {
@@ -119,6 +125,11 @@ func runError(re *core.RequestEvent, err error) error {
 		})
 	case errors.Is(err, ErrNoReader):
 		return re.ForbiddenError("A report runs as a signed-in user.", nil)
+	case errors.Is(err, context.Canceled) || re.Request.Context().Err() != nil:
+		// The driver does not always wrap the cancel, so the request's own
+		// context says whether the client left.
+		log.DebugContext(re.Request.Context(), "report run canceled: the client went away", "err", err)
+		return re.Error(statusClientClosed, "The request was canceled.", nil)
 	}
 	log.ErrorContext(re.Request.Context(), "report run failed", "err", err)
 	return re.InternalServerError("The report could not run.", nil)
