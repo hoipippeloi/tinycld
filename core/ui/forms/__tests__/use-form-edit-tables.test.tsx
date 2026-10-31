@@ -123,6 +123,26 @@ describe('useFormEdit with a host table', () => {
         })
         expect(result.current.form.getFieldState('lines').isDirty).toBe(false)
     })
+
+    it('markSaved leaves a table clean when the written row has the same values in another key order', () => {
+        const { result } = renderHook(() => useFormEdit(orderFormHost, record, ctx, {}, tables))
+        // A row TableField adds puts id first; the live rows the host passes back put id last.
+        const added = { id: 'r1', item: 'gear', qty: 2, rate: 3, amount: 6 }
+        const live = { item: 'gear', qty: 2, rate: 3, amount: 6, id: 'r1' }
+        act(() => result.current.form.setValue('lines', [a, b, added], { shouldDirty: true }))
+        expect(result.current.form.getFieldState('lines').isDirty).toBe(true)
+        act(() => result.current.markSaved({ lines: [a, b, live] }))
+        expect(result.current.form.getFieldState('lines').isDirty).toBe(false)
+    })
+
+    it('markSaved keeps a table dirty when a written row value differs from the form', () => {
+        const { result } = renderHook(() => useFormEdit(orderFormHost, record, ctx, {}, tables))
+        const added = { id: 'r1', item: 'gear', qty: 2, rate: 3, amount: 6 }
+        const sent = { item: 'gear', qty: 3, rate: 3, amount: 6, id: 'r1' }
+        act(() => result.current.form.setValue('lines', [a, b, added], { shouldDirty: true }))
+        act(() => result.current.markSaved({ lines: [a, b, sent] }))
+        expect(result.current.form.getFieldState('lines').isDirty).toBe(true)
+    })
 })
 
 /** The stored row `a` has no qty or rate: its columns were added after it was written. */

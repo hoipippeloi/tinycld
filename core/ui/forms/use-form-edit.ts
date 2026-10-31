@@ -49,7 +49,24 @@ export type PatchResult = SplitValues & {
     tableWrites: Record<string, TableWritePlan>
 }
 
-const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+/** Plain objects with their keys sorted, so the comparison below ignores key order. */
+function withSortedKeys(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(withSortedKeys)
+    if (value === null || typeof value !== 'object') return value
+    const proto = Object.getPrototypeOf(value)
+    if (proto !== Object.prototype && proto !== null) return value
+    const record = value as Record<string, unknown>
+    return Object.fromEntries(
+        Object.keys(record)
+            .sort()
+            .map(key => [key, withSortedKeys(record[key])])
+    )
+}
+
+// Core builds a table row id first (`newTableRow`) and a host's live row id last
+// (`tableRowsOf`), so the same row reaches markSaved with its keys in another order.
+const sameValue = (a: unknown, b: unknown) =>
+    JSON.stringify(withSortedKeys(a)) === JSON.stringify(withSortedKeys(b))
 
 function tableWritesOf(
     def: FormDefinition,
