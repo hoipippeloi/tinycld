@@ -301,8 +301,8 @@ func mapRunError(err error) error {
 	return err
 }
 
-// groupPass runs the group statement: every group level and the total,
-// capped at rowCap rows.
+// groupPass runs the group statement: every group level, the total and the
+// layout's computed rows, capped at rowCap rows.
 func (rn *runner) groupPass() ([]map[string]any, error) {
 	c := rn.c
 	s := newStmt(rn.app, c.info)
@@ -343,7 +343,7 @@ func notASortKey(at string) error {
 }
 
 // groupStatement is the UNION ALL of every level's rows (the children of
-// expanded groups only).
+// expanded groups only) and the layout's computed rows.
 func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot []any) ([]string, string, error) {
 	var ctes, legs []string
 	c.levelTypes = map[string]FieldType{}
@@ -373,6 +373,11 @@ func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot 
 		}
 		legs = append(legs, leg)
 	}
+	computed, err := c.layoutLegs(s, pivot)
+	if err != nil {
+		return nil, "", err
+	}
+	legs = append(legs, computed...)
 	return ctes, strings.Join(legs, "\nUNION ALL\n") + "\nORDER BY __level, __ord", nil
 }
 

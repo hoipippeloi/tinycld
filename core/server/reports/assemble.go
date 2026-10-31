@@ -112,6 +112,7 @@ func toInt(v any) int64 {
 type tree struct {
 	children map[string][]map[string]any // by parent key, in order
 	totals   []map[string]any
+	computed map[string]map[string]any // by row id and currency key
 	details  map[string][]map[string]any
 }
 
@@ -136,10 +137,12 @@ func (rn *runner) rowKey(row map[string]any, n int) []any {
 func (rn *runner) currencyKey(row map[string]any) string { return keyString(rn.rowKey(row, 0)) }
 
 func (rn *runner) assemble(groupRows, details []map[string]any) {
-	t := &tree{children: map[string][]map[string]any{}, details: map[string][]map[string]any{}}
+	t := &tree{children: map[string][]map[string]any{}, computed: map[string]map[string]any{}, details: map[string][]map[string]any{}}
 	for _, row := range groupRows {
 		n := int(toInt(row["__level"]))
 		switch {
+		case row["__row"] != nil:
+			t.computed[fmt.Sprint(row["__row"])+"|"+rn.currencyKey(row)] = row
 		case n == 0:
 			t.totals = append(t.totals, row)
 		default:
@@ -167,6 +170,10 @@ func (rn *runner) assemble(groupRows, details []map[string]any) {
 		}
 	}
 	for _, total := range t.totals {
+		if len(rn.c.p.layout) > 0 {
+			rn.layoutRows(t, total)
+			continue
+		}
 		for _, g := range t.children[rn.currencyKey(total)] {
 			rn.group(t, g, 1, "")
 		}
@@ -194,7 +201,7 @@ func (rn *runner) group(t *tree, row map[string]any, n int, section string) {
 }
 
 // groupWithLabel emits a group row; subtotal says whether an expanded group
-// ends in a subtotal row.
+// ends in a subtotal row (a layout section always does).
 func (rn *runner) groupWithLabel(t *tree, row map[string]any, n int, section, id, label string, key []any, subtotal bool) {
 	p := rn.c.p
 	canOpen := n < len(p.groups) || p.pivot == nil
@@ -211,7 +218,7 @@ func (rn *runner) groupWithLabel(t *tree, row map[string]any, n int, section, id
 			}
 		}
 	}
-	if subtotal && expanded {
+	if subtotal && (expanded || len(p.layout) > 0) {
 		rn.push(Row{ID: "s:" + keyString(key), Kind: KindSubtotal, Depth: n - 1, Label: "Total " + label, Section: id, GroupKey: key, Cells: rn.cells(row)})
 	}
 }
