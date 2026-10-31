@@ -15,6 +15,11 @@ func (r *rowsCTE) pivotKey() {
 	if pv.pivot.Bucket != "" {
 		key = bucketSQL(r.join(false), pv.pivot.Bucket, key)
 	}
+	// A blank text and a missing linked row both read as (none): one column,
+	// not two.
+	if pv.path.field.Type == Text {
+		key = "COALESCE(" + key + ", '')"
+	}
 	r.add("pk", key)
 }
 
