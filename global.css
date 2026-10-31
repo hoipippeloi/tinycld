@@ -301,6 +301,26 @@
     --color-sidebar-background: var(--sidebar-background);
     --color-active-indicator: var(--active-indicator);
     --color-hover-background: var(--hover-background);
+    /* Made from the colors above, so light, dark and the accent themes
+       follow. Soft = a tint for a box behind text; soft-foreground = text on
+       that tint; hover = the tint a little stronger. Accent's base is its
+       foreground: --accent itself is already a pale tint. */
+    --color-link: rgb(var(--primary));
+    --color-field: rgb(var(--field-background));
+    --color-field-foreground: rgb(var(--foreground));
+    --color-field-border: rgb(var(--input));
+    --color-success-soft: color-mix(in oklab, rgb(var(--success)) 15%, transparent);
+    --color-success-soft-hover: color-mix(in oklab, rgb(var(--success)) 25%, transparent);
+    --color-success-soft-foreground: color-mix(in oklab, rgb(var(--success)) 70%, rgb(var(--foreground)));
+    --color-warning-soft: color-mix(in oklab, rgb(var(--warning)) 15%, transparent);
+    --color-warning-soft-hover: color-mix(in oklab, rgb(var(--warning)) 25%, transparent);
+    --color-warning-soft-foreground: color-mix(in oklab, rgb(var(--warning)) 70%, rgb(var(--foreground)));
+    --color-danger-soft: color-mix(in oklab, rgb(var(--danger)) 15%, transparent);
+    --color-danger-soft-hover: color-mix(in oklab, rgb(var(--danger)) 25%, transparent);
+    --color-danger-soft-foreground: color-mix(in oklab, rgb(var(--danger)) 70%, rgb(var(--foreground)));
+    --color-accent-soft: color-mix(in oklab, rgb(var(--accent-foreground)) 15%, transparent);
+    --color-accent-soft-hover: color-mix(in oklab, rgb(var(--accent-foreground)) 25%, transparent);
+    --color-accent-soft-foreground: rgb(var(--accent-foreground));
 }
 
 /*
@@ -358,4 +378,24 @@
     --color-sidebar-background: var(--sidebar-background);
     --color-active-indicator: var(--active-indicator);
     --color-hover-background: var(--hover-background);
+    /* Made from the colors above, so light, dark and the accent themes
+       follow. Soft = a tint for a box behind text; soft-foreground = text on
+       that tint; hover = the tint a little stronger. Accent's base is its
+       foreground: --accent itself is already a pale tint. */
+    --color-link: rgb(var(--primary));
+    --color-field: rgb(var(--field-background));
+    --color-field-foreground: rgb(var(--foreground));
+    --color-field-border: rgb(var(--input));
+    --color-success-soft: color-mix(in oklab, rgb(var(--success)) 15%, transparent);
+    --color-success-soft-hover: color-mix(in oklab, rgb(var(--success)) 25%, transparent);
+    --color-success-soft-foreground: color-mix(in oklab, rgb(var(--success)) 70%, rgb(var(--foreground)));
+    --color-warning-soft: color-mix(in oklab, rgb(var(--warning)) 15%, transparent);
+    --color-warning-soft-hover: color-mix(in oklab, rgb(var(--warning)) 25%, transparent);
+    --color-warning-soft-foreground: color-mix(in oklab, rgb(var(--warning)) 70%, rgb(var(--foreground)));
+    --color-danger-soft: color-mix(in oklab, rgb(var(--danger)) 15%, transparent);
+    --color-danger-soft-hover: color-mix(in oklab, rgb(var(--danger)) 25%, transparent);
+    --color-danger-soft-foreground: color-mix(in oklab, rgb(var(--danger)) 70%, rgb(var(--foreground)));
+    --color-accent-soft: color-mix(in oklab, rgb(var(--accent-foreground)) 15%, transparent);
+    --color-accent-soft-hover: color-mix(in oklab, rgb(var(--accent-foreground)) 25%, transparent);
+    --color-accent-soft-foreground: rgb(var(--accent-foreground));
 }
