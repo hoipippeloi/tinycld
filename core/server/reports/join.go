@@ -47,6 +47,7 @@ func enter(visiting map[string]bool, id, at string) (func(), error) {
 // reads the linked rows' paths). It reads row values only: no totals and no
 // running values.
 type joinCtx struct {
+	ctxBase
 	r        *rowsCTE
 	sc       *scope
 	prefix   []hopPlan
@@ -86,10 +87,6 @@ func (j *joinCtx) param(id, at string) (expr, error) {
 		return expr{}, err
 	}
 	return paramExpr(j, v), nil
-}
-
-func (j *joinCtx) subtotal(_, at string) (expr, error) {
-	return expr{}, invalid(at, "only a computed layout row reads a subtotal")
 }
 
 func (j *joinCtx) aggregate(op Aggregate, _ *Node, _ int, at string) (expr, error) {

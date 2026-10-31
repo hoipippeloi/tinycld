@@ -678,3 +678,30 @@ func checkAggregate(op Aggregate, t FieldType, scale int, at string) error {
 	}
 	return nil
 }
+
+// ctxBase is what every formula context shares: a subtotal is refused (only
+// a layout row reads one), an exists belongs in the filter, and an
+// aggregate's argument is compiled on a row and checked the same way.
+type ctxBase struct{}
+
+func (ctxBase) subtotal(_, at string) (expr, error) {
+	return expr{}, invalid(at, "only a computed layout row reads a subtotal")
+}
+
+func (ctxBase) exists(n *Node, at string) (expr, error) {
+	return expr{}, invalid(at, n.Op+" belongs in the filter")
+}
+
+// aggregateArg compiles an aggregate's argument over one base row and
+// checks that op accepts it.
+func (ctxBase) aggregateArg(r *rowsCTE, visiting map[string]bool, op Aggregate, arg *Node, scale int, at string) (expr, error) {
+	inner := &rowsCtx{r: r, inAggregate: true, visiting: visiting}
+	e, err := compileFormula(inner, arg, at+".args.0")
+	if err != nil {
+		return expr{}, err
+	}
+	if err := checkAggregate(op, e.typ, scale, at+".args.0"); err != nil {
+		return expr{}, err
+	}
+	return e, nil
+}

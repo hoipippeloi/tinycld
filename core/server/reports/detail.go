@@ -9,6 +9,7 @@ import (
 // the value inside an aggregate. Inside an aggregate it reads no to-many
 // total (a total of per-parent totals double-counts) and no other total.
 type rowsCtx struct {
+	ctxBase
 	r           *rowsCTE
 	inAggregate bool
 	// detail orders and partitions the detail rows for running values;
@@ -64,21 +65,13 @@ func (rc *rowsCtx) param(id, at string) (expr, error) {
 	return paramExpr(rc, v), nil
 }
 
-func (rc *rowsCtx) subtotal(_, at string) (expr, error) {
-	return expr{}, invalid(at, "only a computed layout row reads a subtotal")
-}
-
 // aggregate on a detail row is the aggregate of one row: sum(x) is x.
 func (rc *rowsCtx) aggregate(op Aggregate, arg *Node, scale int, at string) (expr, error) {
 	if rc.inAggregate {
 		return expr{}, invalid(at, "a total inside a total")
 	}
-	inner := &rowsCtx{r: rc.r, inAggregate: true, visiting: rc.visiting}
-	e, err := compileFormula(inner, arg, at+".args.0")
+	e, err := rc.aggregateArg(rc.r, rc.visiting, op, arg, scale, at)
 	if err != nil {
-		return expr{}, err
-	}
-	if err := checkAggregate(op, e.typ, scale, at+".args.0"); err != nil {
 		return expr{}, err
 	}
 	typ := aggregateType(op, e.typ, scale)
@@ -102,10 +95,6 @@ func (rc *rowsCtx) window(op string, arg *Node, scale int, at string) (expr, err
 		return expr{}, err
 	}
 	return windowSQL(op, e, scale, rc.detail, at)
-}
-
-func (rc *rowsCtx) exists(n *Node, at string) (expr, error) {
-	return expr{}, invalid(at, n.Op+" belongs in the filter")
 }
 
 func (rc *rowsCtx) bind(v any) string   { return rc.r.s.bind(v) }

@@ -210,6 +210,7 @@ func (lv *level) render(cells []string) []string {
 // levelCtx compiles a cell of a group, subtotal or total row from the
 // level's aggregates.
 type levelCtx struct {
+	ctxBase
 	lv       *level
 	visiting map[string]bool
 }
@@ -349,17 +350,9 @@ func (lc *levelCtx) param(id, at string) (expr, error) {
 	return paramExpr(lc, v), nil
 }
 
-func (lc *levelCtx) subtotal(_, at string) (expr, error) {
-	return expr{}, invalid(at, "only a computed layout row reads a subtotal")
-}
-
 func (lc *levelCtx) aggregate(op Aggregate, arg *Node, scale int, at string) (expr, error) {
-	inner := &rowsCtx{r: lc.lv.r, inAggregate: true, visiting: lc.visiting}
-	e, err := compileFormula(inner, arg, at+".args.0")
+	e, err := lc.aggregateArg(lc.lv.r, lc.visiting, op, arg, scale, at)
 	if err != nil {
-		return expr{}, err
-	}
-	if err := checkAggregate(op, e.typ, scale, at+".args.0"); err != nil {
 		return expr{}, err
 	}
 	name := fmt.Sprintf("y%d", len(lc.lv.aggs))
@@ -372,10 +365,6 @@ func (lc *levelCtx) window(op string, arg *Node, scale int, at string) (expr, er
 		return expr{}, err
 	}
 	return windowSQL(op, e, scale, lc.lv.frame, at)
-}
-
-func (lc *levelCtx) exists(n *Node, at string) (expr, error) {
-	return expr{}, invalid(at, n.Op+" belongs in the filter")
 }
 
 func (lc *levelCtx) bind(v any) string   { return lc.lv.r.s.bind(v) }
