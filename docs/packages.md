@@ -898,6 +898,7 @@ runtime. The registries that exist:
 | how to move ownership a flat FK rewrite cannot settle on offboarding | `offboard.RegisterHandler` |
 | which collections to audit-log | `audit.RegisterCollection` |
 | which view collections stay live, and the collections their SQL reads | `changesignal.RegisterView` |
+| which of its collections reports may read, with their fields and links (see "Report sources" below) | `reports.RegisterSource` |
 | a package membership table that carries group grants | `groups.RegisterGrantTable` |
 | join and leave events for group membership, sent after the change commits. Every listener runs, in registration order. Errors are logged, not retried; one listener's error does not stop the others. Boot sends no events, so a package reconciles its own state at boot. The event carries the app that saved the change; the registry is process global, so a listener works through `e.App`, not an app it captured | `groups.OnMembershipChange` |
 | its full-text index | `fts.Register` / `fts.RegisterSync` |
@@ -1049,6 +1050,101 @@ if err := changesignal.CheckViews(app); err != nil {
 when its bytecode opens a table, or an index of a table, that the
 registration does not cover. It also fails when the view or a source is
 registered by an id or by a spelling other than the collection's name.
+
+### Report sources
+
+Core's report engine (`tinycld.org/core/reports`) runs reports over every
+package's data. A report starts from a source and follows the source's
+links. It reads only the collections, fields and links that a source
+registers. Register sources from the package's `Register(app)`:
+
+```go
+reports.RegisterSource(reports.Source{
+    Key:        "zoo.feedings", // "<slug>.<name>", stable
+    Collection: "zoo_feedings",
+    Label:      "Feedings",
+    Fields: []reports.Field{
+        {Key: "cost", Label: "Cost", Type: reports.Money, Aggregates: reports.SumAll, Currency: "currency"},
+        {Key: "currency", Label: "Currency", Type: reports.Text},
+        {Key: "fed", Label: "Fed", Type: reports.Date, Aggregates: reports.MinMax},
+    },
+    Links: []reports.Link{
+        {Key: "animal", Label: "Animal", Target: "zoo.animals", Cardinality: reports.ToOne, Field: "animal"},
+    },
+    FiscalStartMonth: func(app core.App) int { return 1 },
+})
+```
+
+- Every link declares its cardinality. A to-one link names its single
+  relation `Field` on this source. A to-many link names its `BackField`: the
+  single relation on the target that points back at this source.
+- Field types are `Text`, `Number`, `Money` (integer cents), `Date`,
+  `DateTime`, `Bool`, `Select` (with `Options` for the labels) and
+  `Relation`. A money field names a `Currency` text field of the same source,
+  or the source sets `Source.Currency`, a function that gives one fixed
+  currency. A field offers the aggregates in `Aggregates` (`SumAll`,
+  `MinMax`, `CountOnly`); with none it can be counted. Every source also
+  offers `id`.
+- To rename or remove a field or a link, keep the old key in `Aliases`
+  (`"old": "new"`). Saved reports then keep working.
+- `FiscalStartMonth` (1 to 12) sets the fiscal year for the source's reports:
+  the fiscal presets, `fiscalYear` and `fiscalPeriod`.
+
+When the server starts, core checks every source against the database: the
+collection and each column exist with matching types, no column is hidden
+from the API, each link follows its relation, and the collection's list rule
+can be built for a reader. A source that fails, or links to a source that
+fails, is refused: core logs it and reports cannot use it. An auth
+collection's `email` column is always refused as a field, because each
+record's `emailVisibility` decides who sees it and a report cannot apply
+that. Pin your sources in the package's tests, after its migrations apply:
+
+```go
+if err := reports.CheckSources(app); err != nil {
+    t.Fatal(err)
+}
+```
+
+A report runs as its reader, through `POST /api/reports/run`. Every
+collection it reads, in every join and subquery, is filtered by the reader's
+own list rule: a linked row the reader cannot see leaves empty cells, and
+totals across a to-many link leave it out. A superuser-only rule (null)
+selects nothing, and a report never runs as a superuser. A report result lists
+the change-signal topics of every collection it read, so a raw-SQL write to a
+source's collection must call `changesignal.Touch` (see "Change signals and
+live views" above).
+
+**What a report refuses.** The engine answers 400 with the problem list when
+a spec breaks one of these limits, and 422 when it names a field or link that
+no source has:
+
+- A to-many link counts once. A formula reads a to-many path only through
+  `exists` or an aggregate column, and `with` does not apply to an `exists`
+  link.
+- A page cursor is tied to the report's sort keys and value types. A cursor
+  from a report that sorts differently, or sent to a grouped report, is
+  refused. Only a detail report has pages.
+- A layout holds at most 200 items. A computed row's formula, with the rows
+  it reads inlined, holds at most 2,000 nodes, and all computed rows together
+  at most 20,000 nodes (counted for every cell column). Reference fewer earlier rows or split
+  the statement.
+- A nested report refuses more than 30,000 parent rows. Filter the report or
+  lower its row limit.
+- The package slug `reports` is refused by the OAuth registry: its
+  `/api/reports/` routes belong to core.
+
+**What a report returns.**
+
+- Group, pivot and nest results stop at 5,000 rows and add a notice. A layout
+  report never drops its computed rows for the cap, and it ends in those
+  computed rows with no Total row.
+- A money value mixed with a non-money operand in a formula rounds to whole
+  cents.
+- A formula column that reads a row value outside an aggregate is blank on
+  group, subtotal and total rows, where there is no single row. Wrap the value
+  in an aggregate to total it.
+- A posted `null` or an empty multiple-choice list for a parameter means
+  unset: the filter matches every row.
 
 ### Test build tag
 
