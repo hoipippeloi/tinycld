@@ -1,14 +1,18 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import type { MutableRefObject } from 'react'
 import { useForm } from 'react-hook-form'
+import { TextInput } from 'react-native'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { bugDefinition, widgetHost } from '../../../lib/forms/__tests__/fixtures'
 import { definitionSchema, type FormDefinition } from '../../../lib/forms/definition'
-import { defaultDefinitionFor } from '../../../lib/forms/host'
+import { defaultDefinitionFor, hostDefSchema } from '../../../lib/forms/host'
+import type { BuiltinFieldProps, FormHostUi } from '../../../lib/forms/host-ui'
 import { evaluate } from '../../../lib/forms/logic'
 import { buildSchema } from '../../../lib/forms/values'
 import { FormRenderer } from '../FormRenderer'
-import { useSchemaRefResolver } from '../use-schema-ref-resolver'
+import { type FormSchema, useSchemaRefResolver } from '../use-schema-ref-resolver'
 
 afterEach(cleanup)
 
@@ -302,5 +306,98 @@ describe('FormRenderer labels', () => {
         expect(severity?.textContent).toContain('Severity')
         const name = byTestId(container, 'form-field-name')
         expect(name?.querySelector('[nativeID="form-label-name"]')?.textContent).toBe('Name')
+    })
+})
+
+const gadgetHostDef = hostDefSchema.parse({
+    key: 'gizmos:gadget',
+    label: 'Gadget',
+    collection: 'gizmos_gadgets',
+    formColumn: 'form',
+    fieldsColumn: 'fields',
+    columns: ['title', 'amount', 'label'],
+    builtin: [
+        { key: 'title', label: 'Title', kind: 'text', storage: 'column', required: true },
+        {
+            key: 'amount',
+            label: 'Amount',
+            kind: 'custom',
+            storage: 'column',
+            component: 'AmountField',
+        },
+        { key: 'label', label: 'Label', kind: 'text', storage: 'column', component: 'AmountField' },
+    ],
+})
+const gadget = {
+    ...gadgetHostDef,
+    pkgSlug: 'gizmos',
+    pkgName: 'Gizmos',
+    ui: async () => gadgetUi,
+}
+const gadgetDef = defaultDefinitionFor(gadgetHostDef)
+
+/** Sends a number, the way a host's own input hands the engine a parsed value. */
+function AmountField({ fieldKey, value, onChange }: BuiltinFieldProps) {
+    const text = typeof value === 'number' ? String(value) : ''
+    return (
+        <TextInput
+            testID={`amount-text-${fieldKey}`}
+            value={text}
+            onChangeText={next => onChange(Number(next))}
+        />
+    )
+}
+
+const gadgetUi: FormHostUi = {
+    components: { AmountField },
+    schemas: { AmountField: z.number().min(0, 'Use 0 or more') },
+}
+
+interface GadgetRefs {
+    form: { current: Form | null }
+    schema: { current: MutableRefObject<FormSchema> | null }
+}
+
+function GadgetHarness({ refs }: { refs: GadgetRefs }) {
+    const { form, schemaRef } = useGadgetForm()
+    refs.form.current = form
+    refs.schema.current = schemaRef
+    return (
+        <FormRenderer
+            host={gadget}
+            ui={gadgetUi}
+            definition={gadgetDef}
+            layout="sections"
+            form={form}
+            schemaRef={schemaRef}
+            context={ctx}
+        />
+    )
+}
+
+function useGadgetForm() {
+    const values = { title: 'T' }
+    const initial = buildSchema(gadgetDef, gadget, evaluate(gadgetDef, values, ctx))
+    const { schemaRef, resolver } = useSchemaRefResolver(initial)
+    const form = useForm<Record<string, unknown>>({ defaultValues: values, resolver })
+    return { form, schemaRef }
+}
+
+describe('FormRenderer host component schemas', () => {
+    it('validates a custom built-in with its component schema and shows its message', async () => {
+        const refs: GadgetRefs = { form: { current: null }, schema: { current: null } }
+        const { container } = render(<GadgetHarness refs={refs} />)
+        fireEvent.input(byTestId(container, 'amount-text-amount') as Element, {
+            target: { value: '-1' },
+        })
+        await waitFor(() => expect(refs.form.current?.getValues('amount')).toBe(-1))
+        await act(async () => {
+            await refs.form.current?.trigger('amount')
+        })
+        await waitFor(() =>
+            expect(byTestId(container, 'form-field-amount')?.textContent).toContain('Use 0 or more')
+        )
+        const parsed = refs.schema.current?.current.safeParse({ title: 'T', amount: -1 })
+        expect(parsed?.success).toBe(false)
     })
 })

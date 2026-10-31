@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { definitionSchema } from '../definition'
-import { defaultDefinitionFor } from '../host'
+import { defaultDefinitionFor, hostDefSchema } from '../host'
 import { evaluate } from '../logic'
-import { buildSchema, isSubmittedKind, mergeValues, splitValues } from '../values'
+import { buildSchema, type HostSchemas, isSubmittedKind, mergeValues, splitValues } from '../values'
 import { widgetHost } from './fixtures'
 
 const def = definitionSchema.parse({
@@ -321,5 +322,119 @@ describe('buildSchema messages', () => {
     })
     it('keeps the type message for a value of the wrong kind', () => {
         expect(messageFor({ name: 'n', count: 'many' }, 'count')).not.toBe('Count is required')
+    })
+})
+
+describe('buildSchema, host component schemas', () => {
+    const gadgetHost = hostDefSchema.parse({
+        key: 'gizmos:gadget',
+        label: 'Gadget',
+        collection: 'gizmos_gadgets',
+        formColumn: 'form',
+        fieldsColumn: 'fields',
+        columns: ['title', 'amount', 'label'],
+        builtin: [
+            { key: 'title', label: 'Title', kind: 'text', storage: 'column', required: true },
+            {
+                key: 'amount',
+                label: 'Amount',
+                kind: 'custom',
+                storage: 'column',
+                component: 'AmountField',
+            },
+            {
+                key: 'label',
+                label: 'Label',
+                kind: 'text',
+                storage: 'column',
+                component: 'AmountField',
+            },
+        ],
+    })
+    const gadgetDef = defaultDefinitionFor(gadgetHost)
+    const schemas: HostSchemas = { AmountField: z.number().min(0, 'Use 0 or more') }
+    const schemaFor = (values: Record<string, unknown>, withSchemas?: HostSchemas) =>
+        buildSchema(gadgetDef, gadgetHost, evaluate(gadgetDef, values, ctx), withSchemas)
+    const issuesOf = (r: { error?: { issues: { path: PropertyKey[]; message: string }[] } }) =>
+        r.error?.issues.map(i => ({ path: i.path, message: i.message }))
+
+    it('validates a custom built-in with the schema of its component', () => {
+        const refused = schemaFor({ title: 'T', amount: -1 }, schemas).safeParse({
+            title: 'T',
+            amount: -1,
+        })
+        expect(issuesOf(refused)).toEqual([{ path: ['amount'], message: 'Use 0 or more' }])
+        expect(
+            schemaFor({ title: 'T', amount: 5 }, schemas).safeParse({ title: 'T', amount: 5 })
+                .success
+        ).toBe(true)
+        expect(schemaFor({ title: 'T' }, schemas).safeParse({ title: 'T' }).success).toBe(true)
+    })
+    it('falls back to any value when the host supplies no schema', () => {
+        const values = { title: 'T', amount: 'x' }
+        expect(schemaFor(values).safeParse(values).success).toBe(true)
+        const refused = schemaFor(values, schemas).safeParse(values)
+        expect(refused.error?.issues.map(i => i.path.join('.'))).toEqual(['amount'])
+    })
+    it('keeps the kind schema of a built-in that is not custom but names the component', () => {
+        const values = { title: 'T', amount: -1, label: 3 }
+        const textIssue = schemaFor(values)
+            .safeParse(values)
+            .error?.issues.find(i => i.path[0] === 'label')?.message
+        expect(textIssue).toBeDefined()
+        expect(issuesOf(schemaFor(values, schemas).safeParse(values))).toEqual([
+            { path: ['amount'], message: 'Use 0 or more' },
+            { path: ['label'], message: textIssue },
+        ])
+    })
+    it('does not validate a custom built-in a rule hides', () => {
+        const hiding = definitionSchema.parse({
+            ...gadgetDef,
+            rules: [
+                {
+                    key: 'hide_amount',
+                    when: [{ field: 'title', op: 'eq', value: 'Hidden' }],
+                    actions: [{ action: 'hide', field: 'amount' }],
+                },
+            ],
+        })
+        const parse = (values: Record<string, unknown>) =>
+            buildSchema(hiding, gadgetHost, evaluate(hiding, values, ctx), schemas).safeParse(
+                values
+            )
+        expect(parse({ title: 'Hidden', amount: -1 }).success).toBe(true)
+        expect(issuesOf(parse({ title: 'Shown', amount: -1 }))).toEqual([
+            { path: ['amount'], message: 'Use 0 or more' },
+        ])
+    })
+    it('requires a custom built-in the state requires', () => {
+        const required = definitionSchema.parse({ ...gadgetDef, submit: { required: ['amount'] } })
+        const parse = (values: Record<string, unknown>) =>
+            buildSchema(required, gadgetHost, evaluate(required, values, ctx), schemas).safeParse(
+                values
+            )
+        expect(parse({ title: 'T' }).error?.issues.map(i => i.path.join('.'))).toEqual(['amount'])
+        expect(issuesOf(parse({ title: 'T' }))).toEqual([
+            { path: ['amount'], message: 'Amount is required' },
+        ])
+        expect(issuesOf(parse({ title: 'T', amount: -1 }))).toEqual([
+            { path: ['amount'], message: 'Use 0 or more' },
+        ])
+    })
+    it('refuses an empty required custom built-in with the missing text even when its schema accepts empty', () => {
+        const required = definitionSchema.parse({ ...gadgetDef, submit: { required: ['amount'] } })
+        const acceptsEmpty: HostSchemas = { AmountField: z.union([z.number(), z.literal('')]) }
+        const values = { title: 'T', amount: '' }
+        const refused = buildSchema(
+            required,
+            gadgetHost,
+            evaluate(required, values, ctx),
+            acceptsEmpty
+        ).safeParse(values)
+        expect(issuesOf(refused)).toEqual([{ path: ['amount'], message: 'Amount is required' }])
+    })
+    it('accepts null for a custom built-in that is not required', () => {
+        const values = { title: 'T', amount: null }
+        expect(schemaFor(values, schemas).safeParse(values).success).toBe(true)
     })
 })

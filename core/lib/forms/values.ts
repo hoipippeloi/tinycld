@@ -200,16 +200,45 @@ function schemaFor(
     return required ? s : s.optional()
 }
 
-/** The submit schema for the fields visible in this state. Rows, sections and collaborative text are excluded. */
-export function buildSchema(def: FormDefinition, host: FormHostDef, state: FormState) {
+/** A host component's value schema, keyed by the built-in's component name. */
+export type HostSchemas = Readonly<Record<string, ZodTypeAny>>
+
+/**
+ * Core still owns presence: a missing required value reads as every other kind's missing
+ * text (`''` counts as missing), and an optional one passes null or undefined. Any other value,
+ * `''` on an optional field included, goes to the host schema.
+ */
+function hostValueSchema(own: ZodTypeAny, required: boolean, missing: string): ZodTypeAny {
+    if (!required) return own.nullable().optional()
+    return z
+        .unknown()
+        .refine(v => v !== null && v !== undefined && v !== '', missing)
+        .pipe(own)
+}
+
+/**
+ * The submit schema for the fields visible in this state. Rows, sections and collaborative
+ * text are excluded. A custom built-in whose component is a key of `schemas` takes that schema.
+ */
+export function buildSchema(
+    def: FormDefinition,
+    host: FormHostDef,
+    state: FormState,
+    schemas: HostSchemas = {}
+) {
     const shape: Record<string, ZodTypeAny> = {}
     for (const f of def.fields) {
         // A host table's rows are not submitted with the record, but they are validated here.
         if (!isSubmittedKind(host, f) && !isHostTable(host, f)) continue
-        if (resolveKind(host, f).kind === 'computed') continue
+        const { kind, builtin } = resolveKind(host, f)
+        if (kind === 'computed') continue
         const st = state.fields[f.key]
         if (!st?.visible) continue
-        shape[f.key] = schemaFor(host, f, st.required, st.options)
+        // A host component knows its value's shape and its own messages; core cannot
+        // read them from the definition.
+        const own = kind === 'custom' && builtin?.component ? schemas[builtin.component] : undefined
+        if (own) shape[f.key] = hostValueSchema(own, st.required, `${f.label} is required`)
+        else shape[f.key] = schemaFor(host, f, st.required, st.options)
     }
     // Passthrough keeps hidden, row and collaborative values in the output, so the resolver can
     // hand them to splitValues. Only the keys in `shape` are validated.
