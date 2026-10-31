@@ -311,9 +311,18 @@ func TestLayoutManySectionsRunsFast(t *testing.T) {
 	}
 }
 
-func TestLayoutValidateCountsTheWidestPivot(t *testing.T) {
+func TestLayoutSectionIdsThatDifferInCase(t *testing.T) {
 	z := newZoo(t)
-	_ = z
+	raw := layoutOf(`{"section":"L","title":"Lions","key":"lion"},{"section":"l","title":"Zebras","key":"zebra"},
+		{"row":"big","label":"Big L","formula":{"subtotal":"L"}},
+		{"row":"small","label":"Small l","formula":{"subtotal":"l"}}`)
+	res := z.run(t, "ann", raw, Options{}, nil)
+	requireRows(t, res, "label", "Lions", "Total Lions", "Zebras", "Total Zebras", "Big L", "Small l")
+	requireRows(t, res, "cost", int64(3500), int64(3500), int64(1000), int64(1000), int64(3500), int64(1000))
+}
+
+func TestLayoutValidateCountsTheWidestPivot(t *testing.T) {
+	newZoo(t)
 	doubling := lions + `,{"row":"r0","label":"R","formula":{"subtotal":"cats"}}`
 	for i := 1; i <= 6; i++ {
 		doubling += fmt.Sprintf(`,{"row":"r%d","label":"R","formula":{"op":"add","args":[{"subtotal":"r%d"},{"subtotal":"r%d"}]}}`, i, i-1, i-1)

@@ -26,7 +26,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) (ctes, legs []string, err er
 		cur = "(SELECT DISTINCT " + strings.Join(c.currencies, ", ") + " FROM o1 UNION ALL SELECT " + nulls +
 			" WHERE NOT EXISTS (SELECT 1 FROM o1)) cur"
 	}
-	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}, chunkOf: map[string]int{}, keys: map[string]string{}}
+	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}, chunkOf: map[string]sectionSlot{}, keys: map[string]string{}}
 	for idx, cp := range c.p.cols {
 		if t := c.levelTypes[cp.col.ID]; isNumeric(t) && t != Bool {
 			lc.cellNames = append(lc.cellNames, fmt.Sprintf("v%d", idx))
@@ -97,7 +97,10 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) (ctes, legs []string, err er
 }
 
 // maxJoinedChunks keeps a computed row's select under SQLite's limit of 64
-// tables in a join.
+// tables in a join. Under maxLayoutCompiled a row cannot read enough
+// sections to join this many chunks (each chunk holds 1000 / cells sections,
+// and each section read is compiled once per cell), so the check never fires
+// today; it is a guard in case those limits change.
 const maxJoinedChunks = 60
 
 // joins joins the section CTEs the computed row being compiled reads, each
@@ -133,11 +136,24 @@ type layoutCtx struct {
 	// and keys are by section id; used lists the chunks the computed row
 	// being compiled joins; cellNames are the cell columns of o1 to read.
 	chunks    [][]string
-	chunkOf   map[string]int
+	chunkOf   map[string]sectionSlot
 	keys      map[string]string
 	used      []int
 	perChunk  int
 	cellNames []string
+}
+
+// sectionSlot is where a section's cells are read: its chunk's CTE, and n,
+// the order in which the layout first read it.
+type sectionSlot struct {
+	chunk, n int
+}
+
+// column names a section's cell in its chunk's CTE by the section's number,
+// never by its id: SQLite column names ignore case, and ids "L" and "l" are
+// two sections.
+func (s sectionSlot) column(cell string) string {
+	return fmt.Sprintf("s%d_%s", s.n, cell)
 }
 
 // chunkColumns is the most columns a section chunk's CTE holds.
@@ -191,23 +207,23 @@ func (lc *layoutCtx) subtotal(id, at string) (expr, error) {
 	if lc.cell == "" {
 		return expr{sql: "NULL", typ: Number}, nil
 	}
-	chunk, ok := lc.chunkOf[id]
+	slot, ok := lc.chunkOf[id]
 	if !ok {
 		// A section's cells are read from o1 once, in the CTE of its chunk,
 		// however many cells and computed rows use them.
 		if n := len(lc.chunks); n == 0 || len(lc.chunks[n-1]) >= lc.perChunk {
 			lc.chunks = append(lc.chunks, nil)
 		}
-		chunk = len(lc.chunks) - 1
-		lc.chunks[chunk] = append(lc.chunks[chunk], id)
-		lc.chunkOf[id] = chunk
+		slot = sectionSlot{chunk: len(lc.chunks) - 1, n: len(lc.chunkOf)}
+		lc.chunks[slot.chunk] = append(lc.chunks[slot.chunk], id)
+		lc.chunkOf[id] = slot
 		lc.keys[id] = lc.s.bind(sectionKey(item))
 	}
-	if !slices.Contains(lc.used, chunk) {
-		lc.used = append(lc.used, chunk)
+	if !slices.Contains(lc.used, slot.chunk) {
+		lc.used = append(lc.used, slot.chunk)
 	}
 	// An empty section counts as zero.
-	return expr{sql: fmt.Sprintf("COALESCE(ls%d.%s_%s, 0)", chunk, id, lc.cell), typ: lc.typ}, nil
+	return expr{sql: fmt.Sprintf("COALESCE(ls%d.%s, 0)", slot.chunk, slot.column(lc.cell)), typ: lc.typ}, nil
 }
 
 // chunkCTEs renders one CTE per chunk of sections. Each has one row per
@@ -219,7 +235,7 @@ func (lc *layoutCtx) chunkCTEs() []string {
 		cols := slices.Clone(lc.c.currencies)
 		for _, id := range ids {
 			for _, cell := range lc.cellNames {
-				cols = append(cols, fmt.Sprintf("MAX(CASE WHEN k0 IS %s THEN %s END) AS %s_%s", lc.keys[id], cell, id, cell))
+				cols = append(cols, fmt.Sprintf("MAX(CASE WHEN k0 IS %s THEN %s END) AS %s", lc.keys[id], cell, lc.chunkOf[id].column(cell)))
 			}
 		}
 		group := ""
