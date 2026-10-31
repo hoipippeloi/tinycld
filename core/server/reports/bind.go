@@ -512,6 +512,21 @@ func (b *binder) groupsAndPivot(p *plan) {
 	p.pivot = pp
 }
 
+// layoutSectionKey refuses a section key that is not a scalar, or that
+// another section already shows.
+func (b *binder) layoutSectionKey(at string, item *LayoutItem, seen map[string]bool) {
+	key, err := layoutKey(item.Key)
+	if err != nil {
+		b.bad(at, errLayoutKey)
+		return
+	}
+	id := keyString([]any{key})
+	if seen[id] {
+		b.bad(at, "two sections show the same group")
+	}
+	seen[id] = true
+}
+
 func (b *binder) layout(p *plan) {
 	items := p.spec.Layout
 	if len(items) == 0 {
@@ -524,6 +539,7 @@ func (b *binder) layout(p *plan) {
 		b.bad("layout", "a layout selects rows by the first group, so it needs a group")
 	}
 	seen := map[string]bool{}
+	keys := map[string]bool{}
 	for i := range items {
 		item := &items[i]
 		at := fmt.Sprintf("layout.%d", i)
@@ -543,6 +559,9 @@ func (b *binder) layout(p *plan) {
 			b.bad(at, "a computed row has a label and a formula")
 		case len(item.Title) > maxLabel || len(item.Label) > maxLabel:
 			b.bad(at, fmt.Sprintf("a title or label has at most %d characters", maxLabel))
+		}
+		if isSection && item.Key != nil {
+			b.layoutSectionKey(at+".key", item, keys)
 		}
 		seen[id] = true
 		p.layout = append(p.layout, item)

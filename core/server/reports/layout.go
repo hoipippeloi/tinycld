@@ -19,15 +19,29 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 	}
 	cur := "(SELECT 1) cur"
 	if len(c.currencies) > 0 {
-		cur = "(SELECT DISTINCT " + strings.Join(c.currencies, ", ") + " FROM o1) cur"
+		// With no visible rows the computed rows still come, once, with no
+		// currency, as they do for a report without currencies.
+		nulls := strings.TrimSuffix(strings.Repeat("NULL, ", len(c.currencies)), ", ")
+		cur = "(SELECT DISTINCT " + strings.Join(c.currencies, ", ") + " FROM o1 UNION ALL SELECT " + nulls +
+			" WHERE NOT EXISTS (SELECT 1 FROM o1)) cur"
 	}
 	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}}
+	sizes := map[string]int{}
 	var legs []string
 	for i, item := range c.p.layout {
 		at := fmt.Sprintf("layout.%d", i)
 		if item.Section != "" {
+			if _, err := layoutKey(item.Key); err != nil {
+				return nil, invalid(at+".key", errLayoutKey)
+			}
 			lc.items[item.Section] = item
 			continue
+		}
+		// A formula that reads an earlier row is compiled with that row
+		// inside it, so its size grows with every reference.
+		sizes[item.Row] = expandedSize(item.Formula, sizes)
+		if sizes[item.Row] > maxLayoutNodes {
+			return nil, invalid(at, "the layout's computed rows are too large; reference fewer earlier rows")
 		}
 		cells := []string{fmt.Sprintf("%d AS __level", len(c.p.groups)+1), s.bind(item.Row) + " AS __row"}
 		for g := range c.p.groups {
@@ -38,7 +52,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 		}
 		// Compiled once on no column, so a layout with no number columns
 		// is still checked.
-		lc.cell = ""
+		lc.cell, lc.typ = "", Number
 		if _, err := lc.row(item, at+".formula"); err != nil {
 			return nil, err
 		}
@@ -47,7 +61,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 				cells = append(cells, fmt.Sprintf("NULL AS v%d", idx))
 				continue
 			}
-			lc.cell = fmt.Sprintf("v%d", idx)
+			lc.cell, lc.typ = fmt.Sprintf("v%d", idx), c.levelTypes[cp.col.ID]
 			e, err := lc.row(item, at+".formula")
 			if err != nil {
 				return nil, err
@@ -55,7 +69,7 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 			cells = append(cells, e.sql+" AS "+lc.cell)
 		}
 		for j := range pivot {
-			lc.cell = fmt.Sprintf("pv%d", j)
+			lc.cell, lc.typ = fmt.Sprintf("pv%d", j), c.levelTypes[c.p.pivot.cell.col.ID]
 			e, err := lc.row(item, at+".formula")
 			if err != nil {
 				return nil, err
@@ -80,6 +94,28 @@ type layoutCtx struct {
 	items map[string]*LayoutItem
 	// cell is the result column being compiled; empty for the check pass.
 	cell string
+	// typ is the type of that column's cells, which a subtotal keeps so the
+	// money rules apply to a computed row.
+	typ FieldType
+}
+
+// maxLayoutNodes caps the size of a computed row's formula after the rows it
+// reads are inlined.
+const maxLayoutNodes = 2000
+
+const errLayoutKey = "a section key is text, a number, true, false or null"
+
+// expandedSize counts a formula's nodes with each earlier row it reads
+// counted in full.
+func expandedSize(n *Node, rows map[string]int) int {
+	if n == nil {
+		return 0
+	}
+	size := 1 + rows[n.Subtotal]
+	for _, a := range n.Args {
+		size += expandedSize(a, rows)
+	}
+	return size
 }
 
 func (lc *layoutCtx) row(item *LayoutItem, at string) (expr, error) {
@@ -108,14 +144,14 @@ func (lc *layoutCtx) subtotal(id, at string) (expr, error) {
 	}
 	key, err := layoutKey(item.Key)
 	if err != nil {
-		return expr{}, invalid(at, "a section key is text, a number, true, false or null")
+		return expr{}, invalid(at, errLayoutKey)
 	}
 	conds := []string{"o.k0 IS " + lc.s.bind(key)}
 	for _, ck := range lc.c.currencies {
 		conds = append(conds, "o."+ck+" IS cur."+ck)
 	}
 	// An empty section counts as zero.
-	return expr{sql: fmt.Sprintf("COALESCE((SELECT o.%s FROM o1 o WHERE %s), 0)", lc.cell, strings.Join(conds, " AND ")), typ: Number}, nil
+	return expr{sql: fmt.Sprintf("COALESCE((SELECT o.%s FROM o1 o WHERE %s), 0)", lc.cell, strings.Join(conds, " AND ")), typ: lc.typ}, nil
 }
 
 func layoutKey(raw json.RawMessage) (any, error) {
@@ -128,7 +164,13 @@ func layoutKey(raw json.RawMessage) (any, error) {
 	switch x := v.(type) {
 	case json.Number:
 		return numberValue(x), nil
-	case nil, string, bool:
+	case bool:
+		// A bool group key is read from SQLite as 0 or 1.
+		if x {
+			return int64(1), nil
+		}
+		return int64(0), nil
+	case nil, string:
 		return x, nil
 	}
 	return nil, fmt.Errorf("not a scalar")
@@ -143,6 +185,7 @@ func (lc *layoutCtx) aggregate(_ Aggregate, _ *Node, _ int, at string) (expr, er
 func (lc *layoutCtx) window(_ string, _ *Node, _ int, at string) (expr, error) {
 	return expr{}, lc.only(at)
 }
+func (lc *layoutCtx) exists(_ *Node, at string) (expr, error) { return expr{}, lc.only(at) }
 func (lc *layoutCtx) only(at string) error {
 	return invalid(at, "a computed row reads sections' subtotals, earlier rows and values")
 }
@@ -169,7 +212,11 @@ func (rn *runner) layoutRows(t *tree, total map[string]any) {
 			rn.push(Row{ID: id, Kind: KindComputed, Label: item.Label, Cells: rn.cells(row)})
 			continue
 		}
-		key, _ := layoutKey(item.Key)
+		// layoutLegs refused a bad key before any row was read.
+		key, err := layoutKey(item.Key)
+		if err != nil {
+			continue
+		}
 		row := byKey[keyString([]any{key})]
 		if row == nil {
 			row = map[string]any{"k0": key, "__level": int64(1)}

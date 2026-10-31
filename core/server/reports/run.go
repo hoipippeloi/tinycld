@@ -318,15 +318,42 @@ func (rn *runner) groupPass() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := rn.query(s, append([]string{r.render()}, ctes...), body+" LIMIT "+s.bind(int64(runLimits.rowCap+1)))
+	// A statement without its computed rows is wrong, not just short: they
+	// come last, so the limit leaves room for them and the cap trims the
+	// other rows.
+	computed := 0
+	for _, item := range c.p.layout {
+		if item.Row != "" {
+			computed++
+		}
+	}
+	rows, err := rn.query(s, append([]string{r.render()}, ctes...), body+" LIMIT "+s.bind(int64(runLimits.rowCap+1+computed)))
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > runLimits.rowCap {
-		rows = rows[:runLimits.rowCap]
+	rows, capped := capKeepingComputed(rows, runLimits.rowCap)
+	if capped {
 		rn.capNotice()
 	}
 	return rows, nil
+}
+
+// capKeepingComputed keeps the first limit rows that are not a layout's
+// computed rows, and every computed row.
+func capKeepingComputed(rows []map[string]any, limit int) ([]map[string]any, bool) {
+	out := make([]map[string]any, 0, len(rows))
+	capped := false
+	for _, row := range rows {
+		if row["__row"] == nil {
+			if limit == 0 {
+				capped = true
+				continue
+			}
+			limit--
+		}
+		out = append(out, row)
+	}
+	return out, capped
 }
 
 // capNotice says the row cap applied, once per run however many passes
