@@ -168,6 +168,7 @@ func bind(spec *Spec) (*plan, *SpecError) {
 	p := &plan{spec: spec, base: base, byID: map[string]*colPlan{}}
 	b.merge(checkParamDefs(spec.Params))
 	b.columns(p)
+	b.formulaSizes(p)
 	b.nestChain(p)
 	b.sorts(p)
 	b.groupsAndPivot(p)
@@ -242,6 +243,72 @@ func (b *binder) pathColumn(p *plan, cp *colPlan) {
 	default:
 		b.scaleOf(cp, c.Aggregate)
 	}
+}
+
+// formulaSize is a formula's nodes and levels as the compiler builds it:
+// every formula column it reads is compiled into it, so a column read twice
+// counts twice.
+type formulaSize struct{ nodes, depth int }
+
+// formulaSizes refuses a formula column or a filter that passes the formula
+// limits once the formula columns it reads are inlined. Each column's size is
+// counted once, so a chain of columns that each read the one before twice is
+// refused without compiling it.
+func (b *binder) formulaSizes(p *plan) {
+	memo := map[string]formulaSize{}
+	check := func(at string, sz formulaSize) {
+		if sz.nodes > maxFormulaNodes || sz.depth > maxFormulaDepth {
+			b.bad(at, fmt.Sprintf("with the formula columns it reads, a formula has at most %d levels and %d nodes", maxFormulaDepth, maxFormulaNodes))
+		}
+	}
+	for _, cp := range p.cols {
+		if cp.col.Formula != nil {
+			check(cp.at, p.columnSize(cp, memo, map[string]bool{}))
+		}
+	}
+	if f := p.spec.Filter; f != nil {
+		check("filter", p.nodeSize(f, memo, map[string]bool{}, true))
+	}
+}
+
+// columnSize is a column's inlined size: 1 for a path column.
+func (p *plan) columnSize(cp *colPlan, memo map[string]formulaSize, visiting map[string]bool) formulaSize {
+	id := cp.col.ID
+	if cp.col.Formula == nil || visiting[id] {
+		// A column that reads itself is refused when it compiles.
+		return formulaSize{nodes: 1}
+	}
+	if sz, ok := memo[id]; ok {
+		return sz
+	}
+	visiting[id] = true
+	sz := p.nodeSize(cp.col.Formula, memo, visiting, true)
+	delete(visiting, id)
+	memo[id] = sz
+	return sz
+}
+
+// nodeSize counts a node's tree. The count stops just past the limit, so a
+// long doubling chain never overflows into a small number.
+func (p *plan) nodeSize(n *Node, memo map[string]formulaSize, visiting map[string]bool, inline bool) formulaSize {
+	if cp := p.byID[n.Col]; cp != nil && inline {
+		return p.columnSize(cp, memo, visiting)
+	}
+	sz := formulaSize{nodes: 1}
+	add := func(child *Node, inline bool) {
+		if child == nil {
+			return
+		}
+		c := p.nodeSize(child, memo, visiting, inline)
+		sz.nodes = min(sz.nodes+c.nodes, maxFormulaNodes+1)
+		sz.depth = max(sz.depth, c.depth+1)
+	}
+	for _, a := range n.Args {
+		add(a, inline)
+	}
+	// A where reads the linked rows' paths, never report columns.
+	add(n.Where, false)
+	return sz
 }
 
 func (b *binder) scaleOf(cp *colPlan, agg Aggregate) {

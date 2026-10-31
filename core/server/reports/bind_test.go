@@ -2,6 +2,8 @@ package reports
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -123,6 +125,62 @@ func TestValidateRefusesAnInvalidSpec(t *testing.T) {
 			requireSpecError(t, Validate(&spec), 400, c.at, c.want)
 		})
 	}
+}
+
+// chainSpec is grams as c0, then n formula columns: c<i> is step with PREV
+// standing for c<i-1>.
+func chainSpec(n int, step string) string {
+	cols := []string{`{"id":"c0","path":[{"field":"grams"}]}`}
+	for i := 1; i <= n; i++ {
+		formula := strings.ReplaceAll(step, "PREV", fmt.Sprintf("c%d", i-1))
+		cols = append(cols, fmt.Sprintf(`{"id":"c%d","formula":%s}`, i, formula))
+	}
+	return `{"version":1,"source":"zoo.feedings","columns":[` + strings.Join(cols, ",") + `]}`
+}
+
+const doubling = `{"op":"add","args":[{"col":"PREV"},{"col":"PREV"}]}`
+
+// Each column reads the one before twice, so its formula doubles once the
+// columns it reads are inlined: c9 has 1,023 nodes. Validate refuses it from
+// the columns' sizes, before anything compiles. With 99 columns the last one
+// has 2^100 nodes: the count must not overflow into a small number.
+func TestValidateRefusesAFormulaChainThatDoubles(t *testing.T) {
+	withZooRegistry(t)
+	for _, n := range []int{27, 99} {
+		err := Validate(loadSpec(t, chainSpec(n, doubling)))
+		requireSpecError(t, err, 400, "columns.9", "with the formula columns it reads")
+		requireSpecError(t, err, 400, fmt.Sprintf("columns.%d", n), "with the formula columns it reads")
+		if _, ok := err.(*SpecError).Problems["columns.8"]; ok {
+			t.Fatalf("n=%d: c8 (511 nodes) was refused: %v", n, err)
+		}
+	}
+}
+
+// Each column adds one level to the one before, so c33 is 33 levels deep
+// once inlined; SQLite would refuse the statement at run time.
+func TestValidateRefusesADeepFormulaChain(t *testing.T) {
+	withZooRegistry(t)
+	err := Validate(loadSpec(t, chainSpec(40, `{"op":"add","args":[{"col":"PREV"},{"value":1}]}`)))
+	requireSpecError(t, err, 400, "columns.33", "with the formula columns it reads")
+	if _, ok := err.(*SpecError).Problems["columns.32"]; ok {
+		t.Fatalf("c32 (32 levels) was refused: %v", err)
+	}
+}
+
+// A filter is compiled with the columns it reads inlined too.
+func TestValidateRefusesAFilterTooLargeWithTheColumnsItReads(t *testing.T) {
+	withZooRegistry(t)
+	raw := strings.TrimSuffix(chainSpec(8, doubling), "}") + `,"filter":{"op":"and","args":[
+		{"op":"gt","args":[{"col":"c8"},{"value":0}]},{"op":"gt","args":[{"col":"c8"},{"value":0}]}]}}`
+	requireSpecError(t, Validate(loadSpec(t, raw)), 400, "filter", "with the formula columns it reads")
+}
+
+// Run binds the spec the same way: the doubling chain is a 400, not a
+// statement that takes hours to build.
+func TestRunRefusesAFormulaChainThatDoubles(t *testing.T) {
+	z := newZoo(t)
+	_, err := z.try(t, "ann", chainSpec(27, doubling), Options{}, nil)
+	requireSpecError(t, err, 400, "columns.9", "with the formula columns it reads")
 }
 
 func TestBindRecordsTheNestChain(t *testing.T) {

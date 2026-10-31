@@ -25,12 +25,14 @@ type level struct {
 	tmCols   []string // g<L> values taken from d<L>
 	frame    *windowFrame
 	visiting map[string]bool
+	// reads memoizes readsRowValue per formula column.
+	reads map[string]bool
 }
 
 // level prepares level n: its keys, its parent partition, and the order of
 // its sibling rows, which running values read.
 func (c *compiler) level(r *rowsCTE, n int) (*level, error) {
-	lv := &level{c: c, r: r, n: n, aggNames: map[string]bool{}, visiting: map[string]bool{}}
+	lv := &level{c: c, r: r, n: n, aggNames: map[string]bool{}, visiting: map[string]bool{}, reads: map[string]bool{}}
 	for i := range n {
 		lv.keys = append(lv.keys, fmt.Sprintf("k%d", i))
 	}
@@ -318,9 +320,16 @@ func (lv *level) readsRowValue(n *Node, inAggregate bool, seen map[string]bool) 
 		if lv.isGroupColumn(cp) {
 			return true
 		}
+		// Memoized: a chain of columns that each read the one before twice
+		// would otherwise be walked once per path through it.
+		if reads, ok := lv.reads[n.Col]; ok {
+			return reads
+		}
 		seen[n.Col] = true
 		defer delete(seen, n.Col)
-		return lv.readsRowValue(cp.col.Formula, false, seen)
+		reads := lv.readsRowValue(cp.col.Formula, false, seen)
+		lv.reads[n.Col] = reads
+		return reads
 	}
 	inAggregate = inAggregate || aggregateOp(n)
 	for _, a := range n.Args {
