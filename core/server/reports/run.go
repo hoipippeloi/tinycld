@@ -314,46 +314,39 @@ func (rn *runner) groupPass() ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctes, body, err := c.groupStatement(s, r, rn.expand, pivot)
+	// A statement without its computed rows is wrong, not just short: the
+	// statement limits the level rows and adds the computed rows after.
+	ctes, body, err := c.groupStatement(s, r, rn.expand, pivot, int64(runLimits.rowCap+1))
 	if err != nil {
 		return nil, err
 	}
-	// A statement without its computed rows is wrong, not just short: they
-	// come last, so the limit leaves room for them and the cap trims the
-	// other rows.
-	computed := 0
-	for _, item := range c.p.layout {
-		if item.Row != "" {
-			computed++
-		}
-	}
-	rows, err := rn.query(s, append([]string{r.render()}, ctes...), body+" LIMIT "+s.bind(int64(runLimits.rowCap+1+computed)))
+	rows, err := rn.query(s, append([]string{r.render()}, ctes...), body)
 	if err != nil {
 		return nil, err
 	}
-	rows, capped := capKeepingComputed(rows, runLimits.rowCap)
-	if capped {
-		rn.capNotice()
-	}
-	return rows, nil
+	return rn.capLevelRows(rows), nil
 }
 
-// capKeepingComputed keeps the first limit rows that are not a layout's
-// computed rows, and every computed row.
-func capKeepingComputed(rows []map[string]any, limit int) ([]map[string]any, bool) {
-	out := make([]map[string]any, 0, len(rows))
-	capped := false
+// capLevelRows drops the level row past the cap (the statement fetched one
+// more to tell) and keeps every computed row, which follow the level rows.
+func (rn *runner) capLevelRows(rows []map[string]any) []map[string]any {
+	levels := 0
 	for _, row := range rows {
 		if row["__row"] == nil {
-			if limit == 0 {
-				capped = true
-				continue
-			}
-			limit--
+			levels++
 		}
-		out = append(out, row)
 	}
-	return out, capped
+	if levels <= runLimits.rowCap {
+		return rows
+	}
+	rn.capNotice()
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if row["__row"] != nil || len(out) < runLimits.rowCap {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 // capNotice says the row cap applied, once per run however many passes
@@ -371,7 +364,7 @@ func notASortKey(at string) error {
 
 // groupStatement is the UNION ALL of every level's rows (the children of
 // expanded groups only) and the layout's computed rows.
-func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot []any) ([]string, string, error) {
+func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot []any, limit int64) ([]string, string, error) {
 	var ctes, legs []string
 	c.levelTypes = map[string]FieldType{}
 	for n := 0; n <= len(c.p.groups); n++ {
@@ -404,8 +397,11 @@ func (c *compiler) groupStatement(s *stmt, r *rowsCTE, expand *expansion, pivot 
 	if err != nil {
 		return nil, "", err
 	}
-	legs = append(legs, computed...)
-	return ctes, strings.Join(legs, "\nUNION ALL\n") + "\nORDER BY __level, __ord", nil
+	// The limit applies to the level rows only: computed rows sort last, so a
+	// limit on the whole statement would drop them first.
+	levels := fmt.Sprintf("SELECT * FROM (%s\nORDER BY __level, __ord LIMIT %s)", strings.Join(legs, "\nUNION ALL\n"), s.bind(limit))
+	all := append([]string{levels}, computed...)
+	return ctes, strings.Join(all, "\nUNION ALL\n") + "\nORDER BY __level, __ord", nil
 }
 
 // detailPass runs the detail statement: one row per base row, a page at a
@@ -626,6 +622,6 @@ func compileDry(p *plan) error {
 	if p.pivot != nil {
 		pivot = []any{nil}
 	}
-	_, _, err = c.groupStatement(s, r, &expansion{}, pivot)
+	_, _, err = c.groupStatement(s, r, &expansion{}, pivot, 1)
 	return err
 }

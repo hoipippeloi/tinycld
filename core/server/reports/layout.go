@@ -25,22 +25,22 @@ func (c *compiler) layoutLegs(s *stmt, pivot []any) ([]string, error) {
 		cur = "(SELECT DISTINCT " + strings.Join(c.currencies, ", ") + " FROM o1 UNION ALL SELECT " + nulls +
 			" WHERE NOT EXISTS (SELECT 1 FROM o1)) cur"
 	}
-	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}}
+	lc := &layoutCtx{c: c, s: s, items: map[string]*LayoutItem{}, keyParams: map[string]string{}}
 	sizes := map[string]int{}
+	compiled := 0
 	var legs []string
 	for i, item := range c.p.layout {
 		at := fmt.Sprintf("layout.%d", i)
 		if item.Section != "" {
-			if _, err := layoutKey(item.Key); err != nil {
-				return nil, invalid(at+".key", errLayoutKey)
-			}
 			lc.items[item.Section] = item
 			continue
 		}
 		// A formula that reads an earlier row is compiled with that row
-		// inside it, so its size grows with every reference.
+		// inside it, so its size grows with every reference, and it is
+		// compiled once for every cell.
 		sizes[item.Row] = expandedSize(item.Formula, sizes)
-		if sizes[item.Row] > maxLayoutNodes {
+		compiled += sizes[item.Row] * (len(c.p.cols) + len(pivot))
+		if sizes[item.Row] > maxLayoutNodes || compiled > maxLayoutCompiled {
 			return nil, invalid(at, "the layout's computed rows are too large; reference fewer earlier rows")
 		}
 		cells := []string{fmt.Sprintf("%d AS __level", len(c.p.groups)+1), s.bind(item.Row) + " AS __row"}
@@ -97,11 +97,18 @@ type layoutCtx struct {
 	// typ is the type of that column's cells, which a subtotal keeps so the
 	// money rules apply to a computed row.
 	typ FieldType
+	// keyParams holds the placeholder of each section's key, bound once.
+	keyParams map[string]string
 }
 
 // maxLayoutNodes caps the size of a computed row's formula after the rows it
 // reads are inlined.
 const maxLayoutNodes = 2000
+
+// maxLayoutCompiled caps the nodes of all computed rows, each counted once
+// for every cell column it is compiled for. A statement of 30 rows of about
+// 10 nodes with 50 pivot cells (about 16,000) fits.
+const maxLayoutCompiled = 20000
 
 const errLayoutKey = "a section key is text, a number, true, false or null"
 
@@ -142,16 +149,24 @@ func (lc *layoutCtx) subtotal(id, at string) (expr, error) {
 	if lc.cell == "" {
 		return expr{sql: "NULL", typ: Number}, nil
 	}
-	key, err := layoutKey(item.Key)
-	if err != nil {
-		return expr{}, invalid(at, errLayoutKey)
+	// Bound once, so the variable count does not grow with every leaf.
+	param, ok := lc.keyParams[id]
+	if !ok {
+		param = lc.s.bind(sectionKey(item))
+		lc.keyParams[id] = param
 	}
-	conds := []string{"o.k0 IS " + lc.s.bind(key)}
+	conds := []string{"o.k0 IS " + param}
 	for _, ck := range lc.c.currencies {
 		conds = append(conds, "o."+ck+" IS cur."+ck)
 	}
 	// An empty section counts as zero.
 	return expr{sql: fmt.Sprintf("COALESCE((SELECT o.%s FROM o1 o WHERE %s), 0)", lc.cell, strings.Join(conds, " AND ")), typ: lc.typ}, nil
+}
+
+// sectionKey is a section's key as the binder accepted it.
+func sectionKey(item *LayoutItem) any {
+	key, _ := layoutKey(item.Key)
+	return key
 }
 
 func layoutKey(raw json.RawMessage) (any, error) {
@@ -212,11 +227,7 @@ func (rn *runner) layoutRows(t *tree, total map[string]any) {
 			rn.push(Row{ID: id, Kind: KindComputed, Label: item.Label, Cells: rn.cells(row)})
 			continue
 		}
-		// layoutLegs refused a bad key before any row was read.
-		key, err := layoutKey(item.Key)
-		if err != nil {
-			continue
-		}
+		key := sectionKey(item)
 		row := byKey[keyString([]any{key})]
 		if row == nil {
 			row = map[string]any{"k0": key, "__level": int64(1)}

@@ -1,7 +1,10 @@
 package reports
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -176,4 +179,94 @@ func TestLayoutRowCapKeepsTheComputedRows(t *testing.T) {
 	if len(res.Notices) != 1 || res.Notices[0].Code != "rowCap" {
 		t.Fatalf("notices = %+v", res.Notices)
 	}
+
+	withLimits(t, func(l *limits) { l.rowCap = 1 })
+	res = z.run(t, "ann", fmt.Sprintf(zooStatement, ""), Options{}, nil)
+	requireRows(t, res, "cost", nil, nil, nil, nil, nil, nil, int64(2500), int64(4500))
+	if len(res.Notices) != 1 || res.Notices[0].Code != "rowCap" {
+		t.Fatalf("notices = %+v", res.Notices)
+	}
+}
+
+func TestLayoutRowCapKeepsComputedRowsInEveryCurrency(t *testing.T) {
+	z := newZoo(t)
+	z.rec(t, "f7", "zoo_feedings", map[string]any{
+		"animal": z.id("zed"), "cost": 400, "currency": "EUR", "fed": "2026-03-10 00:00:00.000Z", "grams": 10, "note": "f7",
+	})
+	withLimits(t, func(l *limits) { l.rowCap = 4 })
+	res := z.run(t, "ann", fmt.Sprintf(zooStatement, ""), Options{}, nil)
+	var got []any
+	for _, r := range res.Rows {
+		if r.Kind == KindComputed {
+			got = append(got, r.ID, r.Cells["cost"])
+		}
+	}
+	want := []any{`c:gap:["EUR"]`, int64(-400), `c:all:["EUR"]`, int64(400), `c:gap:["USD"]`, int64(2500), `c:all:["USD"]`, int64(4500)}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("computed rows = %#v\nwant %#v", got, want)
+	}
+	if !slices.ContainsFunc(res.Notices, func(n Notice) bool { return n.Code == "rowCap" }) {
+		t.Fatalf("notices = %+v", res.Notices)
+	}
+}
+
+// wideLayout is nine doubling rows (the last has 1,021 nodes) and then n rows
+// that each read the last.
+func wideLayout(n int) string {
+	items := lions + `,{"row":"r0","label":"R","formula":{"subtotal":"cats"}}`
+	for i := 1; i <= 8; i++ {
+		items += fmt.Sprintf(`,{"row":"r%d","label":"R","formula":{"op":"add","args":[{"subtotal":"r%d"},{"subtotal":"r%d"}]}}`, i, i-1, i-1)
+	}
+	for i := 0; i < n; i++ {
+		items += fmt.Sprintf(`,{"row":"w%d","label":"W","formula":{"subtotal":"r8"}}`, i)
+	}
+	return layoutOf(items)
+}
+
+func TestLayoutRefusesAWideExpansion(t *testing.T) {
+	z := newZoo(t)
+	for _, n := range []int{40, 190} {
+		raw := wideLayout(n)
+		start := time.Now()
+		_, err := z.try(t, "ann", raw, Options{}, nil)
+		requireTooLarge(t, err)
+		spec, _, _ := Load([]byte(raw))
+		requireTooLarge(t, Validate(spec))
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("n=%d took %v", n, time.Since(start))
+		}
+	}
+}
+
+func requireTooLarge(t *testing.T, err error) {
+	t.Helper()
+	var se *SpecError
+	if !errors.As(err, &se) || se.Status != 400 {
+		t.Fatalf("err = %v, want a 400 SpecError", err)
+	}
+	for _, p := range se.Problems {
+		if strings.Contains(p.Error(), "too large") {
+			return
+		}
+	}
+	t.Fatalf("err = %v, want too large", err)
+}
+
+func TestLayoutStatementWithAPivotStillRuns(t *testing.T) {
+	z := newZoo(t)
+	items := lions + `,{"section":"stripes","title":"Z","key":"zebra"}`
+	for i := 0; i < 30; i++ {
+		items += fmt.Sprintf(`,{"row":"c%d","label":"C","formula":{"op":"sub","args":[{"subtotal":"cats"},{"subtotal":"stripes"}]}}`, i)
+	}
+	raw := strings.Replace(layoutOf(items), `"groups"`, `"pivot":{"path":[{"field":"fed"}],"bucket":"month","cell":"cost"},"groups"`, 1)
+	res := z.run(t, "ann", raw, Options{}, nil)
+	requireRows(t, res, "cost.p0", append([]any{int64(1000), int64(1000), int64(700), int64(700)}, repeat(int64(300), 30)...)...)
+}
+
+func repeat(v any, n int) []any {
+	out := make([]any, n)
+	for i := range out {
+		out[i] = v
+	}
+	return out
 }
