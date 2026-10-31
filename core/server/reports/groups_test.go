@@ -33,6 +33,16 @@ func TestGroupsLoadLazily(t *testing.T) {
 	}
 }
 
+// A run expands at most as many groups as it can show rows.
+func TestExpandTakesAtMostTheRowCapOfKeys(t *testing.T) {
+	z := newZoo(t)
+	withLimits(t, func(l *limits) { l.rowCap = 2 })
+	keys := [][]any{{"lion", "USD"}, {"zebra", "USD"}}
+	z.run(t, "ann", feedingsBySpecies, Options{Expand: keys}, nil)
+	_, err := z.try(t, "ann", feedingsBySpecies, Options{Expand: append(keys, []any{"monkey", "USD"})}, nil)
+	requireSpecError(t, err, 400, "options.expand", "at most 2 groups")
+}
+
 func TestTwoGroupLevels(t *testing.T) {
 	z := newZoo(t)
 	spec := `{"version":1,"source":"zoo.feedings","columns":[

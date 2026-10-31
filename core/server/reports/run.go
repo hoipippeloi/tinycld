@@ -550,10 +550,18 @@ func dirOf(desc bool) string {
 type expansion struct {
 	all  bool
 	keys [][]any
+	// set holds each key as keyString gives it, which keeps the type: the
+	// text "1" is not the number 1.
+	set map[string]bool
 }
 
+// parseExpansion reads options.expand: at most rowCap keys, since a run
+// shows no more group rows than that.
 func parseExpansion(opts Options) (*expansion, error) {
-	e := &expansion{all: opts.ExpandAll}
+	e := &expansion{all: opts.ExpandAll, set: map[string]bool{}}
+	if len(opts.Expand) > runLimits.rowCap {
+		return nil, invalid("options.expand", fmt.Sprintf("a run expands at most %d groups", runLimits.rowCap))
+	}
 	for i, key := range opts.Expand {
 		if len(key) == 0 {
 			return nil, invalid(fmt.Sprintf("options.expand.%d", i), "a group key is a group row's groupKey")
@@ -576,6 +584,7 @@ func parseExpansion(opts Options) (*expansion, error) {
 			}
 		}
 		e.keys = append(e.keys, norm)
+		e.set[keyString(norm)] = true
 	}
 	return e, nil
 }
@@ -610,12 +619,8 @@ func (e *expansion) has(key []any) bool {
 	if e.all {
 		return true
 	}
-	return slices.ContainsFunc(e.keys, func(k []any) bool { return sameKey(k, key) })
+	return e.set[keyString(key)]
 }
-
-// sameKey compares by JSON, which keeps the type: the text "1" is not the
-// number 1.
-func sameKey(a, b []any) bool { return keyString(a) == keyString(b) }
 
 // compileDry compiles every statement of a plan without a database, so a
 // formula, a filter or a layout that cannot compile fails Validate, not a

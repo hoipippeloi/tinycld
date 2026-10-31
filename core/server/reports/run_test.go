@@ -386,7 +386,11 @@ func TestGroupKeysCompareByType(t *testing.T) {
 		"groups":[{"id":"g","col":"species"}],"sort":[{"col":"note"}]}`
 	res := z.run(t, "ann", spec, Options{Expand: [][]any{{"1"}}}, nil)
 	requireRows(t, res, "kind", "group", "detail", "detail", "group", "total")
-	if !(&expansion{keys: [][]any{{"1"}}}).has([]any{"1"}) || (&expansion{keys: [][]any{{"1"}}}).has([]any{int64(1)}) {
+	text, err := parseExpansion(Options{Expand: [][]any{{"1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !text.has([]any{"1"}) || text.has([]any{int64(1)}) {
 		t.Fatal("the text \"1\" and the number 1 are different group keys")
 	}
 }
