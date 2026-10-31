@@ -79,6 +79,10 @@ func (rn *runner) nestLevel(level int, parents []any) ([]map[string]any, error) 
 		v := sc.value(rest).sql
 		sel = append(sel, fmt.Sprintf("%s AS v%d", v, p.index(cp)))
 		order = append(order, "("+v+" IS NULL)", v)
+		if cur := p.nestCurrency(cp); cur.key != "" {
+			field := cp.path.src.field(cp.path.field.Currency)
+			sel = append(sel, sc.value(&pathPlan{hops: rest.hops, field: field}).sql+" AS "+cur.key)
+		}
 	}
 	if level+1 < len(p.nest) {
 		next := p.nest[level+1].hops
@@ -102,6 +106,21 @@ func (rn *runner) nestLevel(level int, parents []any) ([]map[string]any, error) 
 	return rows, nil
 }
 
+// nestCurrency is a child row amount's currency: its currency field, which
+// nestLevel selects as u<idx>, or its source's fixed currency.
+func (p *plan) nestCurrency(cp *colPlan) currency {
+	f := cp.path.field
+	switch {
+	case f.Type != Money:
+		return currency{}
+	case f.Currency != "":
+		return currency{key: fmt.Sprintf("u%d", p.index(cp))}
+	case cp.path.src.Currency != nil:
+		return currency{fixed: cp.path.src}
+	}
+	return currency{}
+}
+
 // nestCapNotice says a nest level reached the row cap, once per run.
 func (rn *runner) nestCapNotice() {
 	if slices.ContainsFunc(rn.res.Notices, func(n Notice) bool { return n.Code == "nestCap" }) {
@@ -122,6 +141,9 @@ func (rn *runner) nestedRows(t *tree, level int, parentKey any, parentID, sectio
 		cells := map[string]any{}
 		for _, cp := range cols {
 			cells[cp.col.ID] = rn.cellValue(cp, row[fmt.Sprintf("v%d", rn.c.p.index(cp))], false)
+			if cur := rn.c.p.nestCurrency(cp); cur.key != "" {
+				cells[cp.col.ID+"@currency"] = row[cur.key]
+			}
 		}
 		rn.push(Row{ID: id, Kind: KindDetail, Depth: depth, Label: rn.firstLabel(cols, row), Section: section, Parent: parentID, Cells: cells})
 		rn.nestedRows(t, level+1, row["__next"], id, section, depth+1)

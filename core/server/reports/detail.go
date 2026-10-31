@@ -54,7 +54,7 @@ func (rc *rowsCtx) path(p Path, at string) (expr, error) {
 	if err != nil {
 		return expr{}, err
 	}
-	return expr{sql: rc.r.hidden(bound), typ: bound.field.Type}, nil
+	return withCurrency(expr{sql: rc.r.hidden(bound), typ: bound.field.Type}, rc.r.pathCurrency(bound)), nil
 }
 
 func (rc *rowsCtx) param(id, at string) (expr, error) {
@@ -74,16 +74,16 @@ func (rc *rowsCtx) aggregate(op Aggregate, arg *Node, scale int, at string) (exp
 	if err != nil {
 		return expr{}, err
 	}
-	typ := aggregateType(op, e.typ, scale)
+	sql := e.sql
 	switch op {
 	case Sum:
-		return expr{sql: "COALESCE(" + e.sql + ", 0)", typ: typ}, nil
+		sql = "COALESCE(" + e.sql + ", 0)"
 	case Count, CountDistinct:
-		return expr{sql: "(" + e.sql + " IS NOT NULL)", typ: typ}, nil
+		sql = "(" + e.sql + " IS NOT NULL)"
 	case Avg:
-		return expr{sql: fmt.Sprintf("tc_round(%s, %d)", e.sql, scale), typ: typ}, nil
+		sql = fmt.Sprintf("tc_round(%s, %d)", e.sql, scale)
 	}
-	return expr{sql: e.sql, typ: typ}, nil
+	return withCurrency(expr{sql: sql, typ: aggregateType(op, e.typ, scale)}, e.cur), nil
 }
 
 func (rc *rowsCtx) window(op string, arg *Node, scale int, at string) (expr, error) {
@@ -112,7 +112,7 @@ func windowSQL(op string, e expr, scale int, f *windowFrame, at string) (expr, e
 	switch op {
 	case "runningSum":
 		over := "OVER (" + partitionBy(f.parent) + " ORDER BY " + strings.Join(f.order, ", ") + " ROWS UNBOUNDED PRECEDING)"
-		return expr{sql: "SUM(" + num(e) + ") " + over, typ: sumType([]expr{e}), win: true}, nil
+		return withCurrency(expr{sql: "SUM(" + num(e) + ") " + over, typ: sumType([]expr{e}), win: true}, e.cur), nil
 	case "percentOfParent":
 		return expr{sql: fmt.Sprintf("tc_pct(%s, SUM(%s) OVER (%s), %d)", num(e), num(e), partitionBy(f.parent), scale), typ: Percent, win: true}, nil
 	}

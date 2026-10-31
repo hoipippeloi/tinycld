@@ -225,19 +225,21 @@ func (lc *levelCtx) col(id, at string) (expr, error) {
 	}
 	idx := lv.c.p.index(cp)
 	name := fmt.Sprintf("x%d", idx)
+	cur := lv.c.currencyOf[id]
 	switch {
 	case cp.nest > 0:
 		return expr{sql: "NULL", typ: cp.path.field.Type}, nil
 	case cp.path != nil && cp.tm >= 0:
-		return expr{sql: lv.toManyTotal(cp), typ: aggregateType(cp.col.Aggregate, cp.path.field.Type, cp.scale)}, nil
+		return withCurrency(expr{sql: lv.toManyTotal(cp), typ: aggregateType(cp.col.Aggregate, cp.path.field.Type, cp.scale)}, cur), nil
 	case cp.path != nil && cp.col.Aggregate != "":
-		return expr{sql: lv.agg(name, aggregateSQL(cp.col.Aggregate, fmt.Sprintf("w.c%d", idx), cp.scale)),
-			typ: aggregateType(cp.col.Aggregate, cp.path.field.Type, cp.scale)}, nil
+		return withCurrency(expr{sql: lv.agg(name, aggregateSQL(cp.col.Aggregate, fmt.Sprintf("w.c%d", idx), cp.scale)),
+			typ: aggregateType(cp.col.Aggregate, cp.path.field.Type, cp.scale)}, cur), nil
 	case cp.path != nil:
+		sql := "NULL"
 		if key := lv.groupKey(cp); key != "" {
-			return expr{sql: key, typ: cp.path.field.Type}, nil
+			sql = key
 		}
-		return expr{sql: "NULL", typ: cp.path.field.Type}, nil
+		return withCurrency(expr{sql: sql, typ: cp.path.field.Type}, cur), nil
 	case cp.col.Aggregate == "" && lv.isGroupColumn(cp):
 		return lc.formulaGroupColumn(cp, at)
 	}
@@ -266,7 +268,7 @@ func (lc *levelCtx) col(id, at string) (expr, error) {
 	if err := checkAggregate(cp.col.Aggregate, e.typ, cp.scale, cp.at+".aggregate"); err != nil {
 		return expr{}, err
 	}
-	return expr{sql: lv.agg(name, aggregateSQL(cp.col.Aggregate, e.sql, cp.scale)), typ: aggregateType(cp.col.Aggregate, e.typ, cp.scale)}, nil
+	return withCurrency(expr{sql: lv.agg(name, aggregateSQL(cp.col.Aggregate, e.sql, cp.scale)), typ: aggregateType(cp.col.Aggregate, e.typ, cp.scale)}, e.cur), nil
 }
 
 // formulaGroupColumn is a formula column that is also a group column: on a
@@ -348,7 +350,7 @@ func (lc *levelCtx) path(p Path, at string) (expr, error) {
 	if err != nil {
 		return expr{}, err
 	}
-	return expr{sql: "NULL", typ: bound.field.Type}, nil
+	return withCurrency(expr{sql: "NULL", typ: bound.field.Type}, lc.lv.r.pathCurrency(bound)), nil
 }
 
 func (lc *levelCtx) param(id, at string) (expr, error) {
@@ -365,7 +367,7 @@ func (lc *levelCtx) aggregate(op Aggregate, arg *Node, scale int, at string) (ex
 		return expr{}, err
 	}
 	name := fmt.Sprintf("y%d", len(lc.lv.aggs))
-	return expr{sql: lc.lv.agg(name, aggregateSQL(op, e.sql, scale)), typ: aggregateType(op, e.typ, scale)}, nil
+	return withCurrency(expr{sql: lc.lv.agg(name, aggregateSQL(op, e.sql, scale)), typ: aggregateType(op, e.typ, scale)}, e.cur), nil
 }
 
 func (lc *levelCtx) window(op string, arg *Node, scale int, at string) (expr, error) {

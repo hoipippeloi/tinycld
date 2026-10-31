@@ -504,6 +504,10 @@ func (c *compiler) detailSelect(r *rowsCTE) (string, []sortKey, error) {
 		}
 		sel = append(sel, fmt.Sprintf("%s AS v%d", e.sql, idx))
 		c.detailTypes[cp.col.ID] = e.typ
+		if cp.path == nil {
+			// A formula's amount has the currency of the amounts it reads.
+			c.currencyOf[cp.col.ID] = e.cur
+		}
 	}
 	if len(c.p.nest) > 0 {
 		sel = append(sel, r.nestParent()+" AS __n0")

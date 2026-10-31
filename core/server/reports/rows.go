@@ -17,8 +17,9 @@ type compiler struct {
 	// currencies names w's currency keys; every total groups by them, so
 	// amounts in different currencies are never added together.
 	currencies []string
-	// currencyOf maps a money column's id to its currency key.
-	currencyOf map[string]string
+	// currencyOf maps a money column's id to its currency: a currency key
+	// of w, or a source's fixed currency.
+	currencyOf map[string]currency
 	// detailTypes and levelTypes are each column's type on detail rows
 	// and on group, subtotal and total rows.
 	detailTypes map[string]FieldType
@@ -26,7 +27,7 @@ type compiler struct {
 }
 
 func newCompiler(p *plan, app core.App, info *core.RequestInfo, params map[string]paramValue) *compiler {
-	c := &compiler{p: p, app: app, info: info, params: params, fiscal: 1, currencyOf: map[string]string{}}
+	c := &compiler{p: p, app: app, info: info, params: params, fiscal: 1, currencyOf: map[string]currency{}}
 	if app != nil {
 		c.fiscal = fiscalStartOf(p.base, app)
 	}
@@ -66,7 +67,7 @@ type rowsCTE struct {
 
 func (c *compiler) rows(s *stmt) (*rowsCTE, error) {
 	// Each statement builds its own w; the currency keys come out the same.
-	c.currencies, c.currencyOf = nil, map[string]string{}
+	c.currencies, c.currencyOf = nil, map[string]currency{}
 	r := &rowsCTE{c: c, s: s, root: newScope(s, c.p.base), raw: map[string]string{}, byExpr: map[string]string{}}
 	r.add("__id", q(r.root.alias, "id"))
 	if f := c.p.spec.Filter; f != nil {
@@ -97,21 +98,60 @@ func (c *compiler) rows(s *stmt) (*rowsCTE, error) {
 			continue
 		}
 		r.colValue(cp)
-		if cp.tm < 0 && cp.path.field.Currency != "" {
-			cur := cp.path.src.field(cp.path.field.Currency)
-			sql := fieldSQL(r.root.join(cp.path.hops), cur)
-			name, seen := r.byExpr[sql]
-			if !seen {
-				name = fmt.Sprintf("ck%d", len(c.currencies))
-				r.byExpr[sql] = name
-				r.add(name, sql)
-				c.currencies = append(c.currencies, name)
-			}
-			c.currencyOf[cp.col.ID] = name
+		if cp.tm < 0 {
+			c.currencyOf[cp.col.ID] = r.pathCurrency(cp.path)
+		} else if cp.path.field.Type == Money && cp.path.src.Currency != nil {
+			// bind refuses a to-many total of amounts with a currency field.
+			c.currencyOf[cp.col.ID] = currency{fixed: cp.path.src}
 		}
+	}
+	// A formula's amounts group by their currency as a path column's do. The
+	// keys are all known here, before any level groups by them.
+	for _, cp := range c.p.cols {
+		r.formulaCurrencies(cp.col.Formula)
 	}
 	r.pivotKey()
 	return r, nil
+}
+
+// pathCurrency is the currency of a to-one path's amount: its currency
+// field, kept in w as a currency key every total groups by, or its source's
+// fixed currency.
+func (r *rowsCTE) pathCurrency(p *pathPlan) currency {
+	f := p.field
+	switch {
+	case f.Type != Money:
+		return currency{}
+	case f.Currency != "":
+		sql := fieldSQL(r.root.join(p.hops), p.src.field(f.Currency))
+		name, seen := r.byExpr[sql]
+		if !seen {
+			name = fmt.Sprintf("ck%d", len(r.c.currencies))
+			r.byExpr[sql] = name
+			r.add(name, sql)
+			r.c.currencies = append(r.c.currencies, name)
+		}
+		return currency{key: name}
+	case p.src.Currency != nil:
+		return currency{fixed: p.src}
+	}
+	return currency{}
+}
+
+// formulaCurrencies adds the currency key of every amount a formula reads by
+// path. A path that does not bind is reported when the formula compiles.
+func (r *rowsCTE) formulaCurrencies(n *Node) {
+	if n == nil {
+		return
+	}
+	if n.Path != nil {
+		if bound, err := bindValuePath(r.c.p.base, n.Path, "", pathValue); err == nil {
+			r.pathCurrency(bound)
+		}
+	}
+	for _, a := range n.Args {
+		r.formulaCurrencies(a)
+	}
 }
 
 // add puts a value in w under name, once, and returns its reference.
@@ -133,12 +173,13 @@ func (r *rowsCTE) colValue(cp *colPlan) expr {
 	if cp.tm >= 0 {
 		typ = aggregateType(cp.col.Aggregate, typ, cp.scale)
 	}
+	ref := withCurrency(expr{sql: "w." + name, typ: typ}, r.c.currencyOf[cp.col.ID])
 	if _, ok := r.raw[name]; ok {
-		return expr{sql: "w." + name, typ: typ}
+		return ref
 	}
 	if cp.tm < 0 {
 		r.add(name, r.root.value(cp.path).sql)
-		return expr{sql: "w." + name, typ: typ}
+		return ref
 	}
 	op := cp.col.Aggregate
 	value := r.root.total(cp.path, cp.tm, op, cp.scale)
@@ -151,7 +192,7 @@ func (r *rowsCTE) colValue(cp *colPlan) expr {
 		r.add(fmt.Sprintf("cs%d", idx), r.root.total(cp.path, cp.tm, Sum, 0))
 		r.add(fmt.Sprintf("cn%d", idx), r.root.total(cp.path, cp.tm, Count, 0))
 	}
-	return expr{sql: "w." + name, typ: typ}
+	return ref
 }
 
 // inner is the expression behind a reference to w, for use inside w's own

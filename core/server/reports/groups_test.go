@@ -168,6 +168,72 @@ func TestAmountsInDifferentCurrenciesAreTotalledApart(t *testing.T) {
 	}
 }
 
+// An amount read through a formula keeps its currency: its totals group by
+// it, as a path column's do, and its cells say which currency they hold.
+func TestAFormulaOverAmountsTotalsEachCurrencyApart(t *testing.T) {
+	z := newZoo(t)
+	z.rec(t, "f7", "zoo_feedings", map[string]any{
+		"animal": z.id("zed"), "cost": 400, "currency": "EUR", "fed": "2026-03-10 00:00:00.000Z", "grams": 10, "note": "f7",
+	})
+	res := z.run(t, "ann", `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"note","path":[{"field":"note"}]},
+		{"id":"t","formula":{"op":"sum","args":[{"op":"add","args":[{"path":[{"field":"cost"}]},{"value":0}]}]}}],
+		"sort":[{"col":"note"}]}`, Options{}, nil)
+	requireRows(t, res, "kind", "detail", "detail", "detail", "detail", "detail", "total", "total")
+	requireRows(t, res, "t", int64(1000), int64(2500), int64(700), int64(300), int64(400), int64(400), int64(4500))
+	requireRows(t, res, "t@currency", "USD", "USD", "USD", "USD", "EUR", "EUR", "USD")
+	if c := res.Columns[1]; c.CurrencyCell != "t@currency" || !c.MixedCurrency {
+		t.Fatalf("t column = %+v", c)
+	}
+}
+
+// Two amounts of different currency sources never combine into one; a
+// fixed currency combines with itself and names its code.
+func TestAFormulaRefusesToCombineCurrencies(t *testing.T) {
+	z := newZoo(t)
+	mixed := `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"cost","path":[{"field":"cost"}]},
+		{"id":"x","formula":{"op":"add","args":[{"col":"cost"},{"path":[{"link":"animal"},{"field":"price"}]}]}}]}`
+	_, err := z.try(t, "ann", mixed, Options{}, nil)
+	requireSpecError(t, err, 400, "columns.1.formula", "amounts in different currencies cannot be combined")
+	requireSpecError(t, Validate(loadSpec(t, mixed)), 400, "columns.1.formula", "amounts in different currencies cannot be combined")
+	for name, op := range map[string]string{
+		"min":      `{"op":"min","args":[{"col":"cost"},{"path":[{"link":"animal"},{"field":"price"}]}]}`,
+		"if":       `{"op":"if","args":[{"value":true},{"col":"cost"},{"path":[{"link":"animal"},{"field":"price"}]}]}`,
+		"coalesce": `{"op":"coalesce","args":[{"col":"cost"},{"path":[{"link":"animal"},{"field":"price"}]}]}`,
+		"case":     `{"op":"case","args":[{"value":true},{"col":"cost"},{"path":[{"link":"animal"},{"field":"price"}]}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := `{"version":1,"source":"zoo.feedings","columns":[{"id":"cost","path":[{"field":"cost"}]},{"id":"x","formula":` + op + `}]}`
+			requireSpecError(t, Validate(loadSpec(t, raw)), 400, "columns.1.formula", "amounts in different currencies")
+		})
+	}
+	res := z.run(t, "ann", `{"version":1,"source":"zoo.feedings","columns":[
+		{"id":"same","formula":{"op":"sub","args":[{"path":[{"field":"cost"}]},{"path":[{"field":"cost"}]}]}},
+		{"id":"price","formula":{"op":"add","args":[{"path":[{"link":"animal"},{"field":"price"}]},{"path":[{"link":"animal"},{"field":"price"}]}]}}]}`, Options{}, nil)
+	if c := res.Columns[0]; c.CurrencyCell != "same@currency" {
+		t.Fatalf("same column = %+v", c)
+	}
+	if c := res.Columns[1]; c.Currency != "USD" || c.CurrencyCell != "" {
+		t.Fatalf("price column = %+v", c)
+	}
+}
+
+// A nested amount carries its currency: the column names the cell, and each
+// child row holds it.
+func TestANestedAmountCarriesItsCurrency(t *testing.T) {
+	z := newZoo(t)
+	res := z.run(t, "ann", `{"version":1,"source":"zoo.animals","columns":[
+		{"id":"name","path":[{"field":"name"}]},
+		{"id":"cost","path":[{"link":"feedings","mode":"nest"},{"field":"cost"}]}],
+		"sort":[{"col":"name"}]}`, Options{}, nil)
+	if c := res.Columns[1]; c.CurrencyCell != "cost@currency" {
+		t.Fatalf("cost column = %+v", c)
+	}
+	requireRows(t, res, "label", "Kit", "Leo", "1000", "2500", "Zed", "300", "700", "Total")
+	requireRows(t, res, "cost@currency", nil, nil, "USD", "USD", nil, "USD", "USD", nil)
+}
+
 func TestGroupRowsStopAtTheRowCap(t *testing.T) {
 	z := newZoo(t)
 	withLimits(t, func(l *limits) { l.rowCap = 2 })

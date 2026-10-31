@@ -48,13 +48,19 @@ func (rn *runner) columns() []ResultColumn {
 	return out
 }
 
+// currencyOfColumn names a money column's currency: the cell that holds each
+// row's currency, or the fixed code. A child row column reads its own
+// currency field, which nestLevel selects.
 func (rn *runner) currencyOfColumn(cp *colPlan, rc *ResultColumn) {
-	if _, ok := rn.c.currencyOf[cp.col.ID]; ok {
-		rc.CurrencyCell = cp.col.ID + "@currency"
-		return
+	cur := rn.c.currencyOf[cp.col.ID]
+	if cp.nest > 0 {
+		cur = rn.c.p.nestCurrency(cp)
 	}
-	if cp.path != nil && cp.path.field.Type == Money && cp.path.src.Currency != nil {
-		rc.Currency = cp.path.src.Currency(rn.app)
+	switch {
+	case cur.key != "":
+		rc.CurrencyCell = cp.col.ID + "@currency"
+	case cur.fixed != nil:
+		rc.Currency = cur.fixed.Currency(rn.app)
 	}
 }
 
@@ -88,7 +94,7 @@ func (rn *runner) markCurrencies(groupRows []map[string]any) {
 		if rc.Pivot != nil {
 			id = rc.Pivot.Cell
 		}
-		if ck, ok := rn.c.currencyOf[id]; ok && mixed[ck] {
+		if ck := rn.c.currencyOf[id].key; ck != "" && mixed[ck] {
 			rc.MixedCurrency = true
 			cols = append(cols, rc.ID)
 		}
@@ -245,7 +251,7 @@ func (rn *runner) cells(row map[string]any) map[string]any {
 			continue
 		}
 		out[cp.col.ID] = rn.cellValue(cp, row[name], grouped)
-		if ck, ok := rn.c.currencyOf[cp.col.ID]; ok {
+		if ck := rn.c.currencyOf[cp.col.ID].key; ck != "" {
 			out[cp.col.ID+"@currency"] = row[ck]
 		}
 	}

@@ -25,6 +25,52 @@ type expr struct {
 	unset bool
 	agg   bool // contains an aggregate
 	win   bool // contains a window function
+	// cur is where a money value's currency comes from.
+	cur currency
+}
+
+// currency is where a money value's currency comes from: a currency key of w
+// (the ck<n> that holds each row's currency) or a source's fixed currency.
+// The zero value is a value that is not money, or a section subtotal, which
+// a layout reads in one currency at a time.
+type currency struct {
+	key   string
+	fixed *Source
+}
+
+func (a currency) none() bool { return a.key == "" && a.fixed == nil }
+
+// same is true for one currency source: a key equals itself, a fixed
+// currency the same source's.
+func (a currency) same(b currency) bool {
+	if a.key != b.key || (a.fixed == nil) != (b.fixed == nil) {
+		return false
+	}
+	return a.fixed == nil || a.fixed.Key == b.fixed.Key
+}
+
+// withCurrency gives a money value its currency; any other value has none.
+func withCurrency(e expr, cur currency) expr {
+	if e.typ == Money {
+		e.cur = cur
+	}
+	return e
+}
+
+// combined is the currency of an amount made of values: refused when two of
+// them have different currencies, which would add EUR to USD cents.
+func combined(values []expr, at string) (currency, error) {
+	var out currency
+	for _, v := range values {
+		if v.cur.none() {
+			continue
+		}
+		if !out.none() && !out.same(v.cur) {
+			return currency{}, invalid(at, "amounts in different currencies cannot be combined")
+		}
+		out = v.cur
+	}
+	return out, nil
 }
 
 // fctx says what a formula's leaves and context-bound operators mean where
@@ -235,13 +281,21 @@ func num(e expr) string { return "COALESCE(" + e.sql + ", 0)" }
 // row, and an and, or or not over it leaves it out.
 var unsetCondition = expr{sql: "1", typ: Bool, unset: true}
 
-// operator compiles an operator node. In a filter, a condition on an unset
-// param becomes unsetCondition, after its arguments are checked as they are
-// for a set one, so Validate refuses what a run would.
+// operator compiles an operator node. Amounts in different currencies are
+// refused. In a filter, a condition on an unset param becomes
+// unsetCondition, after its arguments are checked as they are for a set
+// one, so Validate refuses what a run would.
 func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 	e, err := operatorExpr(c, n, args, at)
 	if err != nil {
 		return expr{}, err
+	}
+	// An amount takes its operands' currency. Only amounts carry one, so a
+	// condition or a count among the operands adds none.
+	if e.typ == Money {
+		if e.cur, err = combined(args, at); err != nil {
+			return expr{}, err
+		}
 	}
 	if c.filter() && conditionOps[n.Op] && slices.ContainsFunc(args, func(a expr) bool { return a.unset }) {
 		return unsetCondition, nil
