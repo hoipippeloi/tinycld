@@ -1,16 +1,18 @@
 // Package audit provides audit logging for PocketBase record lifecycle events.
 // It writes entries to the `audit_logs` collection with field-level diffs,
-// delete snapshots, and sensitive-field redaction.
+// delete snapshots, and sensitive-field redaction: hidden fields, a fixed set of
+// credential fields, and the fields a collection lists in CollectionConfig.Redact.
 //
 // Single-org: the process IS one org, so audit rows carry no org field and no
 // org resolution runs. Core registers its own collections here; a feature
 // package registers its collections by calling RegisterCollection from its own
-// server module's Register(app) (see the contacts package for the reference).
+// server module's Register(app) (see core/docs/audit-log.md).
 package audit
 
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/pocketbase/pocketbase"
@@ -40,7 +42,17 @@ type CollectionConfig struct {
 	// file name). If nil, the default extractor tries common fields (name,
 	// title, label, address).
 	ExtractLabel LabelExtractor
+
+	// Redact lists fields whose values stay out of the log: a change is still
+	// logged with both values replaced by RedactedValue, and a delete snapshot
+	// shows RedactedValue. The resource label is not redacted, so ExtractLabel
+	// must not read a listed field.
+	Redact []string
 }
+
+// RedactedValue is the one marker for every redacted value, so a reader of
+// the log sees that a field changed without seeing its value.
+const RedactedValue = "[redacted]"
 
 // Fields that should never appear in diffs.
 var redactedFields = map[string]bool{
@@ -53,8 +65,9 @@ var redactedFields = map[string]bool{
 // isRedacted reports whether a field's value must stay out of the audit log.
 // A hidden field (an app password hash, a TOTP secret, a passkey public key)
 // is one the API never returns, so the audit log must not return it either.
-func isRedacted(field core.Field) bool {
-	return redactedFields[field.GetName()] || field.GetHidden()
+// redact is the collection's own list (CollectionConfig.Redact).
+func isRedacted(field core.Field, redact []string) bool {
+	return redactedFields[field.GetName()] || field.GetHidden() || slices.Contains(redact, field.GetName())
 }
 
 // System fields to skip in diffs.
@@ -76,6 +89,7 @@ func RegisterCollection(app *pocketbase.PocketBase, collectionName string, confi
 	if extractLabel == nil {
 		extractLabel = DefaultLabelExtractor
 	}
+	redact := config.Redact
 
 	// Bind the runner to the app's terminate now, while the app is still
 	// starting: a runner first made after the terminate would never be
@@ -100,13 +114,13 @@ func RegisterCollection(app *pocketbase.PocketBase, collectionName string, confi
 		}
 		record, info := e.Record, requestInfoOf(e.RequestEvent)
 		logWhenWritable(app, collectionName, record.Id, func() {
-			logUpdate(app, record, original, info, collectionName, extractLabel)
+			logUpdate(app, record, original, info, collectionName, extractLabel, redact)
 		})
 		return nil
 	})
 
 	app.OnRecordDeleteRequest(collectionName).BindFunc(func(e *core.RecordRequestEvent) error {
-		snapshot := BuildSnapshot(e.Record)
+		snapshot := BuildSnapshot(e.Record, redact...)
 		recordID := e.Record.Id
 		label := extractLabel(e.Record)
 		if err := e.Next(); err != nil {
@@ -170,7 +184,7 @@ func logCreate(app core.App, record *core.Record, info requestInfo, collectionNa
 	}
 }
 
-func logUpdate(app core.App, record *core.Record, original *core.Record, info requestInfo, collectionName string, extractLabel LabelExtractor) {
+func logUpdate(app core.App, record *core.Record, original *core.Record, info requestInfo, collectionName string, extractLabel LabelExtractor, redact []string) {
 	auditRecord := newAuditRecord(app, "updated", collectionName, record.Id, extractLabel(record))
 	if auditRecord == nil {
 		return
@@ -178,7 +192,7 @@ func logUpdate(app core.App, record *core.Record, original *core.Record, info re
 	info.apply(auditRecord)
 
 	if original != nil {
-		diff := ComputeDiff(original, record)
+		diff := ComputeDiff(original, record, redact...)
 		if len(diff) > 0 {
 			auditRecord.Set("changes", diff)
 		}
@@ -288,8 +302,11 @@ func LabelFromFields(fieldNames ...string) LabelExtractor {
 
 // --- Diff / Snapshot utilities ---
 
-// ComputeDiff compares original vs current record fields and returns changed fields.
-func ComputeDiff(original *core.Record, current *core.Record) map[string]any {
+// ComputeDiff compares original vs current record fields and returns changed
+// fields. A changed redacted field (one in redact, a hidden field, or a fixed
+// credential field) holds RedactedValue as both values; the "redacted" key
+// tells the audit-log screen to draw one marker in place of the pair.
+func ComputeDiff(original *core.Record, current *core.Record, redact ...string) map[string]any {
 	if original == nil {
 		return nil
 	}
@@ -301,11 +318,15 @@ func ComputeDiff(original *core.Record, current *core.Record) map[string]any {
 		if systemFields[fieldName] {
 			continue
 		}
-		if isRedacted(field) {
+		if isRedacted(field, redact) {
 			oldVal := original.Get(fieldName)
 			newVal := current.Get(fieldName)
 			if fieldToString(oldVal) != fieldToString(newVal) {
-				diff[fieldName] = map[string]any{"redacted": true}
+				diff[fieldName] = map[string]any{
+					"before":   RedactedValue,
+					"after":    RedactedValue,
+					"redacted": true,
+				}
 			}
 			continue
 		}
@@ -324,8 +345,9 @@ func ComputeDiff(original *core.Record, current *core.Record) map[string]any {
 	return diff
 }
 
-// BuildSnapshot captures all non-system, non-redacted fields for delete events.
-func BuildSnapshot(record *core.Record) map[string]any {
+// BuildSnapshot captures all non-system fields for delete events; a redacted
+// field (see ComputeDiff) holds RedactedValue.
+func BuildSnapshot(record *core.Record, redact ...string) map[string]any {
 	snapshot := map[string]any{}
 
 	for _, field := range record.Collection().Fields {
@@ -333,8 +355,8 @@ func BuildSnapshot(record *core.Record) map[string]any {
 		if systemFields[fieldName] {
 			continue
 		}
-		if isRedacted(field) {
-			snapshot[fieldName] = "[redacted]"
+		if isRedacted(field, redact) {
+			snapshot[fieldName] = RedactedValue
 			continue
 		}
 		snapshot[fieldName] = record.Get(fieldName)
