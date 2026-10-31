@@ -160,6 +160,7 @@ func TestRegisterPackageRejectsMalformedRegistrations(t *testing.T) {
 		want string
 	}{
 		{"bad slug", Package{Slug: "Notes!", Scopes: []Scope{{ID: "x:read", Label: "x"}}}, "not a valid slug"},
+		{"slug that is a core route family", Package{Slug: "reports", Scopes: []Scope{{ID: "reports:read", Label: "x"}}}, "core route family"},
 		{"no scopes", Package{Slug: "notes"}, "registers no scopes"},
 		{"scope outside own namespace", Package{Slug: "notes", Scopes: []Scope{{ID: "widgets:read", Label: "x"}}}, `must be "notes:"`},
 		{"scope with no label", Package{Slug: "notes", Scopes: []Scope{{ID: "notes:read"}}}, "plain-language label"},

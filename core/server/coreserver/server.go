@@ -34,6 +34,7 @@ import (
 	"tinycld.org/core/quota"
 	"tinycld.org/core/readonly"
 	"tinycld.org/core/realtime"
+	"tinycld.org/core/reports"
 	"tinycld.org/core/search"
 	"tinycld.org/core/sharelink"
 	"tinycld.org/core/sharequota"
@@ -483,6 +484,11 @@ func RegisterSharedCore(app *pocketbase.PocketBase) {
 	// Shared: every composition serves the same live reports. Inert with no
 	// subscriber; packages add views with changesignal.RegisterView.
 	changesignal.Register(app)
+
+	// The report engine: checks every registered report source at start and
+	// serves POST /api/reports/run. Shared: a report reads with its reader's
+	// own rules wherever it runs. Inert with no registered source.
+	reports.Register(app)
 
 	// Workflow rules engine: record-hook + scheduled dispatch, manual-run and
 	// dry-run endpoints. Shared for the same reason as OAuth/search above — a
