@@ -143,7 +143,47 @@ func (b *Broker) TakeEditors(id string) editcheckpoint.Editors {
 		out.UserIDs = append(out.UserIDs, e.UserIDs...)
 		out.ShareNames = append(out.ShareNames, e.ShareNames...)
 	}
+	return editcheckpoint.Editors{UserIDs: unique(out.UserIDs), ShareNames: unique(out.ShareNames)}
+}
+
+// unique keeps the first of each value, in order.
+func unique(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(values))
+	out := values[:0:0]
+	for _, v := range values {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
 	return out
+}
+
+// HoldEditors keeps editors for the next TakeEditors of id: a checkpoint
+// listener that makes no version (for example, automatic versions are off)
+// hands them back, so the next version still names them.
+func HoldEditors(id string, editors editcheckpoint.Editors) {
+	sharedBroker().HoldEditors(id, editors)
+}
+
+func (b *Broker) HoldEditors(id string, editors editcheckpoint.Editors) {
+	if editors.Empty() {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.addHeldLocked(id, editors)
+}
+
+// addHeldLocked merges editors into the held set for id. Caller holds b.mu.
+func (b *Broker) addHeldLocked(id string, editors editcheckpoint.Editors) {
+	held := b.heldEditors[id]
+	held.UserIDs = append(held.UserIDs, editors.UserIDs...)
+	held.ShareNames = append(held.ShareNames, editors.ShareNames...)
+	b.heldEditors[id] = held
 }
 
 // holdEditorsIfFenced keeps a closing room's editors for the WriteItem that
@@ -154,9 +194,6 @@ func (b *Broker) holdEditorsIfFenced(id string, editors editcheckpoint.Editors) 
 	if b.fenced[id] == 0 {
 		return false
 	}
-	held := b.heldEditors[id]
-	held.UserIDs = append(held.UserIDs, editors.UserIDs...)
-	held.ShareNames = append(held.ShareNames, editors.ShareNames...)
-	b.heldEditors[id] = held
+	b.addHeldLocked(id, editors)
 	return true
 }
