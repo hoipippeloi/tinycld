@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
 // The server fetches from, and PUTs to, a URL the caller supplies. That is the
@@ -27,15 +28,19 @@ import (
 // operator's own LAN is a normal target.
 const allowLoopbackEnv = "TINYCLD_BACKUP_ALLOW_LOOPBACK"
 
-// allowLoopbackTargets is read once at registration. A test flips it through
-// refreshBackupTargetPolicy after setting the variable.
-var allowLoopbackTargets = os.Getenv(allowLoopbackEnv) == "1"
+// allowLoopbackTargets is process configuration, the same for every app, read
+// at package init and again at each registration. A test flips it through
+// refreshBackupTargetPolicy after setting the variable. Atomic because every
+// app in the process registers, and apps can register at the same time.
+var allowLoopbackTargets atomic.Bool
+
+func init() { refreshBackupTargetPolicy() }
 
 // refreshBackupTargetPolicy re-reads the override. Register calls it so the
 // variable is read at registration rather than at package init, which a test
 // cannot get ahead of.
 func refreshBackupTargetPolicy() {
-	allowLoopbackTargets = os.Getenv(allowLoopbackEnv) == "1"
+	allowLoopbackTargets.Store(os.Getenv(allowLoopbackEnv) == "1")
 }
 
 const targetNotRoutable = "The target must be a public or private network host, not loopback or link-local."
@@ -59,7 +64,7 @@ func checkBackupTarget(raw string) error {
 	if host == "" {
 		return errTargetNotRoutable
 	}
-	if allowLoopbackTargets {
+	if allowLoopbackTargets.Load() {
 		return nil
 	}
 	// A bracketed or bare IP literal needs no resolver.
