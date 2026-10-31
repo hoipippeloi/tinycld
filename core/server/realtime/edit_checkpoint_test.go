@@ -11,6 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"tinycld.org/core/editcheckpoint"
+	"tinycld.org/core/logging"
 )
 
 type checkpointCall struct {
@@ -272,5 +273,33 @@ func TestWriteItemHandsTheEditorsToTheWriter(t *testing.T) {
 	expectNoCheckpoint(t, calls, 300*time.Millisecond)
 	if left := broker.TakeEditors("write-room"); !left.Empty() {
 		t.Fatalf("editors left after the write = %+v", left)
+	}
+}
+
+// A checkpoint runs on a timer goroutine or a goroutine of its own, where a
+// panic in the package's listener that nothing stops ends the process and
+// every app it runs.
+func TestCheckpointListenerPanicIsRecovered(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	editcheckpoint.Register(app, func(context.Context, string, editcheckpoint.Editors, editcheckpoint.Reason) {
+		panic("listener bug")
+	})
+
+	fireEditCheckpoint(app, "item1", editcheckpoint.Editors{UserIDs: []string{"u1"}}, editcheckpoint.ReasonIdle)
+}
+
+// The listener logs and captures with the ctx it gets, so that ctx must name
+// the app, or its records reach no app's _logs table and no app's Sentry hub.
+func TestCheckpointListenerCtxNamesTheApp(t *testing.T) {
+	app := core.NewBaseApp(core.BaseAppConfig{DataDir: t.TempDir()})
+	var got core.App
+	editcheckpoint.Register(app, func(ctx context.Context, _ string, _ editcheckpoint.Editors, _ editcheckpoint.Reason) {
+		got, _ = logging.AppFrom(ctx)
+	})
+
+	fireEditCheckpoint(app, "item1", editcheckpoint.Editors{UserIDs: []string{"u1"}}, editcheckpoint.ReasonIdle)
+
+	if got != core.App(app) {
+		t.Fatalf("listener ctx names app %v, want the room's app", got)
 	}
 }

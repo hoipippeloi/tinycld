@@ -24,11 +24,16 @@ func remember(app core.App) {
 	registered[id] = app
 }
 
+// forget removes app only while the entry is still app. A reopen registers
+// the new app on the same data dir, and so under the same ID, before the old
+// app's terminate runs; deleting by ID alone would drop the new app.
 func forget(app core.App) {
 	id := appstate.ID(app)
 	registeredMu.Lock()
 	defer registeredMu.Unlock()
-	delete(registered, id)
+	if registered[id] == app {
+		delete(registered, id)
+	}
 }
 
 func registeredApps() []core.App {

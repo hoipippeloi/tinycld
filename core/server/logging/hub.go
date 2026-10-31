@@ -3,6 +3,8 @@ package logging
 import (
 	"context"
 	"log"
+	"sync"
+	"time"
 
 	"github.com/getsentry/sentry-go"
 	"github.com/pocketbase/pocketbase/core"
@@ -50,5 +52,44 @@ func InitAppSentry(app core.App, dsn string) {
 		log.Printf("Sentry initialization failed: %v", err)
 		return
 	}
-	Hub(app).BindClient(client)
+	first := false
+	own := ownClientKey.GetOrInit(app, func() *ownClient { first = true; return &ownClient{} })
+	if first {
+		app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+			err := e.Next()
+			own.replace(nil, nil)
+			return err
+		})
+	}
+	own.replace(Hub(app), client)
+}
+
+// ownClientKey holds the client InitAppSentry last bound for an app. Until
+// then the app's hub shares the process's client, which serves other apps
+// too, so only a client held here is the app's to close.
+var ownClientKey = appstate.NewKey[*ownClient]("logging.sentryClient")
+
+// clientCloseTimeout bounds the flush of a client being let go.
+const clientCloseTimeout = 2 * time.Second
+
+type ownClient struct {
+	mu     sync.Mutex
+	client *sentry.Client
+}
+
+// replace binds next to hub (when next is set) and closes the client it
+// replaces. A client's HTTP transport runs a worker goroutine until closed,
+// so a DSN edit or a terminate that dropped it would leave one running.
+func (o *ownClient) replace(hub *sentry.Hub, next *sentry.Client) {
+	o.mu.Lock()
+	prev := o.client
+	o.client = next
+	if next != nil {
+		hub.BindClient(next)
+	}
+	o.mu.Unlock()
+	if prev != nil {
+		prev.Flush(clientCloseTimeout)
+		prev.Close()
+	}
 }

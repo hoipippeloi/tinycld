@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"tinycld.org/core/background"
 	"tinycld.org/core/editcheckpoint"
+	"tinycld.org/core/logging"
 )
 
 // idleCheckpointAfter is how long a room with edits waits without a new
@@ -116,9 +118,12 @@ func (r *Room) fireIdleCheckpoint() {
 }
 
 // fireEditCheckpoint hands a checkpoint to the listener of the app whose room
-// reached it.
+// reached it. It runs on a timer goroutine or a goroutine of its own, so it
+// stops a panic in the listener here, and names the app on the ctx so the
+// listener's records reach that app.
 func fireEditCheckpoint(app core.App, id string, editors editcheckpoint.Editors, reason editcheckpoint.Reason) {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTeardownTimeout)
+	defer background.Recover(app, "realtime", "edit checkpoint")
+	ctx, cancel := context.WithTimeout(logging.WithApp(context.Background(), app), DefaultTeardownTimeout)
 	defer cancel()
 	editcheckpoint.Fire(ctx, app, id, editors, reason)
 }

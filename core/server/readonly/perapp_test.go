@@ -120,3 +120,22 @@ func TestTerminatingOneAppLeavesAnotherAppsTails(t *testing.T) {
 		t.Fatal("a did not finish terminating after its tail was released")
 	}
 }
+
+// A reopen registers the new app on the old app's data dir before the old
+// app's terminate runs, so both have one appstate.ID for a while. The old
+// app's terminate must leave the new app in the registry, or SIGUSR2 skips it.
+func TestOldAppsTerminateKeepsTheNewAppOnItsDir(t *testing.T) {
+	old := registeredTestApp(t)
+	reopened := core.NewBaseApp(core.BaseAppConfig{DataDir: old.DataDir()})
+	Register(reopened)
+	t.Cleanup(func() { forget(reopened) })
+
+	old.Cleanup()
+
+	for _, app := range registeredApps() {
+		if app == core.App(reopened) {
+			return
+		}
+	}
+	t.Fatal("the old app's terminate removed the new app on its data dir from the registry")
+}
