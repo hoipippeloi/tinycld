@@ -55,6 +55,10 @@ type periodContext struct {
 	fiscalStart int
 }
 
+// anyDay resolves a preset where its day does not matter: checking a
+// default, or compiling a spec with no run.
+var anyDay = periodContext{today: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), fiscalStart: 1}
+
 func checkParamDefs(defs []ParamDef) *SpecError {
 	if len(defs) > maxParams {
 		return invalid("params", fmt.Sprintf("a report has at most %d params", maxParams))
@@ -80,7 +84,6 @@ func checkParamDefs(defs []ParamDef) *SpecError {
 		}
 		if d.Default != nil {
 			// A preset default must be a real preset; its day does not matter.
-			anyDay := periodContext{today: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), fiscalStart: 1}
 			if _, err := parseParam(d, d.Default, anyDay, at+".default"); err != nil {
 				return err
 			}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -92,7 +93,7 @@ func compileNode(c fctx, n *Node, at string, depth int, count *int) (expr, error
 	switch n.Op {
 	case "exists", "notExists":
 		e, err := c.exists(n, at)
-		if err != nil || n.Op == "exists" {
+		if err != nil || n.Op == "exists" || e.unset {
 			return e, err
 		}
 		e.sql = "(NOT " + e.sql + ")"
@@ -230,7 +231,25 @@ func isDateLike(t FieldType) bool {
 // forms engine.
 func num(e expr) string { return "COALESCE(" + e.sql + ", 0)" }
 
+// unsetCondition is a filter condition on an unset param: it matches every
+// row, and an and, or or not over it leaves it out.
+var unsetCondition = expr{sql: "1", typ: Bool, unset: true}
+
+// operator compiles an operator node. In a filter, a condition on an unset
+// param becomes unsetCondition, after its arguments are checked as they are
+// for a set one, so Validate refuses what a run would.
 func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
+	e, err := operatorExpr(c, n, args, at)
+	if err != nil {
+		return expr{}, err
+	}
+	if c.filter() && conditionOps[n.Op] && slices.ContainsFunc(args, func(a expr) bool { return a.unset }) {
+		return unsetCondition, nil
+	}
+	return e, nil
+}
+
+func operatorExpr(c fctx, n *Node, args []expr, at string) (expr, error) {
 	argc := func(min, max int) error {
 		if len(args) < min || (max >= 0 && len(args) > max) {
 			if min == max {
@@ -247,13 +266,6 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 			}
 		}
 		return nil
-	}
-	if c.filter() && conditionOps[n.Op] {
-		for _, a := range args {
-			if a.unset {
-				return expr{sql: "1", typ: Bool}, nil
-			}
-		}
 	}
 	for i, a := range args {
 		if (a.rng && n.Op != "between") || (a.list && n.Op != "in") {
@@ -389,12 +401,17 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		if err := argc(2, -1); err != nil {
 			return expr{}, err
 		}
-		parts := make([]string, len(args))
+		parts := make([]string, 0, len(args))
 		for i, a := range args {
 			if a.typ != Bool && a.typ != "" {
 				return expr{}, invalid(fmt.Sprintf("%s.args.%d", at, i), n.Op+" needs conditions")
 			}
-			parts[i] = a.sql
+			if !a.unset {
+				parts = append(parts, a.sql)
+			}
+		}
+		if len(parts) == 0 {
+			return unsetCondition, nil
 		}
 		return expr{sql: "(" + strings.Join(parts, " "+strings.ToUpper(n.Op)+" ") + ")", typ: Bool}, nil
 	case "not":
@@ -403,6 +420,9 @@ func operator(c fctx, n *Node, args []expr, at string) (expr, error) {
 		}
 		if args[0].typ != Bool {
 			return expr{}, invalid(at+".args.0", "not needs a condition")
+		}
+		if args[0].unset {
+			return unsetCondition, nil
 		}
 		// A condition on a blank is false, so its negation is true.
 		return expr{sql: "(NOT COALESCE(" + args[0].sql + ", 0))", typ: Bool}, nil

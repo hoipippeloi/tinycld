@@ -217,6 +217,90 @@ func TestAFilterOnAnUnsetParamMatchesEveryRow(t *testing.T) {
 	}
 }
 
+// An unset param makes its condition match every row, and so does any
+// condition built only of such conditions: not and notExists included. A
+// cleared chip filters nothing, however the filter wraps it.
+func TestAnUnsetParamUnderNotOrNotExistsMatchesEveryRow(t *testing.T) {
+	z := newZoo(t)
+	feedings := `{"version":1,"source":"zoo.feedings","params":[{"id":"t","type":"text"}],
+		"columns":[{"id":"note","path":[{"field":"note"}]}],"filter":%s}`
+	every := []any{"f1", "f2", "f3", "f4"}
+	cases := map[string]struct {
+		filter     string
+		unset, set []any
+	}{
+		"not": {`{"op":"not","args":[{"op":"eq","args":[{"path":[{"field":"note"}]},{"param":"t"}]}]}`,
+			every, []any{"f2", "f3", "f4"}},
+		"and of unset and not": {`{"op":"and","args":[{"op":"eq","args":[{"path":[{"field":"note"}]},{"param":"t"}]},
+			{"op":"not","args":[{"op":"contains","args":[{"path":[{"field":"note"}]},{"param":"t"}]}]}]}`,
+			every, []any{}},
+		// The unset condition drops out; the set one still filters.
+		"or keeps a set condition": {`{"op":"or","args":[{"op":"eq","args":[{"path":[{"field":"note"}]},{"param":"t"}]},
+			{"op":"eq","args":[{"path":[{"field":"note"}]},{"value":"f3"}]}]}`,
+			[]any{"f3"}, []any{"f1", "f3"}},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := fmt.Sprintf(feedings, c.filter)
+			for _, run := range []struct {
+				params map[string]string
+				want   []any
+			}{{nil, c.unset}, {map[string]string{"t": `"f1"`}, c.set}} {
+				got := column(z.mustW(t, "ann", spec, run.params), "note")
+				if !reflect.DeepEqual(got, run.want) {
+					t.Fatalf("params %v: %v, want %v", run.params, got, run.want)
+				}
+			}
+		})
+	}
+	// Kit has no feeding ann may see: with the param set, only kit has no
+	// such feeding; unset, the where filters nothing and every animal stays.
+	animals := `{"version":1,"source":"zoo.animals","params":[{"id":"t","type":"text"}],
+		"columns":[{"id":"name","path":[{"field":"name"}]}],
+		"filter":{"op":"notExists","link":[{"link":"feedings"}],"where":{"op":"eq","args":[{"path":[{"field":"note"}]},{"param":"t"}]}}}`
+	if got := column(z.mustW(t, "ann", animals, nil), "name"); !reflect.DeepEqual(got, []any{"Kit", "Leo", "Zed"}) {
+		t.Fatalf("notExists, unset: %v", got)
+	}
+	if got := column(z.mustW(t, "ann", animals, map[string]string{"t": `"f1"`}), "name"); !reflect.DeepEqual(got, []any{"Kit", "Zed"}) {
+		t.Fatalf("notExists, set: %v", got)
+	}
+}
+
+// Validate checks a condition on a param as Run does: the param being unset
+// in a dry compile does not skip the argument count or the types.
+func TestValidateChecksAConditionOnAnUnsetParam(t *testing.T) {
+	withZooRegistry(t)
+	spec := func(filter string) string {
+		return `{"version":1,"source":"zoo.feedings","params":[{"id":"n","type":"number"}],
+			"columns":[{"id":"note","path":[{"field":"note"}]}],"filter":` + filter + `}`
+	}
+	err := Validate(loadSpec(t, spec(`{"op":"gt","args":[{"path":[{"field":"note"}]},{"param":"n"}]}`)))
+	requireSpecError(t, err, 400, "filter", "compares numbers, dates or text")
+	err = Validate(loadSpec(t, spec(`{"op":"eq","args":[{"param":"n"}]}`)))
+	requireSpecError(t, err, 400, "filter", "takes 2 values")
+	err = Validate(loadSpec(t, spec(`{"op":"not","args":[{"op":"between","args":[{"path":[{"field":"note"}]},{"param":"n"},{"value":true},{"value":1}]}]}`)))
+	requireSpecError(t, err, 400, "filter.args.0", "between takes")
+}
+
+// A dry compile gives a param its default: Validate compiles what a run with
+// no posted value compiles.
+func TestValidateCompilesAParamWithItsDefault(t *testing.T) {
+	withZooRegistry(t)
+	p, err := bind(loadSpec(t, `{"version":1,"source":"zoo.feedings",
+		"params":[{"id":"n","type":"number","default":5},{"id":"t","type":"text"}],
+		"columns":[{"id":"note","path":[{"field":"note"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newCompiler(p, nil, nil, nil)
+	if n := c.params["n"]; n.unset || n.value != int64(5) {
+		t.Fatalf("n = %+v, want its default 5", n)
+	}
+	if !c.params["t"].unset {
+		t.Fatalf("t = %+v, want unset", c.params["t"])
+	}
+}
+
 func TestAFilterReadsAFormulaColumnAndAToManyTotal(t *testing.T) {
 	z := newZoo(t)
 	rows := z.mustW(t, "ann", `{"version":1,"source":"zoo.animals","columns":[

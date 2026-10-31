@@ -217,6 +217,11 @@ func (sc *scope) exists(prefix []hopPlan, link *pathPlan, where *Node, mk func(*
 			if err != nil {
 				return expr{}, err
 			}
+			// A where on unset params filters nothing, so the exists does
+			// not either: in a filter it matches every row, as notExists does.
+			if w.unset {
+				return unsetCondition, nil
+			}
 			// A blank where field makes the condition NULL, which NOT would
 			// keep NULL: exists is 0 or 1, like SQL EXISTS.
 			cond += " AND COALESCE(" + w.sql + ", 0)"
@@ -227,8 +232,8 @@ func (sc *scope) exists(prefix []hopPlan, link *pathPlan, where *Node, mk func(*
 	child := newScope(sc.s, hops[i].to)
 	rest := &pathPlan{hops: hops[i+1:]}
 	inner, err := child.exists(nil, rest, where, mk, at)
-	if err != nil {
-		return expr{}, err
+	if err != nil || inner.unset {
+		return inner, err
 	}
 	return expr{sql: fmt.Sprintf("EXISTS (SELECT 1\n%s\nWHERE %s = %s AND %s)",
 		child.render(), q(child.alias, hops[i].link.BackField), q(parent, "id"), inner.sql), typ: Bool}, nil

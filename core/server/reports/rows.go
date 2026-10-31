@@ -31,11 +31,9 @@ func newCompiler(p *plan, app core.App, info *core.RequestInfo, params map[strin
 		c.fiscal = fiscalStartOf(p.base, app)
 	}
 	if params == nil {
-		// Dry: every param unset, which still has its type.
-		c.params = map[string]paramValue{}
-		for _, d := range p.spec.Params {
-			c.params[d.ID] = paramValue{typ: d.Type, multiple: d.Multiple, unset: true}
-		}
+		// Dry: each param has its default, as in a run that posts none; bind
+		// has checked the defaults.
+		c.params, _ = resolveParams(p.spec.Params, nil, anyDay)
 	}
 	return c
 }
