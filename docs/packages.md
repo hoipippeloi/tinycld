@@ -1082,7 +1082,8 @@ reports.RegisterSource(reports.Source{
   `DateTime`, `Bool`, `Select` (with `Options` for the labels) and
   `Relation`. A money field names a `Currency` text field of the same source,
   or the source sets `Source.Currency`, a function that gives one fixed
-  currency. A field offers the aggregates in `Aggregates` (`SumAll`,
+  currency. A money field with neither panics in `RegisterSource`: the
+  engine never adds amounts it cannot tell apart. A field offers the aggregates in `Aggregates` (`SumAll`,
   `MinMax`, `CountOnly`); with none it can be counted. Every source also
   offers `id`.
 - To rename or remove a field or a link, keep the old key in `Aliases`
@@ -1124,7 +1125,8 @@ A report runs as its reader, through `POST /api/reports/run`:
 a spec breaks one of these limits. It answers 422 when the spec names a field
 or link that no source has, and when an amount is too large to total (code
 `amount_too_large`). It answers 408 when a run passes 10 s: filter the report
-or index the column.
+or index the column. It answers 499, and logs no error, when the client goes
+away before the run ends.
 
 - A path follows at most 4 links, then the field. A longer path is refused.
 - A to-many link counts once. A formula reads a to-many path only through
@@ -1135,6 +1137,16 @@ or index the column.
   refused. Only a detail report has pages: `options.limit` does not apply
   to a grouped report. A detail page holds 200 rows by default, and at most
   1,000.
+- A formula holds at most 32 levels and 1,000 nodes. Each formula column it
+  reads counts in full, as the compiler copies it in. The filter has the same
+  limit.
+- A formula that combines amounts of two currency sources is refused
+  ("amounts in different currencies cannot be combined"). This applies to
+  `add`, `sub`, `min`, `max`, `if`, `case` and `coalesce`. Each currency
+  field is a source, and so is each source's fixed `Source.Currency`, even
+  when two sources give the same code. An amount combines with amounts of
+  its own source.
+- `options.expand` lists at most 5,000 group keys.
 - A layout holds at most 200 items.
 - A computed row's formula holds at most 2,000 nodes after the rows it reads
   are inlined. All computed rows together hold at most 20,000 (counted for
@@ -1147,18 +1159,26 @@ or index the column.
 
 **What a report returns.**
 
-- Group, pivot and nest results stop at 5,000 rows and add a notice. A layout
+- Group, pivot and nest results stop at 5,000 rows and add a notice, once per
+  run. A `rowCap` or `nestCap` notice gives the rows it kept in `count`. A
+  `pivotCap` notice gives the pivot values it left out in `leftOut`. A layout
   report never drops its computed rows for the cap, and it ends in those
   computed rows with no Total row.
 - Money columns group by currency. A column with more than one currency is
-  marked (`mixedCurrency`, `currencyCell`) and the result adds a notice.
+  marked (`mixedCurrency`, `currencyCell`) and the result adds a notice. An
+  amount read through a formula keeps its currency, so its totals group by
+  currency too. A nested (child row) amount names its currency in
+  `currencyCell`, and each child row holds it.
 - A money value mixed with a non-money operand in a formula rounds to whole
   cents.
 - A formula column that reads a row value outside an aggregate is blank on
   group, subtotal and total rows, where there is no single row. Wrap the value
   in an aggregate to total it.
 - A posted `null` or an empty multiple-choice list for a parameter means
-  unset: the filter matches every row.
+  unset. A filter condition on an unset parameter matches every row. `and`
+  and `or` leave that condition out. A `not`, or an `exists` whose `where` is
+  only such conditions, also matches every row. A parameter with a default
+  takes the default when nothing is posted.
 
 ### Test build tag
 
