@@ -1090,14 +1090,17 @@ reports.RegisterSource(reports.Source{
 - `FiscalStartMonth` (1 to 12) sets the fiscal year for the source's reports:
   the fiscal presets, `fiscalYear` and `fiscalPeriod`.
 
-When the server starts, core checks every source against the database: the
-collection and each column exist with matching types, no column is hidden
-from the API, each link follows its relation, and the collection's list rule
-can be built for a reader. A source that fails, or links to a source that
-fails, is refused: core logs it and reports cannot use it. An auth
-collection's `email` column is always refused as a field, because each
-record's `emailVisibility` decides who sees it and a report cannot apply
-that. Pin your sources in the package's tests, after its migrations apply:
+When the server starts, core checks every source against the database:
+
+- The collection and each column exist, with matching types.
+- No column is hidden from the API.
+- Each link follows its relation.
+- The collection's list rule can be built for a reader.
+
+A source that fails is refused: core logs it, and reports cannot use it. A
+source that links to a refused source is refused too. An auth collection's
+`email` column is never a field. Each record's `emailVisibility` decides who
+sees it, and a report cannot apply that. Pin your sources in the package's tests, after its migrations apply:
 
 ```go
 if err := reports.CheckSources(app); err != nil {
@@ -1105,29 +1108,38 @@ if err := reports.CheckSources(app); err != nil {
 }
 ```
 
-A report runs as its reader, through `POST /api/reports/run`. Every
-collection it reads, in every join and subquery, is filtered by the reader's
-own list rule: a linked row the reader cannot see leaves empty cells, and
-totals across a to-many link leave it out. A superuser-only rule (null)
-selects nothing, and a report never runs as a superuser. A report result lists
-the change-signal topics of every collection it read, so a raw-SQL write to a
-source's collection must call `changesignal.Touch` (see "Change signals and
-live views" above).
+A report runs as its reader, through `POST /api/reports/run`:
+
+- Every collection it reads, in every join and subquery, is filtered by the
+  reader's own list rule.
+- A linked row the reader cannot see leaves empty cells. Totals across a
+  to-many link leave it out.
+- A superuser-only rule (null) selects nothing. A report never runs as a
+  superuser.
+- A result lists the change-signal topics of every collection it read. A
+  raw-SQL write to a source's collection must call `changesignal.Touch` (see
+  "Change signals and live views" above).
 
 **What a report refuses.** The engine answers 400 with the problem list when
-a spec breaks one of these limits, and 422 when it names a field or link that
-no source has:
+a spec breaks one of these limits. It answers 422 when the spec names a field
+or link that no source has, and when an amount is too large to total (code
+`amount_too_large`). It answers 408 when a run passes 10 s: filter the report
+or index the column.
 
+- A path follows at most 4 links, then the field. A longer path is refused.
 - A to-many link counts once. A formula reads a to-many path only through
   `exists` or an aggregate column, and `with` does not apply to an `exists`
   link.
 - A page cursor is tied to the report's sort keys and value types. A cursor
   from a report that sorts differently, or sent to a grouped report, is
-  refused. Only a detail report has pages.
-- A layout holds at most 200 items. A computed row's formula, with the rows
-  it reads inlined, holds at most 2,000 nodes, and all computed rows together
-  at most 20,000 nodes (counted for every cell column). Reference fewer earlier rows or split
-  the statement.
+  refused. Only a detail report has pages: `options.limit` does not apply
+  to a grouped report. A detail page holds 200 rows by default, and at most
+  1,000.
+- A layout holds at most 200 items.
+- A computed row's formula holds at most 2,000 nodes after the rows it reads
+  are inlined. All computed rows together hold at most 20,000 (counted for
+  every cell column). If a statement hits a cap, reference fewer earlier rows
+  or split the statement.
 - A nested report refuses more than 30,000 parent rows. Filter the report or
   lower its row limit.
 - The package slug `reports` is refused by the OAuth registry: its
@@ -1138,6 +1150,8 @@ no source has:
 - Group, pivot and nest results stop at 5,000 rows and add a notice. A layout
   report never drops its computed rows for the cap, and it ends in those
   computed rows with no Total row.
+- Money columns group by currency. A column with more than one currency is
+  marked (`mixedCurrency`, `currencyCell`) and the result adds a notice.
 - A money value mixed with a non-money operand in a formula rounds to whole
   cents.
 - A formula column that reads a row value outside an aggregate is blank on
